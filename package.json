@@ -1,11 +1,13 @@
 {
   "name": "thaiphc-data-connector",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "ThaiPHC manual API connector foundation",
+  "description": "ThaiPHC offline-first manual connector",
   "engines": { "node": ">=24" },
+  "bin": { "thaiphc": "./src/cli/index.mjs" },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "cli": "node src/cli/index.mjs"
   }
 }

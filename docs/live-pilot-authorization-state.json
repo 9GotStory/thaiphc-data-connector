@@ -1,0 +1,70 @@
+{
+  "schema_version": "T004D-authorization-evidence-v1",
+  "reviewed_on": "2026-10-20",
+  "phase": "EXTERNAL_AUTHORIZATION_EVIDENCE_ONLY",
+  "decision": "HOLD",
+  "live_transport_implementation_approved": false,
+  "live_pilot_execution_approved": false,
+  "api_owner_approved_programmatic_access": false,
+  "browser_bearer_reuse_authorized": false,
+  "personal_endpoints_enabled": false,
+  "apps_script_transfer_approved": false,
+  "google_sheets_write_approved": false,
+  "api_owner_role": "UNKNOWN",
+  "approval_reference": null,
+  "token_policy_reference": null,
+  "privacy_approval_reference": null,
+  "permitted_live_endpoints": [],
+  "proposed_pilot": {
+    "endpoint_id": "subdistricts",
+    "method": "GET",
+    "relative_path": "/api/v1/lookups/subdistricts",
+    "fixed_query": {
+      "district_code": "5406"
+    },
+    "province_code": "54",
+    "district_code": "5406",
+    "proposed_max_requests": 1,
+    "return_policy": "AGGREGATE_STATUS_AND_COUNTS_ONLY",
+    "live_authorized": false
+  },
+  "public_contact_leads": [
+    {
+      "organization": "กองสนับสนุนสุขภาพภาคประชาชน",
+      "contact": "02-193-7000 ต่อ 18716",
+      "source_url": "https://www.thaiphc-innovation.com/ติดต่อเรา/",
+      "classification": "PUBLIC_CONTACT_ONLY_NOT_APPROVAL"
+    },
+    {
+      "organization": "กรมสนับสนุนบริการสุขภาพ",
+      "contact": "ict@hss.mail.go.th",
+      "source_url": "https://hss.moph.go.th/HssDepartment/contact.php",
+      "classification": "PUBLIC_CONTACT_ONLY_NOT_APPROVAL"
+    },
+    {
+      "organization": "ศูนย์สนับสนุนบริการสุขภาพที่ 1",
+      "contact": "saraban-hss1@hss.mail.go.th",
+      "source_url": "https://hss1.hss.moph.go.th/contact-us-2/",
+      "classification": "PUBLIC_CONTACT_ONLY_NOT_APPROVAL"
+    }
+  ],
+  "missing_evidence": [
+    "OFFICIAL_API_OWNER_AUTHORITY",
+    "PROGRAMMATIC_ACCESS_TERMS",
+    "BROWSER_TOKEN_REUSE_PERMISSION_OR_APPROVED_ALTERNATIVE",
+    "EXACT_ENDPOINT_AND_SCOPE_APPROVAL",
+    "RATE_LIMITS_VOLUME_TIMEOUT",
+    "TOKEN_EXPIRY_REVOCATION",
+    "PURPOSE_PRIVACY_RETENTION_REVIEW",
+    "SAFE_NONSECRET_APPROVAL_REFERENCE"
+  ],
+  "stop_rules": [
+    "DO_NOT_CALL_REAL_THAIPHC_API",
+    "DO_NOT_ENTER_REAL_BEARER_TOKEN_IN_MOCK",
+    "DO_NOT_IMPLEMENT_LIVE_TRANSPORT_YET",
+    "DO_NOT_STORE_PERSON_LEVEL_DATA",
+    "DO_NOT_WRITE_GOOGLE_SHEETS",
+    "DO_NOT_SEND_TO_APPS_SCRIPT",
+    "DO_NOT_CLAIM_CONTACT_EQUALS_AUTHORIZATION"
+  ]
+}

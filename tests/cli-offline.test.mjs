@@ -119,8 +119,9 @@ test('malformed response body blocks without exposing data',async()=>{
  }
 });
 test('cross-district village code is flagged, not rewritten',async()=>{
- const r=await collectOffline('volunteer-gender',{pageSize:3,transport:mockChange('volunteer-gender',r=>{
-  r.body.items[0].villageCode='540303004';return r;
+ const r=await collectOffline('volunteer-gender',{pageSize:3,transport:mockChange('volunteer-gender',(r,req)=>{
+  if(new URLSearchParams(req.query).get('page')==='1')r.body.items[0].villageCode='540303004';
+  return r;
  })});
  assert.equal(r.status,'QUARANTINED');assert.ok(r.issueCounts.GEOGRAPHY_MISMATCH);
  assert.equal('items' in r,false);
@@ -167,4 +168,13 @@ test('direct executable entrypoint emits help and JSON; no inert launch',async()
  assert.equal(p.status,0,String(p.stderr).slice(0,100));
  assert.equal(JSON.parse(p.stdout).endpoints[0].id,'villages');
  assert.equal(p.stderr,'');
+});
+
+test('a geographic mismatch plus duplicate key has BLOCKED priority',async()=>{
+ const r=await collectOffline('volunteer-gender',{pageSize:3,transport:mockChange('volunteer-gender',r=>{
+  r.body.items[0].villageCode='540303004';return r;
+ })});
+ assert.equal(r.status,'BLOCKED');
+ assert.ok(r.issueCounts.GEOGRAPHY_MISMATCH);
+ assert.ok(r.issueCounts.DUPLICATE_SOURCE_KEY);
 });

@@ -34,8 +34,15 @@ test('request draft contains no personal records or credentials',()=>{
  assert.ok(draft.includes('district_code=5406'));
  assert.ok(note.includes('HOLD'));
  for(const data of [draft,note,JSON.stringify(decision)]){
-  assert.doesNotMatch(data,/(?<!\\d)\\d{13}(?!\\d)/);
-  assert.doesNotMatch(data,/Bearer\\s+[A-Za-z0-9_.-]{24,}/);
+  assert.doesNotMatch(data,/(?<!\d)\d{13}(?!\d)/);
+  assert.doesNotMatch(data,/Bearer\s+[A-Za-z0-9_.-]{24,}/);
   assert.doesNotMatch(data,/-----BEGIN .*PRIVATE KEY-----/);
  }
+});
+
+test('sensitive-data guards detect constructed synthetic sentinel values',()=>{
+ const syntheticNationalId='123456789'+'0123';
+ const syntheticBearer='Bearer '+'MOCK_ONLY_'+'12345678901234567890';
+ assert.match(syntheticNationalId,/(?<!\d)\d{13}(?!\d)/);
+ assert.match(syntheticBearer,/Bearer\s+[A-Za-z0-9_.-]{24,}/);
 });

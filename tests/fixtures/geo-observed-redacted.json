@@ -1,0 +1,842 @@
+{
+  "provenance": "ThaiPHC user-supplied examples; geographic-only projection; no person fields; 2026-10-20",
+  "villages": [
+    {
+      "code": "540602005",
+      "id": "540602005",
+      "village_code_8digit": "54060205",
+      "subdistrict_code": "540602",
+      "village_no": 5,
+      "health_service_code": null
+    },
+    {
+      "code": "540602010",
+      "id": "540602010",
+      "village_code_8digit": "54060210",
+      "subdistrict_code": "540602",
+      "village_no": 10,
+      "health_service_code": null
+    },
+    {
+      "code": "540604005",
+      "id": "540604005",
+      "village_code_8digit": "54060405",
+      "subdistrict_code": "540604",
+      "village_no": 5,
+      "health_service_code": null
+    },
+    {
+      "code": "540602002",
+      "id": "540602002",
+      "village_code_8digit": "54060202",
+      "subdistrict_code": "540602",
+      "village_no": 2,
+      "health_service_code": null
+    },
+    {
+      "code": "540603012",
+      "id": "540603012",
+      "village_code_8digit": "54060312",
+      "subdistrict_code": "540603",
+      "village_no": 12,
+      "health_service_code": null
+    },
+    {
+      "code": "540605003",
+      "id": "540605003",
+      "village_code_8digit": "54060503",
+      "subdistrict_code": "540605",
+      "village_no": 3,
+      "health_service_code": null
+    },
+    {
+      "code": "540605010",
+      "id": "540605010",
+      "village_code_8digit": "54060510",
+      "subdistrict_code": "540605",
+      "village_no": 10,
+      "health_service_code": null
+    },
+    {
+      "code": "540601009",
+      "id": "540601009",
+      "village_code_8digit": "54060109",
+      "subdistrict_code": "540601",
+      "village_no": 9,
+      "health_service_code": null
+    },
+    {
+      "code": "540606006",
+      "id": "540606006",
+      "village_code_8digit": "54060606",
+      "subdistrict_code": "540606",
+      "village_no": 6,
+      "health_service_code": null
+    },
+    {
+      "code": "540603006",
+      "id": "540603006",
+      "village_code_8digit": "54060306",
+      "subdistrict_code": "540603",
+      "village_no": 6,
+      "health_service_code": null
+    },
+    {
+      "code": "540606001",
+      "id": "540606001",
+      "village_code_8digit": "54060601",
+      "subdistrict_code": "540606",
+      "village_no": 1,
+      "health_service_code": null
+    },
+    {
+      "code": "540608004",
+      "id": "540608004",
+      "village_code_8digit": "54060804",
+      "subdistrict_code": "540608",
+      "village_no": 4,
+      "health_service_code": null
+    },
+    {
+      "code": "540607001",
+      "id": "540607001",
+      "village_code_8digit": "54060701",
+      "subdistrict_code": "540607",
+      "village_no": 1,
+      "health_service_code": null
+    },
+    {
+      "code": "540607004",
+      "id": "540607004",
+      "village_code_8digit": "54060704",
+      "subdistrict_code": "540607",
+      "village_no": 4,
+      "health_service_code": null
+    },
+    {
+      "code": "540602011",
+      "id": "540602011",
+      "village_code_8digit": "54060211",
+      "subdistrict_code": "540602",
+      "village_no": 11,
+      "health_service_code": null
+    },
+    {
+      "code": "540603005",
+      "id": "540603005",
+      "village_code_8digit": "54060305",
+      "subdistrict_code": "540603",
+      "village_no": 5,
+      "health_service_code": null
+    },
+    {
+      "code": "540604010",
+      "id": "540604010",
+      "village_code_8digit": "54060410",
+      "subdistrict_code": "540604",
+      "village_no": 10,
+      "health_service_code": "GA0006419"
+    },
+    {
+      "code": "540604003",
+      "id": "540604003",
+      "village_code_8digit": "54060403",
+      "subdistrict_code": "540604",
+      "village_no": 3,
+      "health_service_code": "GA0006419"
+    },
+    {
+      "code": "540604009",
+      "id": "540604009",
+      "village_code_8digit": "54060409",
+      "subdistrict_code": "540604",
+      "village_no": 9,
+      "health_service_code": "GA0006419"
+    },
+    {
+      "code": "540604002",
+      "id": "540604002",
+      "village_code_8digit": "54060402",
+      "subdistrict_code": "540604",
+      "village_no": 2,
+      "health_service_code": "GA0006419"
+    },
+    {
+      "code": "540604011",
+      "id": "540604011",
+      "village_code_8digit": "54060411",
+      "subdistrict_code": "540604",
+      "village_no": 11,
+      "health_service_code": "GA0006419"
+    },
+    {
+      "code": "540606008",
+      "id": "540606008",
+      "village_code_8digit": "54060608",
+      "subdistrict_code": "540606",
+      "village_no": 8,
+      "health_service_code": null
+    },
+    {
+      "code": "540608002",
+      "id": "540608002",
+      "village_code_8digit": "54060802",
+      "subdistrict_code": "540608",
+      "village_no": 2,
+      "health_service_code": null
+    },
+    {
+      "code": "540608001",
+      "id": "540608001",
+      "village_code_8digit": "54060801",
+      "subdistrict_code": "540608",
+      "village_no": 1,
+      "health_service_code": null
+    },
+    {
+      "code": "540608006",
+      "id": "540608006",
+      "village_code_8digit": "54060806",
+      "subdistrict_code": "540608",
+      "village_no": 6,
+      "health_service_code": null
+    },
+    {
+      "code": "540602006",
+      "id": "540602006",
+      "village_code_8digit": "54060206",
+      "subdistrict_code": "540602",
+      "village_no": 6,
+      "health_service_code": null
+    },
+    {
+      "code": "540607002",
+      "id": "540607002",
+      "village_code_8digit": "54060702",
+      "subdistrict_code": "540607",
+      "village_no": 2,
+      "health_service_code": null
+    },
+    {
+      "code": "540602001",
+      "id": "540602001",
+      "village_code_8digit": "54060201",
+      "subdistrict_code": "540602",
+      "village_no": 1,
+      "health_service_code": null
+    },
+    {
+      "code": "540603010",
+      "id": "540603010",
+      "village_code_8digit": "54060310",
+      "subdistrict_code": "540603",
+      "village_no": 10,
+      "health_service_code": null
+    },
+    {
+      "code": "540606002",
+      "id": "540606002",
+      "village_code_8digit": "54060602",
+      "subdistrict_code": "540606",
+      "village_no": 2,
+      "health_service_code": null
+    },
+    {
+      "code": "540604004",
+      "id": "540604004",
+      "village_code_8digit": "54060404",
+      "subdistrict_code": "540604",
+      "village_no": 4,
+      "health_service_code": null
+    },
+    {
+      "code": "540606004",
+      "id": "540606004",
+      "village_code_8digit": "54060604",
+      "subdistrict_code": "540606",
+      "village_no": 4,
+      "health_service_code": null
+    },
+    {
+      "code": "540606009",
+      "id": "540606009",
+      "village_code_8digit": "54060609",
+      "subdistrict_code": "540606",
+      "village_no": 9,
+      "health_service_code": "BA0000588"
+    },
+    {
+      "code": "540604006",
+      "id": "540604006",
+      "village_code_8digit": "54060406",
+      "subdistrict_code": "540604",
+      "village_no": 6,
+      "health_service_code": "GA0006419"
+    },
+    {
+      "code": "540603004",
+      "id": "540603004",
+      "village_code_8digit": "54060304",
+      "subdistrict_code": "540603",
+      "village_no": 4,
+      "health_service_code": null
+    },
+    {
+      "code": "540604001",
+      "id": "540604001",
+      "village_code_8digit": "54060401",
+      "subdistrict_code": "540604",
+      "village_no": 1,
+      "health_service_code": "GA0006419"
+    },
+    {
+      "code": "540607003",
+      "id": "540607003",
+      "village_code_8digit": "54060703",
+      "subdistrict_code": "540607",
+      "village_no": 3,
+      "health_service_code": null
+    },
+    {
+      "code": "540606003",
+      "id": "540606003",
+      "village_code_8digit": "54060603",
+      "subdistrict_code": "540606",
+      "village_no": 3,
+      "health_service_code": null
+    },
+    {
+      "code": "540606010",
+      "id": "540606010",
+      "village_code_8digit": "54060610",
+      "subdistrict_code": "540606",
+      "village_no": 10,
+      "health_service_code": null
+    },
+    {
+      "code": "540606005",
+      "id": "540606005",
+      "village_code_8digit": "54060605",
+      "subdistrict_code": "540606",
+      "village_no": 5,
+      "health_service_code": null
+    },
+    {
+      "code": "540605005",
+      "id": "540605005",
+      "village_code_8digit": "54060505",
+      "subdistrict_code": "540605",
+      "village_no": 5,
+      "health_service_code": null
+    },
+    {
+      "code": "540604012",
+      "id": "540604012",
+      "village_code_8digit": "54060412",
+      "subdistrict_code": "540604",
+      "village_no": 12,
+      "health_service_code": null
+    },
+    {
+      "code": "540603002",
+      "id": "540603002",
+      "village_code_8digit": "54060302",
+      "subdistrict_code": "540603",
+      "village_no": 2,
+      "health_service_code": null
+    },
+    {
+      "code": "540608003",
+      "id": "540608003",
+      "village_code_8digit": "54060803",
+      "subdistrict_code": "540608",
+      "village_no": 3,
+      "health_service_code": null
+    },
+    {
+      "code": "540608005",
+      "id": "540608005",
+      "village_code_8digit": "54060805",
+      "subdistrict_code": "540608",
+      "village_no": 5,
+      "health_service_code": null
+    },
+    {
+      "code": "540601008",
+      "id": "540601008",
+      "village_code_8digit": "54060108",
+      "subdistrict_code": "540601",
+      "village_no": 8,
+      "health_service_code": null
+    },
+    {
+      "code": "540601006",
+      "id": "540601006",
+      "village_code_8digit": "54060106",
+      "subdistrict_code": "540601",
+      "village_no": 6,
+      "health_service_code": null
+    },
+    {
+      "code": "540601003",
+      "id": "540601003",
+      "village_code_8digit": "54060103",
+      "subdistrict_code": "540601",
+      "village_no": 3,
+      "health_service_code": null
+    },
+    {
+      "code": "540602007",
+      "id": "540602007",
+      "village_code_8digit": "54060207",
+      "subdistrict_code": "540602",
+      "village_no": 7,
+      "health_service_code": null
+    },
+    {
+      "code": "540603013",
+      "id": "540603013",
+      "village_code_8digit": "54060313",
+      "subdistrict_code": "540603",
+      "village_no": 13,
+      "health_service_code": null
+    },
+    {
+      "code": "540603001",
+      "id": "540603001",
+      "village_code_8digit": "54060301",
+      "subdistrict_code": "540603",
+      "village_no": 1,
+      "health_service_code": null
+    },
+    {
+      "code": "540603015",
+      "id": "540603015",
+      "village_code_8digit": "54060315",
+      "subdistrict_code": "540603",
+      "village_no": 15,
+      "health_service_code": null
+    },
+    {
+      "code": "540603009",
+      "id": "540603009",
+      "village_code_8digit": "54060309",
+      "subdistrict_code": "540603",
+      "village_no": 9,
+      "health_service_code": null
+    },
+    {
+      "code": "540602009",
+      "id": "540602009",
+      "village_code_8digit": "54060209",
+      "subdistrict_code": "540602",
+      "village_no": 9,
+      "health_service_code": null
+    },
+    {
+      "code": "540605011",
+      "id": "540605011",
+      "village_code_8digit": "54060511",
+      "subdistrict_code": "540605",
+      "village_no": 11,
+      "health_service_code": null
+    },
+    {
+      "code": "540605002",
+      "id": "540605002",
+      "village_code_8digit": "54060502",
+      "subdistrict_code": "540605",
+      "village_no": 2,
+      "health_service_code": null
+    },
+    {
+      "code": "540605007",
+      "id": "540605007",
+      "village_code_8digit": "54060507",
+      "subdistrict_code": "540605",
+      "village_no": 7,
+      "health_service_code": null
+    },
+    {
+      "code": "540605012",
+      "id": "540605012",
+      "village_code_8digit": "54060512",
+      "subdistrict_code": "540605",
+      "village_no": 12,
+      "health_service_code": null
+    },
+    {
+      "code": "540601004",
+      "id": "540601004",
+      "village_code_8digit": "54060104",
+      "subdistrict_code": "540601",
+      "village_no": 4,
+      "health_service_code": null
+    },
+    {
+      "code": "540601007",
+      "id": "540601007",
+      "village_code_8digit": "54060107",
+      "subdistrict_code": "540601",
+      "village_no": 7,
+      "health_service_code": null
+    },
+    {
+      "code": "540605006",
+      "id": "540605006",
+      "village_code_8digit": "54060506",
+      "subdistrict_code": "540605",
+      "village_no": 6,
+      "health_service_code": null
+    },
+    {
+      "code": "540602008",
+      "id": "540602008",
+      "village_code_8digit": "54060208",
+      "subdistrict_code": "540602",
+      "village_no": 8,
+      "health_service_code": null
+    },
+    {
+      "code": "540605008",
+      "id": "540605008",
+      "village_code_8digit": "54060508",
+      "subdistrict_code": "540605",
+      "village_no": 8,
+      "health_service_code": null
+    },
+    {
+      "code": "540605004",
+      "id": "540605004",
+      "village_code_8digit": "54060504",
+      "subdistrict_code": "540605",
+      "village_no": 4,
+      "health_service_code": null
+    },
+    {
+      "code": "540601011",
+      "id": "540601011",
+      "village_code_8digit": "54060111",
+      "subdistrict_code": "540601",
+      "village_no": 11,
+      "health_service_code": null
+    },
+    {
+      "code": "540601002",
+      "id": "540601002",
+      "village_code_8digit": "54060102",
+      "subdistrict_code": "540601",
+      "village_no": 2,
+      "health_service_code": null
+    },
+    {
+      "code": "540601001",
+      "id": "540601001",
+      "village_code_8digit": "54060101",
+      "subdistrict_code": "540601",
+      "village_no": 1,
+      "health_service_code": null
+    },
+    {
+      "code": "540601010",
+      "id": "540601010",
+      "village_code_8digit": "54060110",
+      "subdistrict_code": "540601",
+      "village_no": 10,
+      "health_service_code": null
+    },
+    {
+      "code": "540602012",
+      "id": "540602012",
+      "village_code_8digit": "54060212",
+      "subdistrict_code": "540602",
+      "village_no": 12,
+      "health_service_code": null
+    },
+    {
+      "code": "540601005",
+      "id": "540601005",
+      "village_code_8digit": "54060105",
+      "subdistrict_code": "540601",
+      "village_no": 5,
+      "health_service_code": null
+    },
+    {
+      "code": "540603008",
+      "id": "540603008",
+      "village_code_8digit": "54060308",
+      "subdistrict_code": "540603",
+      "village_no": 8,
+      "health_service_code": null
+    },
+    {
+      "code": "540603003",
+      "id": "540603003",
+      "village_code_8digit": "54060303",
+      "subdistrict_code": "540603",
+      "village_no": 3,
+      "health_service_code": null
+    },
+    {
+      "code": "540603014",
+      "id": "540603014",
+      "village_code_8digit": "54060314",
+      "subdistrict_code": "540603",
+      "village_no": 14,
+      "health_service_code": null
+    },
+    {
+      "code": "540603016",
+      "id": "540603016",
+      "village_code_8digit": "54060316",
+      "subdistrict_code": "540603",
+      "village_no": 16,
+      "health_service_code": null
+    },
+    {
+      "code": "540603011",
+      "id": "540603011",
+      "village_code_8digit": "54060311",
+      "subdistrict_code": "540603",
+      "village_no": 11,
+      "health_service_code": null
+    },
+    {
+      "code": "540606007",
+      "id": "540606007",
+      "village_code_8digit": "54060607",
+      "subdistrict_code": "540606",
+      "village_no": 7,
+      "health_service_code": null
+    },
+    {
+      "code": "540603007",
+      "id": "540603007",
+      "village_code_8digit": "54060307",
+      "subdistrict_code": "540603",
+      "village_no": 7,
+      "health_service_code": null
+    },
+    {
+      "code": "540603017",
+      "id": "540603017",
+      "village_code_8digit": "54060317",
+      "subdistrict_code": "540603",
+      "village_no": 17,
+      "health_service_code": null
+    },
+    {
+      "code": "540605009",
+      "id": "540605009",
+      "village_code_8digit": "54060509",
+      "subdistrict_code": "540605",
+      "village_no": 9,
+      "health_service_code": null
+    },
+    {
+      "code": "540605013",
+      "id": "540605013",
+      "village_code_8digit": "54060513",
+      "subdistrict_code": "540605",
+      "village_no": 13,
+      "health_service_code": null
+    },
+    {
+      "code": "540605001",
+      "id": "540605001",
+      "village_code_8digit": "54060501",
+      "subdistrict_code": "540605",
+      "village_no": 1,
+      "health_service_code": null
+    },
+    {
+      "code": "540602003",
+      "id": "540602003",
+      "village_code_8digit": "54060203",
+      "subdistrict_code": "540602",
+      "village_no": 3,
+      "health_service_code": null
+    },
+    {
+      "code": "540602004",
+      "id": "540602004",
+      "village_code_8digit": "54060204",
+      "subdistrict_code": "540602",
+      "village_no": 4,
+      "health_service_code": null
+    },
+    {
+      "code": "540604007",
+      "id": "540604007",
+      "village_code_8digit": "54060407",
+      "subdistrict_code": "540604",
+      "village_no": 7,
+      "health_service_code": "GA0006419"
+    },
+    {
+      "code": "540604008",
+      "id": "540604008",
+      "village_code_8digit": "54060408",
+      "subdistrict_code": "540604",
+      "village_no": 8,
+      "health_service_code": "GA0006419"
+    }
+  ],
+  "health_services": {
+    "total": 18,
+    "limit": 10,
+    "offset": 0,
+    "items": [
+      {
+        "health_service_code": "GA0006426",
+        "subdistrict_code": "540607",
+        "latitude": 0,
+        "longitude": 0,
+        "service_areas": [
+          {
+            "subdistrict_code": "540607",
+            "village_nos": [
+              "4"
+            ],
+            "is_primary": true
+          }
+        ]
+      },
+      {
+        "health_service_code": "GA0006419",
+        "subdistrict_code": "540604",
+        "latitude": 0,
+        "longitude": 0,
+        "service_areas": [
+          {
+            "subdistrict_code": "540604",
+            "village_nos": [
+              "2"
+            ],
+            "is_primary": true
+          }
+        ]
+      },
+      {
+        "health_service_code": "GA0006414",
+        "subdistrict_code": "540608",
+        "latitude": 0,
+        "longitude": 0,
+        "service_areas": [
+          {
+            "subdistrict_code": "540608",
+            "village_nos": [
+              "2"
+            ],
+            "is_primary": true
+          }
+        ]
+      },
+      {
+        "health_service_code": "GA0006420",
+        "subdistrict_code": "540604",
+        "latitude": 0,
+        "longitude": 0,
+        "service_areas": [
+          {
+            "subdistrict_code": "540604",
+            "village_nos": [
+              "4"
+            ],
+            "is_primary": true
+          }
+        ]
+      },
+      {
+        "health_service_code": "GA0006425",
+        "subdistrict_code": "540606",
+        "latitude": 0,
+        "longitude": 0,
+        "service_areas": [
+          {
+            "subdistrict_code": "540606",
+            "village_nos": [
+              "4"
+            ],
+            "is_primary": true
+          }
+        ]
+      },
+      {
+        "health_service_code": "GA0006424",
+        "subdistrict_code": "540606",
+        "latitude": 0,
+        "longitude": 0,
+        "service_areas": [
+          {
+            "subdistrict_code": "540606",
+            "village_nos": [
+              "3"
+            ],
+            "is_primary": true
+          }
+        ]
+      },
+      {
+        "health_service_code": "GA0006416",
+        "subdistrict_code": "540603",
+        "latitude": 0,
+        "longitude": 0,
+        "service_areas": [
+          {
+            "subdistrict_code": "540603",
+            "village_nos": [
+              "1"
+            ],
+            "is_primary": true
+          }
+        ]
+      },
+      {
+        "health_service_code": "GA0006415",
+        "subdistrict_code": "540602",
+        "latitude": 0,
+        "longitude": 0,
+        "service_areas": [
+          {
+            "subdistrict_code": "540602",
+            "village_nos": [
+              "9"
+            ],
+            "is_primary": true
+          }
+        ]
+      },
+      {
+        "health_service_code": "GA0006422",
+        "subdistrict_code": "540605",
+        "latitude": 0,
+        "longitude": 0,
+        "service_areas": [
+          {
+            "subdistrict_code": "540605",
+            "village_nos": [
+              "11"
+            ],
+            "is_primary": true
+          }
+        ]
+      },
+      {
+        "health_service_code": "GA0011760",
+        "subdistrict_code": "540605",
+        "latitude": 0,
+        "longitude": 0,
+        "service_areas": [
+          {
+            "subdistrict_code": "540605",
+            "village_nos": [
+              "4"
+            ],
+            "is_primary": true
+          }
+        ]
+      }
+    ]
+  }
+}

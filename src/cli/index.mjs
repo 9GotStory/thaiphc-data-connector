@@ -8,8 +8,9 @@ import { collectOffline } from './runner.mjs';
 import { readMockOnlyTokenFromTTY, simulateMockBearerSession } from './manual-bearer.mjs';
 import { confirmLiveUseFromTTY, readRealBearerFromTTY } from './live-tty.mjs';
 import { liveFetchSubdistricts } from './live-fetch.mjs';
+import { liveFetchVillages } from './live-villages.mjs';
 
-const HELP='ThaiPHC Node.js 24 Manual Connector\nCommands: help | inspect [--endpoint ID] | validate [--endpoint ID] | dry-run [--endpoint ID] [--max-pages N] | auth-mock [--endpoint subdistricts] | live-fetch --endpoint subdistricts --acknowledge-authorized-use\nLive-fetch requires interactive confirmation + manually pasted authorized Bearer token; exactly one read-only GET and aggregate-only output. No Google Sheets/App Script writes.\nDefault commands and auth-mock remain fully offline. No --token, --output, --url, or multi-endpoint live calls.';
+const HELP='ThaiPHC Node.js 24 Manual Connector\nCommands: help | inspect [--endpoint ID] | validate [--endpoint ID] | dry-run [--endpoint ID] [--max-pages N] | auth-mock [--endpoint subdistricts] | live-fetch --endpoint subdistricts|villages --acknowledge-authorized-use\nLive-fetch requires interactive confirmation + manually pasted authorized Bearer token; exactly one read-only GET and aggregate-only output. No Google Sheets/App Script writes.\nDefault commands and auth-mock remain fully offline. No --token, --output, --url, or multi-endpoint live calls.';
 function parseArgs(argv){
   const [command='help',...tail]=argv;
   if(!['help','inspect','validate','dry-run','auth-mock','live-fetch'].includes(command))throw Error('UNSUPPORTED_COMMAND');
@@ -38,7 +39,7 @@ function parseArgs(argv){
     if(endpoint!=='subdistricts')throw Error('MOCK_ENDPOINT_DENIED');
   }
   if(command==='live-fetch'){
-    if(endpoint!=='subdistricts'||!acknowledged)throw Error('LIVE_SCOPE_OR_ACK_REQUIRED');
+    if(!['subdistricts','villages'].includes(endpoint)||!acknowledged)throw Error('LIVE_SCOPE_OR_ACK_REQUIRED');
   }
   return {command,endpoint,maxPages};
 }
@@ -47,8 +48,8 @@ export async function main(argv=process.argv.slice(2),write=console.log,tty={}){
     const parsed=parseArgs(argv);
     if(parsed.command==='help'){write(HELP);return 0;}
     if(parsed.command==='live-fetch'){
-      const result=await liveFetchSubdistricts({
-        confirm:()=>confirmLiveUseFromTTY(tty),
+      const result=await (parsed.endpoint==='subdistricts'?liveFetchSubdistricts:liveFetchVillages)({
+        confirm:()=>confirmLiveUseFromTTY(tty,parsed.endpoint),
         getToken:()=>readRealBearerFromTTY(tty),
         fetchImpl:tty.fetchImpl??globalThis.fetch
       });

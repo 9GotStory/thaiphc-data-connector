@@ -1,0 +1,1807 @@
+{
+  "artifact": "thaiphc-google-sheets-schema-proposal",
+  "version": "0.1.0",
+  "state": "DRAFT_DESIGN_ONLY",
+  "date": "2026-10-20",
+  "observed_basis": "T001/T002 sample-derived source contracts. No production Sheets created.",
+  "rules": {
+    "raw_strings": "preserve exact source bytes; use Sheets API RAW and PLAIN_TEXT for code/text, not USER_ENTERED",
+    "write_gate": "NO_DATASET_MATERIALIZATION_WITHOUT_EXPLICIT_USER_APPROVAL",
+    "privacy": "PERSON_LEVEL_DATASET_DISABLED_BY_DEFAULT; never persist citizenId/names/address or entire person objects",
+    "null_policy": "_field_presence_json maps allowed column to ABSENT, NULL, or VALUE; VALUE can be empty string",
+    "nested_policy": "Canonical JSON UTF-8 cell text for top-level health-services objects and arrays, with leaf paths documented and no auto-flattening",
+    "deletion_policy": "NEVER_REMOVE_ROWS_FROM_INCOMPLETE_PAGESET; no deletes in T003"
+  },
+  "metadata_columns": [
+    {
+      "name": "_schema_version",
+      "type": "TEXT",
+      "purpose": "versioned design contract"
+    },
+    {
+      "name": "_sync_run_id",
+      "type": "TEXT",
+      "purpose": "approved import run identity; no token"
+    },
+    {
+      "name": "_source_key",
+      "type": "TEXT",
+      "purpose": "approved stable non-person key only; person keys require privacy gate"
+    },
+    {
+      "name": "_fetched_at_utc",
+      "type": "TEXT",
+      "purpose": "ISO 8601 UTC fetch time, not source timestamp"
+    },
+    {
+      "name": "_quality_status",
+      "type": "TEXT",
+      "purpose": "VALID/WARNING/QUARANTINED/BLOCKED"
+    },
+    {
+      "name": "_field_presence_json",
+      "type": "TEXT_JSON",
+      "purpose": "per approved source column: ABSENT/NULL/VALUE; restricted fields omitted"
+    },
+    {
+      "name": "_last_seen_run_id",
+      "type": "TEXT",
+      "purpose": "last complete validated snapshot run; no deletion automatically"
+    },
+    {
+      "name": "_row_digest",
+      "type": "TEXT",
+      "purpose": "non-sensitive rows only, sha256 of approved canonical fields; no unsalted hash of personal data"
+    }
+  ],
+  "datasets": [
+    {
+      "api": "assignments",
+      "tab": "Assignments",
+      "endpoint": "/api/v1/dashboard/assignments",
+      "grain": "one assignment/person record",
+      "gate": "PERSON_DATA_APPROVAL_REQUIRED",
+      "candidate": [
+        "id"
+      ],
+      "evidence": "Candidate UUID person identifier from 10-page sample; not proved unique across all pages; privacy gate",
+      "scope": [
+        "provinceCode",
+        "districtCode"
+      ],
+      "history": "current_snapshot",
+      "upsert_policy": "PROVISIONAL_VERIFY_COMPLETE_PAGES",
+      "materialization": "DESIGN_ONLY_NO_WRITES",
+      "fields": [
+        {
+          "source_field": "id",
+          "column": "id",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "UUID-formatted · ค่า ID ประจำรายการ; ยังไม่ได้ตรวจ uniqueness ทุกหน้า"
+        },
+        {
+          "source_field": "osmCode",
+          "column": "osmCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "รหัสตัวเลขในรูปข้อความ · พบทั้งความยาว 14 และ 15 ตัวอักษร; ห้ามแปลงเป็น Number"
+        },
+        {
+          "source_field": "citizenId",
+          "column": "citizenId",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "[REDACTED] · **ข้อมูลส่วนบุคคลอ่อนไหวในบริบทการใช้งาน**; ในตัวอย่างเป็นสตริงตัวเลข 13 หลัก ไม่เก็บค่าจริงในเอกสาร"
+        },
+        {
+          "source_field": "prefixNameTh",
+          "column": "prefixNameTh",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"นางสาว\", \"นาง\", \"นาย\" · พบหลายค่า"
+        },
+        {
+          "source_field": "prefixNameEn",
+          "column": "prefixNameEn",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"Miss\", \"Mrs.\", \"Mr.\" · พบหลายค่า"
+        },
+        {
+          "source_field": "firstName",
+          "column": "firstName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "[REDACTED] · ชื่อบุคคล"
+        },
+        {
+          "source_field": "lastName",
+          "column": "lastName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "[REDACTED] · นามสกุลบุคคล"
+        },
+        {
+          "source_field": "fullName",
+          "column": "fullName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "[REDACTED] · ชื่อเต็มบุคคล"
+        },
+        {
+          "source_field": "provinceCode",
+          "column": "provinceCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"54\" · ตรงกับ Request ในทั้ง 10 รายการ"
+        },
+        {
+          "source_field": "provinceNameTh",
+          "column": "provinceNameTh",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"แพร่\" · ชื่อจังหวัด"
+        },
+        {
+          "source_field": "districtCode",
+          "column": "districtCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"5406\" · ตรงกับ Request ในทั้ง 10 รายการ"
+        },
+        {
+          "source_field": "districtNameTh",
+          "column": "districtNameTh",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"สอง\" · ชื่ออำเภอ"
+        },
+        {
+          "source_field": "subdistrictCode",
+          "column": "subdistrictCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"540603\" · รหัสตำบล 6 หลัก เป็นข้อความ"
+        },
+        {
+          "source_field": "subdistrictNameTh",
+          "column": "subdistrictNameTh",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"ห้วยหม้าย\" · ชื่อตำบล"
+        },
+        {
+          "source_field": "villageNo",
+          "column": "villageNo",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"7\", \"16\" · เลขหมู่ **เป็น string** แม้เป็นค่าตัวเลข"
+        },
+        {
+          "source_field": "villageName",
+          "column": "villageName",
+          "observed_json_type": "null (10/10)",
+          "observed_kind": "null_only",
+          "sheet_type": "UNKNOWN_NULL_ONLY",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "null · ยังไม่ทราบชนิดเมื่อไม่เป็น null"
+        },
+        {
+          "source_field": "isActive",
+          "column": "isActive",
+          "observed_json_type": "boolean",
+          "observed_kind": "boolean",
+          "sheet_type": "BOOLEAN",
+          "format": "BOOLEAN",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "true · พบ true ทั้ง 10 ตัวอย่าง; ยังไม่ยืนยันว่ามี false หรือไม่"
+        },
+        {
+          "source_field": "status",
+          "column": "status",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"ใช้งาน\" · พบค่าเดียวในตัวอย่าง"
+        },
+        {
+          "source_field": "osmStatus",
+          "column": "osmStatus",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"\" · เป็น empty string ไม่ใช่ null; พบค่าเดียวในตัวอย่าง"
+        },
+        {
+          "source_field": "osmShowbbody",
+          "column": "osmShowbbody",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"1\" · **ชื่อสะกดตาม API ต้นทางเป๊ะ** (รวม bbody); พบค่าเดียว"
+        },
+        {
+          "source_field": "approvalStatus",
+          "column": "approvalStatus",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"approved\" · พบค่าเดียว สอดคล้องกับตัวกรอง"
+        },
+        {
+          "source_field": "volunteerStatus",
+          "column": "volunteerStatus",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"already_volunteer\", \"not_interested\" · พบอย่างน้อยสองค่าในหน้าแรก"
+        },
+        {
+          "source_field": "createdAt",
+          "column": "createdAt",
+          "observed_json_type": "string (ISO 8601 timestamp)",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "2025-11-10T05:36:01.776457Z · ค่าวันเวลา; เป็น string ใน JSON"
+        },
+        {
+          "source_field": "requestDate",
+          "column": "requestDate",
+          "observed_json_type": "string (ISO 8601 timestamp)",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "2025-11-10T05:36:01.776457Z · ค่าวันเวลา; เป็น string ใน JSON"
+        },
+        {
+          "source_field": "updatedAt",
+          "column": "updatedAt",
+          "observed_json_type": "string (ISO 8601 timestamp)",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "2026-10-12T13:07:33.846207Z · ค่าวันเวลา; เป็น string ใน JSON"
+        }
+      ],
+      "nested_paths": []
+    },
+    {
+      "api": "subdistricts",
+      "tab": "Subdistricts",
+      "endpoint": "/api/v1/lookups/subdistricts",
+      "grain": "one subdistrict",
+      "gate": "ELIGIBLE_AFTER_APPROVAL",
+      "candidate": [
+        "code"
+      ],
+      "evidence": "8/8 known codes distinct in documented lookup",
+      "scope": [
+        "district_code"
+      ],
+      "history": "current_snapshot",
+      "upsert_policy": "PROVISIONAL_VERIFY_COMPLETE_PAGES",
+      "materialization": "DESIGN_ONLY_NO_WRITES",
+      "fields": [
+        {
+          "source_field": "code",
+          "column": "code",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "0/8 · 540607"
+        },
+        {
+          "source_field": "id",
+          "column": "id",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "0/8 · 540607"
+        },
+        {
+          "source_field": "name_th",
+          "column": "name_th",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "0/8 · แดนชุมพล"
+        },
+        {
+          "source_field": "name_en",
+          "column": "name_en",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "0/8 · Daen Chumphon"
+        },
+        {
+          "source_field": "postal_code",
+          "column": "postal_code",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "0/8 · 54120"
+        },
+        {
+          "source_field": "label",
+          "column": "label",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "0/8 · แดนชุมพล / Daen Chumphon"
+        },
+        {
+          "source_field": "district_code",
+          "column": "district_code",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "0/8 · 5406"
+        },
+        {
+          "source_field": "district_name_th",
+          "column": "district_name_th",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "0/8 · สอง"
+        },
+        {
+          "source_field": "district_name_en",
+          "column": "district_name_en",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "0/8 · Song"
+        },
+        {
+          "source_field": "province_code",
+          "column": "province_code",
+          "observed_json_type": "null only",
+          "observed_kind": "null_only",
+          "sheet_type": "UNKNOWN_NULL_ONLY",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "8/8 · null"
+        },
+        {
+          "source_field": "province_name_th",
+          "column": "province_name_th",
+          "observed_json_type": "null only",
+          "observed_kind": "null_only",
+          "sheet_type": "UNKNOWN_NULL_ONLY",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "8/8 · null"
+        },
+        {
+          "source_field": "province_name_en",
+          "column": "province_name_en",
+          "observed_json_type": "null only",
+          "observed_kind": "null_only",
+          "sheet_type": "UNKNOWN_NULL_ONLY",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "8/8 · null"
+        }
+      ],
+      "nested_paths": []
+    },
+    {
+      "api": "villages",
+      "tab": "Villages",
+      "endpoint": "/api/v1/lookups/villages",
+      "grain": "one village",
+      "gate": "ELIGIBLE_AFTER_APPROVAL",
+      "candidate": [
+        "code"
+      ],
+      "evidence": "85/85 unique in full supplied lookup",
+      "scope": [
+        "province_code",
+        "district_code"
+      ],
+      "history": "current_snapshot",
+      "upsert_policy": "PROVISIONAL_VERIFY_COMPLETE_PAGES",
+      "materialization": "DESIGN_ONLY_NO_WRITES",
+      "fields": [
+        {
+          "source_field": "code",
+          "column": "code",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ (0/85) · 540602005"
+        },
+        {
+          "source_field": "village_code_8digit",
+          "column": "village_code_8digit",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ (0/85) · 54060205"
+        },
+        {
+          "source_field": "id",
+          "column": "id",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ (0/85) · 540602005"
+        },
+        {
+          "source_field": "name_th",
+          "column": "name_th",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ (0/85) · กลาง"
+        },
+        {
+          "source_field": "name_en",
+          "column": "name_en",
+          "observed_json_type": "null เท่านั้น (ชนิดอื่นยังไม่ทราบ)",
+          "observed_kind": "null_only",
+          "sheet_type": "UNKNOWN_NULL_ONLY",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ทั้งหมด (85/85) · null"
+        },
+        {
+          "source_field": "village_no",
+          "column": "village_no",
+          "observed_json_type": "integer",
+          "observed_kind": "integer",
+          "sheet_type": "NUMBER",
+          "format": "NUMBER",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ (0/85) · 5"
+        },
+        {
+          "source_field": "metro_status",
+          "column": "metro_status",
+          "observed_json_type": "null เท่านั้น (ชนิดอื่นยังไม่ทราบ)",
+          "observed_kind": "null_only",
+          "sheet_type": "UNKNOWN_NULL_ONLY",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ทั้งหมด (85/85) · null"
+        },
+        {
+          "source_field": "label",
+          "column": "label",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ (0/85) · กลาง"
+        },
+        {
+          "source_field": "subdistrict_code",
+          "column": "subdistrict_code",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ (0/85) · 540602"
+        },
+        {
+          "source_field": "subdistrict_name_th",
+          "column": "subdistrict_name_th",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ (0/85) · บ้านกลาง"
+        },
+        {
+          "source_field": "subdistrict_name_en",
+          "column": "subdistrict_name_en",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ (0/85) · Ban Klang"
+        },
+        {
+          "source_field": "district_code",
+          "column": "district_code",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ (0/85) · 5406"
+        },
+        {
+          "source_field": "district_name_th",
+          "column": "district_name_th",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ (0/85) · สอง"
+        },
+        {
+          "source_field": "district_name_en",
+          "column": "district_name_en",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ (0/85) · Song"
+        },
+        {
+          "source_field": "province_code",
+          "column": "province_code",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ (0/85) · 54"
+        },
+        {
+          "source_field": "province_name_th",
+          "column": "province_name_th",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ (0/85) · แพร่"
+        },
+        {
+          "source_field": "province_name_en",
+          "column": "province_name_en",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ (0/85) · Phrae"
+        },
+        {
+          "source_field": "health_service_code",
+          "column": "health_service_code",
+          "observed_json_type": "string / null",
+          "observed_kind": "string_or_null",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "75/85 · GA0006419"
+        },
+        {
+          "source_field": "health_service_name_th",
+          "column": "health_service_name_th",
+          "observed_json_type": "string / null",
+          "observed_kind": "string_or_null",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "75/85 · โรงพยาบาลส่งเสริมสุขภาพตำบลเตาปูน"
+        },
+        {
+          "source_field": "health_service_name_en",
+          "column": "health_service_name_en",
+          "observed_json_type": "null เท่านั้น (ชนิดอื่นยังไม่ทราบ)",
+          "observed_kind": "null_only",
+          "sheet_type": "UNKNOWN_NULL_ONLY",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ทั้งหมด (85/85) · null"
+        }
+      ],
+      "nested_paths": []
+    },
+    {
+      "api": "health-services",
+      "tab": "HealthServices",
+      "endpoint": "/api/v1/geo-management/health-services",
+      "grain": "one health service unit",
+      "gate": "ELIGIBLE_AFTER_APPROVAL",
+      "candidate": [
+        "health_service_code"
+      ],
+      "evidence": "10/10 unique only on page 1 of 18 records",
+      "scope": [
+        "province.province_code",
+        "district.district_code"
+      ],
+      "history": "current_snapshot",
+      "upsert_policy": "PROVISIONAL_VERIFY_COMPLETE_PAGES",
+      "materialization": "DESIGN_ONLY_NO_WRITES",
+      "fields": [
+        {
+          "source_field": "health_service_code",
+          "column": "health_service_code",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ null · GA0006426"
+        },
+        {
+          "source_field": "health_service_name_th",
+          "column": "health_service_name_th",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ null · โรงพยาบาลส่งเสริมสุขภาพตำบลแดนชุมพล"
+        },
+        {
+          "source_field": "health_service_name_en",
+          "column": "health_service_name_en",
+          "observed_json_type": "null",
+          "observed_kind": "null_only",
+          "sheet_type": "UNKNOWN_NULL_ONLY",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "พบ null ทั้ง 10 รายการ · null — ยังไม่ยืนยันชนิดเมื่อมีค่า"
+        },
+        {
+          "source_field": "legacy_5digit_code",
+          "column": "legacy_5digit_code",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ null · 06426 (รักษาเลข 0 นำหน้า)"
+        },
+        {
+          "source_field": "legacy_9digit_code",
+          "column": "legacy_9digit_code",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ null · 000642600 (รักษาเลข 0 นำหน้า)"
+        },
+        {
+          "source_field": "village_no",
+          "column": "village_no",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ null · \"4\""
+        },
+        {
+          "source_field": "latitude",
+          "column": "latitude",
+          "observed_json_type": "number",
+          "observed_kind": "number",
+          "sheet_type": "NUMBER",
+          "format": "NUMBER",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ null · 0 (จำนวนเต็มในชุดตัวอย่าง)"
+        },
+        {
+          "source_field": "longitude",
+          "column": "longitude",
+          "observed_json_type": "number",
+          "observed_kind": "number",
+          "sheet_type": "NUMBER",
+          "format": "NUMBER",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ null · 0 (จำนวนเต็มในชุดตัวอย่าง)"
+        },
+        {
+          "source_field": "health_service_type",
+          "column": "health_service_type",
+          "observed_json_type": "object",
+          "observed_kind": "object",
+          "sheet_type": "JSON_TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ null · ดู §4.1"
+        },
+        {
+          "source_field": "province",
+          "column": "province",
+          "observed_json_type": "object",
+          "observed_kind": "object",
+          "sheet_type": "JSON_TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ null · ดู §4.2"
+        },
+        {
+          "source_field": "district",
+          "column": "district",
+          "observed_json_type": "object",
+          "observed_kind": "object",
+          "sheet_type": "JSON_TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ null · ดู §4.3"
+        },
+        {
+          "source_field": "subdistrict",
+          "column": "subdistrict",
+          "observed_json_type": "object",
+          "observed_kind": "object",
+          "sheet_type": "JSON_TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ null · ดู §4.4"
+        },
+        {
+          "source_field": "service_areas",
+          "column": "service_areas",
+          "observed_json_type": "array<object>",
+          "observed_kind": "array",
+          "sheet_type": "JSON_TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ null · ดู §4.5"
+        },
+        {
+          "source_field": "created_at",
+          "column": "created_at",
+          "observed_json_type": "string (datetime)",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ null · 2025-07-30T04:31:26.342131+00:00"
+        },
+        {
+          "source_field": "updated_at",
+          "column": "updated_at",
+          "observed_json_type": "string (datetime)",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "ไม่พบ null · 2025-07-30T04:31:26.342132+00:00"
+        },
+        {
+          "source_field": "deleted_at",
+          "column": "deleted_at",
+          "observed_json_type": "null",
+          "observed_kind": "null_only",
+          "sheet_type": "UNKNOWN_NULL_ONLY",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "พบ null ทั้ง 10 รายการ · null — ยังไม่ยืนยันชนิดเมื่อมีค่า"
+        }
+      ],
+      "nested_paths": [
+        {
+          "path": "health_service_type.id",
+          "observed_json_type": "string (UUID-formatted)",
+          "stored_in_column": "health_service_type"
+        },
+        {
+          "path": "health_service_type.name_th",
+          "observed_json_type": "string",
+          "stored_in_column": "health_service_type"
+        },
+        {
+          "path": "health_service_type.name_en",
+          "observed_json_type": "string",
+          "stored_in_column": "health_service_type"
+        },
+        {
+          "path": "province.province_code",
+          "observed_json_type": "string",
+          "stored_in_column": "province"
+        },
+        {
+          "path": "province.province_name_th",
+          "observed_json_type": "string",
+          "stored_in_column": "province"
+        },
+        {
+          "path": "province.province_name_en",
+          "observed_json_type": "string",
+          "stored_in_column": "province"
+        },
+        {
+          "path": "district.district_code",
+          "observed_json_type": "string",
+          "stored_in_column": "district"
+        },
+        {
+          "path": "district.district_name_th",
+          "observed_json_type": "string",
+          "stored_in_column": "district"
+        },
+        {
+          "path": "district.district_name_en",
+          "observed_json_type": "string",
+          "stored_in_column": "district"
+        },
+        {
+          "path": "subdistrict.subdistrict_code",
+          "observed_json_type": "string",
+          "stored_in_column": "subdistrict"
+        },
+        {
+          "path": "subdistrict.subdistrict_name_th",
+          "observed_json_type": "string",
+          "stored_in_column": "subdistrict"
+        },
+        {
+          "path": "subdistrict.subdistrict_name_en",
+          "observed_json_type": "string",
+          "stored_in_column": "subdistrict"
+        },
+        {
+          "path": "service_areas[].id",
+          "observed_json_type": "string (UUID-formatted)",
+          "stored_in_column": "service_areas"
+        },
+        {
+          "path": "service_areas[].subdistrict_code",
+          "observed_json_type": "string",
+          "stored_in_column": "service_areas"
+        },
+        {
+          "path": "service_areas[].subdistrict_name_th",
+          "observed_json_type": "string",
+          "stored_in_column": "service_areas"
+        },
+        {
+          "path": "service_areas[].village_nos",
+          "observed_json_type": "array<string>",
+          "stored_in_column": "service_areas"
+        },
+        {
+          "path": "service_areas[].is_primary",
+          "observed_json_type": "boolean",
+          "stored_in_column": "service_areas"
+        }
+      ]
+    },
+    {
+      "api": "volunteer-gender",
+      "tab": "VolunteerGender",
+      "endpoint": "/api/v1/reports/volunteer-gender",
+      "grain": "one village gender aggregation for a snapshot",
+      "gate": "ELIGIBLE_AFTER_PRIVACY_REVIEW",
+      "candidate": [
+        "provinceCode",
+        "districtCode",
+        "villageCode"
+      ],
+      "evidence": "10/10 distinct villages in first page; total 85 unverified remaining pages; per-snapshot current-state key only",
+      "scope": [
+        "provinceCode",
+        "districtCode"
+      ],
+      "history": "current_snapshot",
+      "upsert_policy": "PROVISIONAL_VERIFY_COMPLETE_PAGES",
+      "materialization": "DESIGN_ONLY_NO_WRITES",
+      "fields": [
+        {
+          "source_field": "provinceCode",
+          "column": "provinceCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"54\" · รหัสจังหวัด; ค่าเป็นข้อความ"
+        },
+        {
+          "source_field": "provinceName",
+          "column": "provinceName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"แพร่\" · ชื่อจังหวัด"
+        },
+        {
+          "source_field": "districtCode",
+          "column": "districtCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"5406\" · รหัสอำเภอ; ค่าเป็นข้อความ"
+        },
+        {
+          "source_field": "districtName",
+          "column": "districtName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"สอง\" · ชื่ออำเภอ"
+        },
+        {
+          "source_field": "subdistrictCode",
+          "column": "subdistrictCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"540601\" · รหัสตำบล; ค่าเป็นข้อความ"
+        },
+        {
+          "source_field": "subdistrictName",
+          "column": "subdistrictName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"บ้านหนุน\" · ชื่อตำบล"
+        },
+        {
+          "source_field": "villageCode",
+          "column": "villageCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"540601001\" · รหัสหมู่บ้าน 9 หลัก; ค่าเป็นข้อความ"
+        },
+        {
+          "source_field": "villageNo",
+          "column": "villageNo",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"1\" · เลขหมู่เป็น string ไม่ใช่ integer"
+        },
+        {
+          "source_field": "villageName",
+          "column": "villageName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"หนุนเหนือ\" · ชื่อหมู่บ้าน"
+        },
+        {
+          "source_field": "total",
+          "column": "total",
+          "observed_json_type": "integer",
+          "observed_kind": "integer",
+          "sheet_type": "NUMBER",
+          "format": "NUMBER",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "19 · จำนวนในแต่ละแถว (ระดับหมู่บ้าน) ไม่ใช่ Root total"
+        },
+        {
+          "source_field": "male",
+          "column": "male",
+          "observed_json_type": "integer",
+          "observed_kind": "integer",
+          "sheet_type": "NUMBER",
+          "format": "NUMBER",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "3 · จำนวนเพศชาย"
+        },
+        {
+          "source_field": "female",
+          "column": "female",
+          "observed_json_type": "integer",
+          "observed_kind": "integer",
+          "sheet_type": "NUMBER",
+          "format": "NUMBER",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "16 · จำนวนเพศหญิง"
+        }
+      ],
+      "nested_paths": []
+    },
+    {
+      "api": "volunteer-family",
+      "tab": "VolunteerFamily",
+      "endpoint": "/api/v1/reports/volunteer-family",
+      "grain": "one volunteer/family-member relationship row",
+      "gate": "PERSON_DATA_APPROVAL_REQUIRED",
+      "candidate": [],
+      "evidence": "NO VERIFIED PERSON-RELATION KEY. villageCode repeats, volunteerId alone identifies volunteer and cannot distinguish family rows. Block upsert.",
+      "scope": [
+        "provinceCode",
+        "districtCode"
+      ],
+      "history": "undefined_until_stable_key",
+      "upsert_policy": "BLOCKED_NO_STABLE_KEY",
+      "materialization": "DESIGN_ONLY_NO_WRITES",
+      "fields": [
+        {
+          "source_field": "provinceCode",
+          "column": "provinceCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"54\" · รหัสจังหวัด; ค่าเป็นข้อความ"
+        },
+        {
+          "source_field": "provinceName",
+          "column": "provinceName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"แพร่\" · ชื่อจังหวัด"
+        },
+        {
+          "source_field": "districtCode",
+          "column": "districtCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"5406\" · รหัสอำเภอ; ค่าเป็นข้อความ"
+        },
+        {
+          "source_field": "districtName",
+          "column": "districtName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"สอง\" · ชื่ออำเภอ"
+        },
+        {
+          "source_field": "subdistrictCode",
+          "column": "subdistrictCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"540601\" · รหัสตำบล; ค่าเป็นข้อความ"
+        },
+        {
+          "source_field": "subdistrictName",
+          "column": "subdistrictName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"บ้านหนุน\" · ชื่อตำบล"
+        },
+        {
+          "source_field": "villageCode",
+          "column": "villageCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"540601001\" · รหัสหมู่บ้าน 9 หลัก; ค่าเป็นข้อความ"
+        },
+        {
+          "source_field": "villageNo",
+          "column": "villageNo",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"1\" · เลขหมู่เป็น string ไม่ใช่ integer"
+        },
+        {
+          "source_field": "villageName",
+          "column": "villageName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"หนุนเหนือ\" · ชื่อหมู่บ้าน"
+        },
+        {
+          "source_field": "osmCode",
+          "column": "osmCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"[REDACTED]\" · รหัสบุคคลในข้อมูลตัวอย่าง; ไม่เปิดเผยค่าจริง"
+        },
+        {
+          "source_field": "citizenId",
+          "column": "citizenId",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"[REDACTED]\" · เลขประจำตัวประชาชน; ควรปกปิดในเอกสาร"
+        },
+        {
+          "source_field": "prefixName",
+          "column": "prefixName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"นาย\" · คำนำหน้าชื่อ; พบทั้งค่า \"ไม่ระบุ\" และค่าอื่น"
+        },
+        {
+          "source_field": "firstName",
+          "column": "firstName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"[REDACTED]\" · ชื่อบุคคล"
+        },
+        {
+          "source_field": "lastName",
+          "column": "lastName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"[REDACTED]\" · นามสกุลบุคคล"
+        },
+        {
+          "source_field": "fullName",
+          "column": "fullName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"[REDACTED]\" · ชื่อเต็มบุคคล"
+        },
+        {
+          "source_field": "gender",
+          "column": "gender",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"female\" · พบ \"other\", \"male\", \"female\" ใน 10 รายการ"
+        },
+        {
+          "source_field": "address",
+          "column": "address",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"[REDACTED]\" · ที่อยู่/บ้านเลขที่ ซึ่งเป็นข้อมูลระบุตัวบุคคล"
+        },
+        {
+          "source_field": "status",
+          "column": "status",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"volunteer\" · พบ \"child\", \"spouse\", \"volunteer\""
+        },
+        {
+          "source_field": "statusLabel",
+          "column": "statusLabel",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"อสม.\" · คำอธิบายสถานะ เช่น \"บุตร\", \"คู่สมรส\", \"อสม.\""
+        },
+        {
+          "source_field": "volunteerId",
+          "column": "volunteerId",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"[REDACTED]\" · รูปแบบ UUID; ระบุอาสาสมัครที่เชื่อมกับรายการ"
+        },
+        {
+          "source_field": "volunteerName",
+          "column": "volunteerName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"[REDACTED]\" · ชื่อ อสม. ที่เชื่อมโยง"
+        }
+      ],
+      "nested_paths": []
+    },
+    {
+      "api": "resigned-volunteers",
+      "tab": "ResignedVolunteers",
+      "endpoint": "/api/v1/reports/resigned-volunteers",
+      "grain": "one retired-volunteer/person row",
+      "gate": "PERSON_DATA_APPROVAL_REQUIRED",
+      "candidate": [
+        "id"
+      ],
+      "evidence": "Candidate UUID from page-1 person records; uniqueness/retirement history semantics unverified",
+      "scope": [
+        "provinceCode",
+        "districtCode"
+      ],
+      "history": "historical_event_not_assumed",
+      "upsert_policy": "PROVISIONAL_VERIFY_COMPLETE_PAGES",
+      "materialization": "DESIGN_ONLY_NO_WRITES",
+      "fields": [
+        {
+          "source_field": "id",
+          "column": "id",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"[REDACTED]\" · รูปแบบ UUID; ระเบียนบุคคล"
+        },
+        {
+          "source_field": "citizenId",
+          "column": "citizenId",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"[REDACTED]\" · เลขประจำตัวประชาชน; ไม่เปิดเผยค่าจริง"
+        },
+        {
+          "source_field": "firstName",
+          "column": "firstName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"[REDACTED]\" · ชื่อบุคคล"
+        },
+        {
+          "source_field": "lastName",
+          "column": "lastName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"[REDACTED]\" · นามสกุลบุคคล"
+        },
+        {
+          "source_field": "retirementDate",
+          "column": "retirementDate",
+          "observed_json_type": "string (date YYYY-MM-DD)",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"2019-06-01\" · วันพ้นสภาพ ไม่ใช่ Timestamp"
+        },
+        {
+          "source_field": "retirementReason",
+          "column": "retirementReason",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"resigned\" · พบ \"resigned\" และ \"died\""
+        },
+        {
+          "source_field": "osmStatus",
+          "column": "osmStatus",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"0\" · สถานะเป็น **string** แม้มีหน้าตาเป็นเลข"
+        },
+        {
+          "source_field": "volunteerStatus",
+          "column": "volunteerStatus",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"already_volunteer\" · ค่าที่พบในหน้าแรก"
+        },
+        {
+          "source_field": "approvalStatus",
+          "column": "approvalStatus",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"approved\" · ค่าที่พบในหน้าแรก"
+        },
+        {
+          "source_field": "provinceCode",
+          "column": "provinceCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"54\" · รหัสจังหวัด; ค่าเป็นข้อความ"
+        },
+        {
+          "source_field": "provinceName",
+          "column": "provinceName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"แพร่\" · ชื่อจังหวัด"
+        },
+        {
+          "source_field": "districtCode",
+          "column": "districtCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"5406\" · รหัสอำเภอ; ค่าเป็นข้อความ"
+        },
+        {
+          "source_field": "districtName",
+          "column": "districtName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"สอง\" · ชื่ออำเภอ"
+        },
+        {
+          "source_field": "subdistrictCode",
+          "column": "subdistrictCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"540601\" · รหัสตำบล; ค่าเป็นข้อความ"
+        },
+        {
+          "source_field": "subdistrictName",
+          "column": "subdistrictName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"บ้านหนุน\" · ชื่อตำบล"
+        },
+        {
+          "source_field": "villageCode",
+          "column": "villageCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"540601001\" · รหัสหมู่บ้าน 9 หลัก; ค่าเป็นข้อความ"
+        },
+        {
+          "source_field": "villageNo",
+          "column": "villageNo",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"1\" · เลขหมู่เป็น string ไม่ใช่ integer"
+        },
+        {
+          "source_field": "villageName",
+          "column": "villageName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"หนุนเหนือ\" · ชื่อหมู่บ้าน"
+        }
+      ],
+      "nested_paths": []
+    },
+    {
+      "api": "volunteer-tenure",
+      "tab": "VolunteerTenure",
+      "endpoint": "/api/v1/reports/volunteer-tenure",
+      "grain": "one volunteer tenure row",
+      "gate": "PERSON_DATA_APPROVAL_REQUIRED",
+      "candidate": [
+        "id"
+      ],
+      "evidence": "Candidate UUID from page 1; tenureYears changes with time and is not an identity key",
+      "scope": [
+        "provinceCode",
+        "districtCode"
+      ],
+      "history": "derived_current_snapshot",
+      "upsert_policy": "PROVISIONAL_VERIFY_COMPLETE_PAGES",
+      "materialization": "DESIGN_ONLY_NO_WRITES",
+      "fields": [
+        {
+          "source_field": "id",
+          "column": "id",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"[REDACTED]\" · UUID-formatted"
+        },
+        {
+          "source_field": "citizenId",
+          "column": "citizenId",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"[REDACTED]\" · เลขประจำตัวประชาชน; ไม่เปิดเผยค่าจริง"
+        },
+        {
+          "source_field": "osmCode",
+          "column": "osmCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"[REDACTED]\" · รหัส อสม. เป็นข้อความ"
+        },
+        {
+          "source_field": "firstName",
+          "column": "firstName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"[REDACTED]\" · ชื่อบุคคล"
+        },
+        {
+          "source_field": "lastName",
+          "column": "lastName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "sample_note": "\"[REDACTED]\" · นามสกุลบุคคล"
+        },
+        {
+          "source_field": "startYear",
+          "column": "startYear",
+          "observed_json_type": "integer",
+          "observed_kind": "integer",
+          "sheet_type": "NUMBER",
+          "format": "NUMBER",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "2545 · ปีเริ่มต้นเป็นจำนวนเต็ม; ตัวอย่างใช้ปี พ.ศ."
+        },
+        {
+          "source_field": "tenureYears",
+          "column": "tenureYears",
+          "observed_json_type": "integer",
+          "observed_kind": "integer",
+          "sheet_type": "NUMBER",
+          "format": "NUMBER",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "24 · อายุงาน (ปี); ค่าที่ API คำนวณมาให้"
+        },
+        {
+          "source_field": "osmYear",
+          "column": "osmYear",
+          "observed_json_type": "integer",
+          "observed_kind": "integer",
+          "sheet_type": "NUMBER",
+          "format": "NUMBER",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "2545 · ปี อสม. เป็นจำนวนเต็ม; ตัวอย่างใช้ปี พ.ศ."
+        },
+        {
+          "source_field": "approvalDate",
+          "column": "approvalDate",
+          "observed_json_type": "string (date YYYY-MM-DD)",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"2025-12-17\" · วันอนุมัติในรูปแบบวันที่"
+        },
+        {
+          "source_field": "retirementDate",
+          "column": "retirementDate",
+          "observed_json_type": "null only",
+          "observed_kind": "null_only",
+          "sheet_type": "UNKNOWN_NULL_ONLY",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "null · ทั้ง 10 รายการเป็น null; ยังไม่ทราบชนิดเมื่อมีค่า"
+        },
+        {
+          "source_field": "retirementReason",
+          "column": "retirementReason",
+          "observed_json_type": "null only",
+          "observed_kind": "null_only",
+          "sheet_type": "UNKNOWN_NULL_ONLY",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "null · ทั้ง 10 รายการเป็น null; ยังไม่ทราบชนิดเมื่อมีค่า"
+        },
+        {
+          "source_field": "osmStatus",
+          "column": "osmStatus",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"\" · เป็น empty string ไม่ใช่ null"
+        },
+        {
+          "source_field": "provinceCode",
+          "column": "provinceCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"54\" · รหัสจังหวัด; ค่าเป็นข้อความ"
+        },
+        {
+          "source_field": "provinceName",
+          "column": "provinceName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"แพร่\" · ชื่อจังหวัด"
+        },
+        {
+          "source_field": "districtCode",
+          "column": "districtCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"5406\" · รหัสอำเภอ; ค่าเป็นข้อความ"
+        },
+        {
+          "source_field": "districtName",
+          "column": "districtName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"สอง\" · ชื่ออำเภอ"
+        },
+        {
+          "source_field": "subdistrictCode",
+          "column": "subdistrictCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"540601\" · รหัสตำบล; ค่าเป็นข้อความ"
+        },
+        {
+          "source_field": "subdistrictName",
+          "column": "subdistrictName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"บ้านหนุน\" · ชื่อตำบล"
+        },
+        {
+          "source_field": "villageCode",
+          "column": "villageCode",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"540601001\" · รหัสหมู่บ้าน 9 หลัก; ค่าเป็นข้อความ"
+        },
+        {
+          "source_field": "villageNo",
+          "column": "villageNo",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"1\" · เลขหมู่เป็น string ไม่ใช่ integer"
+        },
+        {
+          "source_field": "villageName",
+          "column": "villageName",
+          "observed_json_type": "string",
+          "observed_kind": "string",
+          "sheet_type": "TEXT",
+          "format": "PLAIN_TEXT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
+          "sample_note": "\"หนุนเหนือ\" · ชื่อหมู่บ้าน"
+        }
+      ],
+      "nested_paths": []
+    }
+  ],
+  "supporting_tabs": [
+    {
+      "tab": "_SyncRuns",
+      "purpose": "Non-PII run-level metadata; no bearer tokens, no source payloads",
+      "columns": [
+        "run_id",
+        "schema_version",
+        "source_endpoint",
+        "scope_province",
+        "scope_district",
+        "started_at_utc",
+        "finished_at_utc",
+        "expected_total",
+        "fetched_count",
+        "validated_count",
+        "quarantined_count",
+        "pagination_complete",
+        "status",
+        "error_count"
+      ]
+    },
+    {
+      "tab": "_Quarantine",
+      "purpose": "Redacted exceptions only; NO personal raw rows",
+      "columns": [
+        "event_id",
+        "run_id",
+        "endpoint",
+        "issue_code",
+        "source_key_masked",
+        "scope_code",
+        "field_names",
+        "reason_redacted",
+        "seen_at_utc",
+        "review_status"
+      ]
+    }
+  ],
+  "review_needed": [
+    "Confirm all 18 health service rows and service_areas semantics",
+    "Resolve volunteer-family geographic conflicts and missing relation key",
+    "Approve person-field storage policy and retention, or explicitly exclude",
+    "Validate full-page keys and optional/nullable types",
+    "Approve concrete destination spreadsheet and sharing controls only at implementation gate"
+  ]
+}

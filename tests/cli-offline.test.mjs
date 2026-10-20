@@ -138,13 +138,13 @@ test('duplicate page keys are not accepted as complete',async()=>{
   }
   return r;
  })});
- assert.notEqual(r.status,'COMPLETE');assert.ok(r.issueCounts.DUPLICATE_SOURCE_KEY);
+ assert.equal(r.status,'BLOCKED');assert.ok(r.issueCounts.DUPLICATE_SOURCE_KEY);
 });
 test('missing village key cannot produce complete state',async()=>{
  const r=await collectOffline('villages',{transport:mockChange('villages',r=>{
   delete r.body.items[0].code;return r;
  })});
- assert.notEqual(r.status,'COMPLETE');assert.ok(r.issueCounts.MISSING_KEY);
+ assert.equal(r.status,'BLOCKED');assert.ok(r.issueCounts.MISSING_KEY);
 });
 test('CLI inspect/help and simulate emit no source rows',async()=>{
  for(const argv of [[],['inspect'],['dry-run','--endpoint','villages'],['validate','--endpoint','volunteer-gender']]){
@@ -158,4 +158,13 @@ test('CLI rejects live, token, output flags without echoing unknown values',asyn
   const lines=[];const code=await main(argv,s=>lines.push(s));
   assert.equal(code,2);assert.doesNotMatch(lines.join('\n'),/PRIVATEVALUE|people.json/);
  }
+});
+
+test('direct executable entrypoint emits help and JSON; no inert launch',async()=>{
+ const {spawnSync}=await import('node:child_process');
+ const path=(await import('node:url')).fileURLToPath(new URL('../src/cli/index.mjs',import.meta.url));
+ const p=spawnSync(process.execPath,[path,'inspect','--endpoint','villages'],{encoding:'utf8',timeout:6000});
+ assert.equal(p.status,0,String(p.stderr).slice(0,100));
+ assert.equal(JSON.parse(p.stdout).endpoints[0].id,'villages');
+ assert.equal(p.stderr,'');
 });

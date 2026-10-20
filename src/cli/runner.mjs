@@ -141,6 +141,7 @@ export async function collectOffline(endpoint,{transport,pageSize=10,maxPages=25
         addIssue(out,'PERSON_DATA_DISABLED');
         return result(out,'BLOCKED');
       }
+      if(['MISSING_KEY','UNVERIFIED_ROW_KEY','DUPLICATE_SOURCE_KEY','INVALID_METRIC','INVALID_YEAR_FIELD','INVALID_COORDINATES','INVALID_SCOPE_TYPE','INVALID_GEOGRAPHIC_CODE','INVALID_NESTED_SHAPE'].some(code=>out.issueCounts[code]>0))return result(out,'BLOCKED');
       if(Object.keys(out.issueCounts).length)return result(out,'QUARANTINED');
       return result(out,'COMPLETE');
     }

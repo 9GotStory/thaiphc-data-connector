@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Offline simulation only: no credential parser, no disk writes, no live network client.
 import { ENDPOINTS, endpointNames } from './endpoints.mjs';
+import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { syntheticTransport } from './transport.mjs';
 import { collectOffline } from './runner.mjs';
 
@@ -45,6 +47,6 @@ export async function main(argv=process.argv.slice(2),write=console.log){
     return 2;
   }
 }
-if(process.argv[1]&&import.meta.url===new URL('file:'+process.argv[1]).href){
+if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1])){
   process.exitCode=await main();
 }

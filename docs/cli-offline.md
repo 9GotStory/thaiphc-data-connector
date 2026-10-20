@@ -34,7 +34,7 @@ The exact repeated health-service type exclusion UUIDs are ordinary observed que
 
 - collectOffline(endpoint, {transport, pageSize, maxPages, maxRetries, retryDelay}) requires a createMockTransport-branded function; it does NOT expose a live transport factory.
 - A mock transport returns {status, body} entirely in memory. Returned summaries expose only mode, endpoint, status, pages, records, requestAttempts, issueCounts. No rows, person keys, tokens, raw error messages or response bodies are returned or logged.
-- Pagination must echo requested page, pageSize, offset and limit. Totals must remain stable across pages. Missing items, impossible totals, invalid shapes, and repeated stable keys cause the run to fail closed.
+- Pagination must echo requested page, pageSize, offset and limit. Totals must remain stable across pages. Missing items, impossible totals, invalid shapes, missing keys and repeated stable keys cause a **BLOCKED** fail-closed result.
 - Lookups are currently unpaginated, as observed. Never invent server pagination for them.
 - Retry only mock 429/502/503/504 and thrown transport errors, with bounded retries and injectable backoff (50, 100, 200 ms). Authorization failures do not retry.
 - The simulator has MAX 250 pages per run; a cap reached before completion returns PARTIAL, not COMPLETE. There are no real network requests or request timing assumptions.

@@ -43,7 +43,7 @@ function validateRows(payload){
  return null;
 }
 
-async function readBoundedJson(response){
+export async function readBoundedJson(response){
  const contentType=response.headers?.get?.('content-type')?.toLowerCase()||'';
  if(!/^application\/(?:json|[a-z0-9.+-]+\+json)(?:\s*;|$)/.test(contentType))
    return {error:'UNEXPECTED_CONTENT_TYPE'};

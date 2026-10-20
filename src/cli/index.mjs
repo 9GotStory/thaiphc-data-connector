@@ -5,11 +5,12 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { syntheticTransport } from './transport.mjs';
 import { collectOffline } from './runner.mjs';
+import { readMockOnlyTokenFromTTY, simulateMockBearerSession } from './manual-bearer.mjs';
 
-const HELP='ThaiPHC T004 OFFLINE ONLY\nCommands: help | inspect [--endpoint ID] | validate [--endpoint ID] | dry-run [--endpoint ID] [--max-pages N]\nAll simulations use synthetic records; no bearer credentials, API calls or Google Sheets writes.\n--live, --token, --output, unknown flags and unknown endpoints are forbidden.';
+const HELP='ThaiPHC T004 OFFLINE ONLY\nCommands: help | inspect [--endpoint ID] | validate [--endpoint ID] | dry-run [--endpoint ID] [--max-pages N] | auth-mock [--endpoint subdistricts]\nAll simulations use synthetic records; auth-mock accepts MOCK_ONLY_ fake tokens via a non-echoing TTY only. NEVER paste a real ThaiPHC token. No API calls or Google Sheets writes.\n--live, --token, --output, unknown flags and unknown endpoints are forbidden.';
 function parseArgs(argv){
   const [command='help',...tail]=argv;
-  if(!['help','inspect','validate','dry-run'].includes(command))throw Error('UNSUPPORTED_COMMAND');
+  if(!['help','inspect','validate','dry-run','auth-mock'].includes(command))throw Error('UNSUPPORTED_COMMAND');
   let endpoint='all',maxPages=10;
   for(let i=0;i<tail.length;i++){
     const arg=tail[i];
@@ -25,13 +26,25 @@ function parseArgs(argv){
   }
   if(!Number.isSafeInteger(maxPages)||maxPages<1||maxPages>250)throw Error('INVALID_MAX_PAGES');
   if(endpoint!=='all'&&!Object.hasOwn(ENDPOINTS,endpoint))throw Error('UNKNOWN_ENDPOINT');
-  if((command==='help'||command==='inspect')&&tail.some(x=>x==='--max-pages'))throw Error('UNSUPPORTED_FLAG');
+  if((command==='help'||command==='inspect'||command==='auth-mock')&&tail.some(x=>x==='--max-pages'))throw Error('UNSUPPORTED_FLAG');
+  if(command==='auth-mock'){
+    if(endpoint==='all')endpoint='subdistricts';
+    if(endpoint!=='subdistricts')throw Error('MOCK_ENDPOINT_DENIED');
+  }
   return {command,endpoint,maxPages};
 }
-export async function main(argv=process.argv.slice(2),write=console.log){
+export async function main(argv=process.argv.slice(2),write=console.log,tty={}){
   try{
     const parsed=parseArgs(argv);
     if(parsed.command==='help'){write(HELP);return 0;}
+    if(parsed.command==='auth-mock'){
+      const summary=await simulateMockBearerSession({
+        endpoint:parsed.endpoint,
+        getToken:()=>readMockOnlyTokenFromTTY(tty)
+      });
+      write(JSON.stringify(summary,null,2));
+      return summary.status==='COMPLETE'?0:2;
+    }
     const targets=parsed.endpoint==='all'?endpointNames():[parsed.endpoint];
     if(parsed.command==='inspect'){
       write(JSON.stringify({mode:'OFFLINE_ONLY',endpoints:targets.map(id=>({id,path:ENDPOINTS[id].path,pagination:ENDPOINTS[id].pagination,personLevel:ENDPOINTS[id].personLevel,requiresLiveApproval:true}))},null,2));

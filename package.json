@@ -1,0 +1,11 @@
+{
+  "name": "thaiphc-data-connector",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ThaiPHC manual API connector foundation",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test": "node --test"
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "evidence_type": "redacted_aggregate_only",
+  "observed_at": "2026-10-20",
+  "source": "user-provided ThaiPHC response examples, no live calls",
+  "village_lookup": {
+    "items": 85,
+    "unique_code": 85,
+    "unique_id": 85,
+    "unique_village_code_8digit": 85,
+    "id_eq_code": 85,
+    "code_prefix_matches_subdistrict": 85,
+    "village_code_8digit_formula_matches": 85,
+    "code_formula_matches": 85,
+    "subdistrict_counts": {
+      "540601": 11,
+      "540602": 12,
+      "540603": 17,
+      "540604": 12,
+      "540605": 13,
+      "540606": 10,
+      "540607": 4,
+      "540608": 6
+    },
+    "null_count": {
+      "name_en": 85,
+      "metro_status": 85,
+      "health_service_code": 75,
+      "health_service_name_th": 75,
+      "health_service_name_en": 85
+    }
+  },
+  "health_services": {
+    "sample_items": 10,
+    "response_total": 18,
+    "unique_health_service_code": 10,
+    "latlon_both_zero": 10,
+    "service_areas_one_each": 10,
+    "village_ref_nonnull": 10,
+    "village_ref_to_visible_health_page": 9,
+    "village_ref_to_unseen_health_page": 1,
+    "unresolved_code": "BA0000588"
+  },
+  "reports": {
+    "volunteer_gender": {
+      "sample_rows": 10,
+      "lookup_matches": 10,
+      "full_geography_matches": 10,
+      "gender_sum_matches": 10,
+      "sample_total": 227,
+      "male_total": 45,
+      "female_total": 182
+    },
+    "volunteer_family": {
+      "sample_rows": 10,
+      "lookup_matches": 8,
+      "full_geography_matches": 7,
+      "one_subdistrict_mismatch": 1,
+      "two_outside_scope_village_codes": 2
+    },
+    "resigned_volunteers": {
+      "sample_rows": 10,
+      "lookup_matches": 10,
+      "full_geography_matches": 10,
+      "unique_village_codes": 9
+    },
+    "volunteer_tenure": {
+      "sample_rows": 10,
+      "lookup_matches": 10,
+      "full_geography_matches": 10,
+      "unique_village_codes": 8,
+      "tenure_year_pattern_matches": 10
+    }
+  },
+  "unresolved": [
+    "remaining 8 health-service records",
+    "all report/assignment unseen pages",
+    "status and service-area semantics",
+    "live API authentication and permission"
+  ]
+}

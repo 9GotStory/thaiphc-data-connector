@@ -360,7 +360,7 @@
           "observed_kind": "string",
           "sheet_type": "TEXT",
           "format": "PLAIN_TEXT",
-          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
           "sample_note": "0/8 · 540607"
         },
         {
@@ -511,7 +511,7 @@
           "observed_kind": "string",
           "sheet_type": "TEXT",
           "format": "PLAIN_TEXT",
-          "pii_policy": "RESTRICTED_DEFAULT_OMIT",
+          "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
           "sample_note": "ไม่พบ (0/85) · 540602005"
         },
         {

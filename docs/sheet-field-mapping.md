@@ -43,7 +43,7 @@ Row grain: one subdistrict. Write gate: **ELIGIBLE_AFTER_APPROVAL**. Key: `code`
 | Original source field = proposed column | Observed type | Proposed cell type | Default privacy handling |
 |---|---|---|---|
 | `code` | string | `TEXT` | `ALLOW_ONLY_IF_DATASET_APPROVED` |
-| `id` | string | `TEXT` | `RESTRICTED_DEFAULT_OMIT` |
+| `id` | string | `TEXT` | `ALLOW_ONLY_IF_DATASET_APPROVED` |
 | `name_th` | string | `TEXT` | `ALLOW_ONLY_IF_DATASET_APPROVED` |
 | `name_en` | string | `TEXT` | `ALLOW_ONLY_IF_DATASET_APPROVED` |
 | `postal_code` | string | `TEXT` | `ALLOW_ONLY_IF_DATASET_APPROVED` |
@@ -63,7 +63,7 @@ Row grain: one village. Write gate: **ELIGIBLE_AFTER_APPROVAL**. Key: `code`.
 |---|---|---|---|
 | `code` | string | `TEXT` | `ALLOW_ONLY_IF_DATASET_APPROVED` |
 | `village_code_8digit` | string | `TEXT` | `ALLOW_ONLY_IF_DATASET_APPROVED` |
-| `id` | string | `TEXT` | `RESTRICTED_DEFAULT_OMIT` |
+| `id` | string | `TEXT` | `ALLOW_ONLY_IF_DATASET_APPROVED` |
 | `name_th` | string | `TEXT` | `ALLOW_ONLY_IF_DATASET_APPROVED` |
 | `name_en` | null เท่านั้น (ชนิดอื่นยังไม่ทราบ) | `UNKNOWN_NULL_ONLY` | `ALLOW_ONLY_IF_DATASET_APPROVED` |
 | `village_no` | integer | `NUMBER` | `ALLOW_ONLY_IF_DATASET_APPROVED` |

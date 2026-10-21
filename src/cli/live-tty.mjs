@@ -2,9 +2,10 @@
 const CONFIRM_PHRASE='FETCH SUBDISTRICTS 5406';
 const CONFIRM_VILLAGES_PHRASE='FETCH VILLAGES 5406';
 const CONFIRM_HEALTH_SERVICES_PHRASE='FETCH HEALTH SERVICES 5406';
+const CONFIRM_VOLUNTEER_GENDER_PHRASE='FETCH VOLUNTEER GENDER 5406';
 const REAL_BEARER=/^[A-Za-z0-9._~+/-]+={0,}$/;
 
-export {CONFIRM_PHRASE,CONFIRM_VILLAGES_PHRASE,CONFIRM_HEALTH_SERVICES_PHRASE};
+export {CONFIRM_PHRASE,CONFIRM_VILLAGES_PHRASE,CONFIRM_HEALTH_SERVICES_PHRASE,CONFIRM_VOLUNTEER_GENDER_PHRASE};
 
 export function isCandidateRealBearer(value){
   return typeof value==='string'&&value.length>=16&&value.length<=8192&&
@@ -69,7 +70,8 @@ function readHiddenLine({input=process.stdin,output=process.stderr,label,maxChar
 export async function confirmLiveUseFromTTY(io={},endpoint='subdistricts'){
   const expected=endpoint==='subdistricts'?CONFIRM_PHRASE:
     endpoint==='villages'?CONFIRM_VILLAGES_PHRASE:
-    endpoint==='health-services'?CONFIRM_HEALTH_SERVICES_PHRASE:null;
+    endpoint==='health-services'?CONFIRM_HEALTH_SERVICES_PHRASE:
+    endpoint==='volunteer-gender'?CONFIRM_VOLUNTEER_GENDER_PHRASE:null;
   if(!expected)throw new Error('LIVE_CONFIRMATION_SCOPE_REJECTED');
   const phrase=await readHiddenLine({...io,
     label:'Read-only bounded request(s), district 5406. Type '+expected+' to confirm (hidden): ',

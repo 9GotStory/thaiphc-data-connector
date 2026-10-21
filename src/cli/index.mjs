@@ -10,8 +10,9 @@ import { confirmLiveUseFromTTY, readRealBearerFromTTY } from './live-tty.mjs';
 import { liveFetchSubdistricts } from './live-fetch.mjs';
 import { liveFetchVillages } from './live-villages.mjs';
 import { liveFetchHealthServices } from './live-health-services.mjs';
+import { liveFetchVolunteerGender } from './live-volunteer-gender.mjs';
 
-const HELP='ThaiPHC Node.js 24 Manual Connector\nCommands: help | inspect [--endpoint ID] | validate [--endpoint ID] | dry-run [--endpoint ID] [--max-pages N] | auth-mock [--endpoint subdistricts] | live-fetch --endpoint subdistricts|villages|health-services --acknowledge-authorized-use\nLive-fetch requires interactive confirmation + manually pasted authorized Bearer token; one bounded read-only lookup or at most 10 health-service pages; aggregate-only output. No Google Sheets/App Script writes.\nDefault commands and auth-mock remain fully offline. No --token, --output, --url, or multi-endpoint live calls.';
+const HELP='ThaiPHC Node.js 24 Manual Connector\nCommands: help | inspect [--endpoint ID] | validate [--endpoint ID] | dry-run [--endpoint ID] [--max-pages N] | auth-mock [--endpoint subdistricts] | live-fetch --endpoint subdistricts|villages|health-services|volunteer-gender --acknowledge-authorized-use\nLive-fetch requires interactive confirmation + manually pasted authorized Bearer token; bounded read-only lookups/reports (health services max 10 pages, volunteer gender max 15 pages); aggregate-only output. No Google Sheets/App Script writes.\nDefault commands and auth-mock remain fully offline. No --token, --output, --url, or multi-endpoint live calls.';
 function parseArgs(argv){
   const [command='help',...tail]=argv;
   if(!['help','inspect','validate','dry-run','auth-mock','live-fetch'].includes(command))throw Error('UNSUPPORTED_COMMAND');
@@ -40,7 +41,7 @@ function parseArgs(argv){
     if(endpoint!=='subdistricts')throw Error('MOCK_ENDPOINT_DENIED');
   }
   if(command==='live-fetch'){
-    if(!['subdistricts','villages','health-services'].includes(endpoint)||!acknowledged)throw Error('LIVE_SCOPE_OR_ACK_REQUIRED');
+    if(!['subdistricts','villages','health-services','volunteer-gender'].includes(endpoint)||!acknowledged)throw Error('LIVE_SCOPE_OR_ACK_REQUIRED');
   }
   return {command,endpoint,maxPages};
 }
@@ -49,7 +50,7 @@ export async function main(argv=process.argv.slice(2),write=console.log,tty={}){
     const parsed=parseArgs(argv);
     if(parsed.command==='help'){write(HELP);return 0;}
     if(parsed.command==='live-fetch'){
-      const liveRunner={subdistricts:liveFetchSubdistricts,villages:liveFetchVillages,'health-services':liveFetchHealthServices}[parsed.endpoint];
+      const liveRunner={subdistricts:liveFetchSubdistricts,villages:liveFetchVillages,'health-services':liveFetchHealthServices,'volunteer-gender':liveFetchVolunteerGender}[parsed.endpoint];
       const result=await liveRunner({
         confirm:()=>confirmLiveUseFromTTY(tty,parsed.endpoint),
         getToken:()=>readRealBearerFromTTY(tty),

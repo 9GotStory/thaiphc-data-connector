@@ -273,6 +273,6 @@ test('T009D mock source never calls Apps Script Sheets/transport or emits datase
  assert.doesNotMatch(gasSource,/\b(?:SpreadsheetApp|UrlFetchApp|PropertiesService|DriveApp|LockService)\s*\./);
  assert.doesNotMatch(gasSource,/\bfetch\s*\(|\bLogger\s*\.|\bconsole\s*\.|\bJSON\.stringify\(payload\)\s*;[\s\S]*\bContentService/);
  const output=receiver().validate(envelope('villages'));
- assert.doesNotMatch(JSON.stringify(output),/540601001|SYNTHETIC/);
+ assert.doesNotMatch(JSON.stringify(output),/540601001|SYNTHETIC_VILLAGE_SECRET|PERSON_FIELD_SENTINEL/);
  assert.equal(output.writeAllowed,false);
 });

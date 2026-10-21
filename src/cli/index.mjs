@@ -11,11 +11,12 @@ import { liveFetchSubdistricts } from './live-fetch.mjs';
 import { liveFetchVillages } from './live-villages.mjs';
 import { liveFetchHealthServices } from './live-health-services.mjs';
 import { liveFetchVolunteerGender } from './live-volunteer-gender.mjs';
+import { buildSyncPlan } from '../sync/preflight.mjs';
 
-const HELP='ThaiPHC Node.js 24 Manual Connector\nCommands: help | inspect [--endpoint ID] | validate [--endpoint ID] | dry-run [--endpoint ID] [--max-pages N] | auth-mock [--endpoint subdistricts] | live-fetch --endpoint subdistricts|villages|health-services|volunteer-gender --acknowledge-authorized-use\nLive-fetch requires interactive confirmation + manually pasted authorized Bearer token; bounded read-only lookups/reports (health services max 10 pages, volunteer gender max 15 pages); aggregate-only output. No Google Sheets/App Script writes.\nDefault commands and auth-mock remain fully offline. No --token, --output, --url, or multi-endpoint live calls.';
+const HELP='ThaiPHC Node.js 24 Manual Connector\nCommands: help | sync-plan [--endpoint ID] | inspect [--endpoint ID] | validate [--endpoint ID] | dry-run [--endpoint ID] [--max-pages N] | auth-mock [--endpoint subdistricts] | live-fetch --endpoint subdistricts|villages|health-services|volunteer-gender --acknowledge-authorized-use\nLive-fetch requires interactive confirmation + manually pasted authorized Bearer token; bounded read-only lookups/reports (health services max 10 pages, volunteer gender max 15 pages); aggregate-only output. No Google Sheets/App Script writes. sync-plan is manifest-only and never sends rows.\nDefault commands and auth-mock remain fully offline. No --token, --output, --url, or multi-endpoint live calls.';
 function parseArgs(argv){
   const [command='help',...tail]=argv;
-  if(!['help','inspect','validate','dry-run','auth-mock','live-fetch'].includes(command))throw Error('UNSUPPORTED_COMMAND');
+  if(!['help','inspect','validate','dry-run','auth-mock','live-fetch','sync-plan'].includes(command))throw Error('UNSUPPORTED_COMMAND');
   let endpoint='all',maxPages=10,acknowledged=false;
   for(let i=0;i<tail.length;i++){
     const arg=tail[i];
@@ -34,7 +35,7 @@ function parseArgs(argv){
   }
   if(!Number.isSafeInteger(maxPages)||maxPages<1||maxPages>250)throw Error('INVALID_MAX_PAGES');
   if(endpoint!=='all'&&!Object.hasOwn(ENDPOINTS,endpoint))throw Error('UNKNOWN_ENDPOINT');
-  if((command==='help'||command==='inspect'||command==='auth-mock'||command==='live-fetch')&&tail.some(x=>x==='--max-pages'))throw Error('UNSUPPORTED_FLAG');
+  if((command==='help'||command==='inspect'||command==='auth-mock'||command==='live-fetch'||command==='sync-plan')&&tail.some(x=>x==='--max-pages'))throw Error('UNSUPPORTED_FLAG');
   if(acknowledged&&command!=='live-fetch')throw Error('ACKNOWLEDGEMENT_ONLY_FOR_LIVE');
   if(command==='auth-mock'){
     if(endpoint==='all')endpoint='subdistricts';
@@ -49,6 +50,10 @@ export async function main(argv=process.argv.slice(2),write=console.log,tty={}){
   try{
     const parsed=parseArgs(argv);
     if(parsed.command==='help'){write(HELP);return 0;}
+    if(parsed.command==='sync-plan'){
+      write(JSON.stringify(buildSyncPlan(parsed.endpoint),null,2));
+      return 0; // Report generated; status HOLD explicitly forbids downstream writes.
+    }
     if(parsed.command==='live-fetch'){
       const liveRunner={subdistricts:liveFetchSubdistricts,villages:liveFetchVillages,'health-services':liveFetchHealthServices,'volunteer-gender':liveFetchVolunteerGender}[parsed.endpoint];
       const result=await liveRunner({

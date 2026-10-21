@@ -170,7 +170,7 @@ test('unexpected request dependencies are rejected without calls or token',async
 test('CLI requires exact endpoint, explicit acknowledgement and rejects token flags',async()=>{
  const good=['live-fetch','--endpoint','subdistricts','--acknowledge-authorized-use'];
  for(const args of [
-  ['live-fetch'],['live-fetch','--endpoint','health-services','--acknowledge-authorized-use'],
+  ['live-fetch'],['live-fetch','--endpoint','volunteer-gender','--acknowledge-authorized-use'],
   ['live-fetch','--endpoint','subdistricts'],['live-fetch','--endpoint','subdistricts','--token','SECRET'],
   ['live-fetch','--endpoint','subdistricts','--acknowledge-authorized-use','--output','raw.json'],
   ['live-fetch','--endpoint','subdistricts','--acknowledge-authorized-use','--max-pages','2'],

@@ -339,9 +339,11 @@ test('T007B: village_no reports fixed categories, never source values or lengths
    [[], 'ARRAY_TYPE'],
    [{raw:'SECRET_OBJECT'},'OBJECT_TYPE'],
    ['', 'EMPTY_STRING'],
-   ['invalid village_no SECRET_TEXT','INVALID_STRING_FORMAT'],
+   ['   ','BLANK_STRING'],
+   ['x'.repeat(65),'STRING_TOO_LONG'],
+   ['1\n2','CONTROL_CHARACTER'],
    ['0','ZERO_NOT_ALLOWED'],
-   ['1234','INVALID_STRING_FORMAT']
+   [' 00 ','ZERO_NOT_ALLOWED']
  ];
  for(const [value,invalidReason] of cases){
    const rows=services();
@@ -364,7 +366,7 @@ test('T007B: village_no reports fixed categories, never source values or lengths
    assert.doesNotMatch(JSON.stringify(out),/SECRET_OBJECT|SECRET_TEXT|SYNTHETIC_SERVICE|TEST_ONLY/);
  }
 });
-test('T007B: village_no remains strict; zero-padded string accepted without coercion',async()=>{
+test('T007B: zero-padded numeric source string accepted without coercion',async()=>{
  const rows=services();
  rows[10].village_no='01';
  const good=await injector(fetchPages(rows));
@@ -387,4 +389,52 @@ test('T007B: unrelated row, schema and HTTP failures never disclose reason',asyn
  const http=await injector(async()=>new Response('SECRET',{status:403}));
  assert.equal(http.status,'HTTP_403');
  assert.equal('invalidReason' in http,false);
+});
+
+test('T007C: health-service village_no is opaque bounded text not an invented 1–3 digit key',async()=>{
+ for(const value of ['1','001','1234','1-3','หมู่ 4',' 5 ', 'village reference TEXT_SENTINEL']){
+   const rows=services();
+   rows[10].village_no=value;
+   let requests=0;
+   const fake=fetchPages(rows);
+   const result=await injector(async(url,options)=>{requests++;return fake(url,options);});
+   assert.equal(result.status,'PASS');
+   assert.equal(result.count,18);
+   assert.equal(result.total,18);
+   assert.equal(result.pagesFetched,2);
+   assert.equal(requests,2);
+   assert.equal('invalidReason' in result,false);
+   assert.doesNotMatch(JSON.stringify(result),/TEXT_SENTINEL|SYNTHETIC_SERVICE|TEST_ONLY|Bearer/);
+   assert.equal(rows[10].village_no,value); // No normalization/mutation
+ }
+});
+test('T007C: source string is bounded; non-string, control, blank and all-zero stay fail-closed',async()=>{
+ for(const [value,expected] of [
+   [null,'NULL_VALUE'],[15,'NUMBER_TYPE'],[false,'BOOLEAN_TYPE'],[{},'OBJECT_TYPE'],
+   [[], 'ARRAY_TYPE'],['', 'EMPTY_STRING'],[' \t ','BLANK_STRING'],
+   ['000', 'ZERO_NOT_ALLOWED'],[' 000 ', 'ZERO_NOT_ALLOWED'],
+   ['1\r2', 'CONTROL_CHARACTER'],['\u007f', 'CONTROL_CHARACTER'],
+   ['A'.repeat(65), 'STRING_TOO_LONG']
+ ]){
+   const rows=services();rows[10].village_no=value;
+   const result=await injector(fetchPages(rows));
+   assert.equal(result.status,'INVALID_HEALTH_SERVICE_ROW');
+   assert.equal(result.invalidField,'village_no');
+   assert.equal(result.invalidReason,expected);
+   assert.equal(result.pageOffset,10);
+   assert.equal(result.rowIndex,0);
+   assert.equal(result.count,0);
+   assert.equal('total' in result,false);
+   assert.equal('pagesFetched' in result,false);
+   assert.doesNotMatch(JSON.stringify(result),/SYNTHETIC_SERVICE|TEST_ONLY/);
+ }
+});
+test('T007C: nested service_areas village_nos remains separately validated',async()=>{
+ const rows=services();
+ rows[10].village_no='1-3';
+ rows[10].service_areas[0].village_nos=['1-3'];
+ const out=await injector(fetchPages(rows));
+ assert.equal(out.status,'INVALID_SERVICE_AREA');
+ assert.equal(out.count,0);
+ assert.equal('invalidReason' in out,false);
 });

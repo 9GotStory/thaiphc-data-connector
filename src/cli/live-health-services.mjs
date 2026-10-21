@@ -39,6 +39,13 @@ function summary(status,httpStatus=null,counts=null,diagnostic=null){
    }:{})
  });
 }
+// village_no is opaque source text, not a numeric join key; preserve its value unchanged.
+// Validate only documented JSON string type and bounded metadata safety, not invented digit shape.
+function validVillageNo(value){
+ return typeof value==='string'&&value.length>=1&&value.length<=64&&
+   value.trim().length>0&&!/[\u0000-\u001f\u007f]/.test(value)&&
+   !/^0+$/.test(value.trim());
+}
 // Fixed categorical diagnostics: never pass source values, lengths or fragments to output.
 function classifyInvalidVillageNo(value){
  if(value===null)return 'NULL_VALUE';
@@ -49,8 +56,10 @@ function classifyInvalidVillageNo(value){
  if(typeof value==='undefined')return 'MISSING_OR_UNDEFINED';
  if(typeof value!=='string')return 'OTHER_TYPE';
  if(value==='')return 'EMPTY_STRING';
- if(!/^\d{1,3}$/.test(value))return 'INVALID_STRING_FORMAT';
- if(Number(value)<1)return 'ZERO_NOT_ALLOWED';
+ if(value.length>64)return 'STRING_TOO_LONG';
+ if(value.trim()==='')return 'BLANK_STRING';
+ if(/[\u0000-\u001f\u007f]/.test(value))return 'CONTROL_CHARACTER';
+ if(/^0+$/.test(value.trim()))return 'ZERO_NOT_ALLOWED';
  return 'UNCLASSIFIED_INVALID';
 }
 function record(v){return v!==null&&typeof v==='object'&&!Array.isArray(v);}
@@ -69,7 +78,7 @@ function validateRow(row,seen){
    ['health_service_name_en',nullableStr(row.health_service_name_en)],
    ['legacy_5digit_code',typeof row.legacy_5digit_code==='string'&&/^\d{5}$/.test(row.legacy_5digit_code)],
    ['legacy_9digit_code',typeof row.legacy_9digit_code==='string'&&/^\d{9}$/.test(row.legacy_9digit_code)],
-   ['village_no',typeof row.village_no==='string'&&/^\d{1,3}$/.test(row.village_no)&&Number(row.village_no)>=1],
+   ['village_no',validVillageNo(row.village_no)],
    ['created_at',str(row.created_at,80)],
    ['updated_at',str(row.updated_at,80)],
    ['deleted_at',nullableStr(row.deleted_at,80)]

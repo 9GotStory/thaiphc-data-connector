@@ -21,13 +21,18 @@ const DISTRICT_FIELDS=['district_code','district_name_th','district_name_en'];
 const SUBDISTRICT_FIELDS=['subdistrict_code','subdistrict_name_th','subdistrict_name_en'];
 const AREA_FIELDS=['id','subdistrict_code','subdistrict_name_th','village_nos','is_primary'];
 
-function summary(status,httpStatus=null,counts=null){
+function summary(status,httpStatus=null,counts=null,diagnostic=null){
  return Object.freeze({
    mode:'LIVE_READ_ONLY',endpoint:'health-services',status,
    success:status==='PASS',httpStatus,count:status==='PASS'?counts.count:0,
    ...(status==='PASS'?{
      total:counts.total,pagesFetched:counts.pagesFetched,
      zeroCoordinateCount:counts.zeroCoordinateCount
+   }:{}),
+   ...(status==='INVALID_HEALTH_SERVICE_ROW'&&diagnostic?.invalidField?{
+     invalidField:diagnostic.invalidField,
+     pageOffset:diagnostic.pageOffset,
+     rowIndex:diagnostic.rowIndex
    }:{})
  });
 }
@@ -41,12 +46,20 @@ function nullableStr(v,max=512){return v===null||str(v,max);}
 function validateRow(row,seen){
  if(!record(row)||Object.keys(row).length!==ROW_FIELDS.size||
    Object.keys(row).some(key=>!ROW_FIELDS.has(key)))return 'UNEXPECTED_RESPONSE_SCHEMA';
- if(!str(row.health_service_code,64)||!/^[A-Za-z0-9_-]+$/.test(row.health_service_code)||
-   !str(row.health_service_name_th)||!nullableStr(row.health_service_name_en)||
-   (typeof row.legacy_5digit_code!=='string'||!/^\d{5}$/.test(row.legacy_5digit_code))||(typeof row.legacy_9digit_code!=='string'||!/^\d{9}$/.test(row.legacy_9digit_code))||
-   (typeof row.village_no!=='string'||!/^\d{1,3}$/.test(row.village_no))||Number(row.village_no)<1||
-   !str(row.created_at,80)||!str(row.updated_at,80)||!nullableStr(row.deleted_at,80))
-   return 'INVALID_HEALTH_SERVICE_ROW';
+ const checks=[
+   ['health_service_code',str(row.health_service_code,64)&&/^[A-Za-z0-9_-]+$/.test(row.health_service_code)],
+   ['health_service_name_th',str(row.health_service_name_th)],
+   ['health_service_name_en',nullableStr(row.health_service_name_en)],
+   ['legacy_5digit_code',typeof row.legacy_5digit_code==='string'&&/^\d{5}$/.test(row.legacy_5digit_code)],
+   ['legacy_9digit_code',typeof row.legacy_9digit_code==='string'&&/^\d{9}$/.test(row.legacy_9digit_code)],
+   ['village_no',typeof row.village_no==='string'&&/^\d{1,3}$/.test(row.village_no)&&Number(row.village_no)>=1],
+   ['created_at',str(row.created_at,80)],
+   ['updated_at',str(row.updated_at,80)],
+   ['deleted_at',nullableStr(row.deleted_at,80)]
+ ];
+ for(const [field,ok] of checks){
+   if(!ok)return {error:'INVALID_HEALTH_SERVICE_ROW',invalidField:field};
+ }
  if(typeof row.latitude!=='number'||!Number.isFinite(row.latitude)||
     row.latitude < -90||row.latitude > 90||
     typeof row.longitude!=='number'||!Number.isFinite(row.longitude)||
@@ -60,15 +73,16 @@ function validateRow(row,seen){
     !exactKeys(row.subdistrict,SUBDISTRICT_FIELDS))return 'UNEXPECTED_RESPONSE_SCHEMA';
  if(row.province.province_code!=='54'||row.district.district_code!=='5406'||
     !SUBDISTRICTS.has(row.subdistrict.subdistrict_code))return 'GEOGRAPHIC_SCOPE_MISMATCH';
- for(const value of [
-   row.province.province_name_th,row.district.district_name_th,
-   row.subdistrict.subdistrict_name_th]){
-   if(!str(value))return 'INVALID_HEALTH_SERVICE_ROW';
- }
- for(const value of [
-   row.province.province_name_en,row.district.district_name_en,
-   row.subdistrict.subdistrict_name_en]){
-   if(!nullableStr(value))return 'INVALID_HEALTH_SERVICE_ROW';
+ for(const [field,value,nullable] of [
+   ['province.province_name_th',row.province.province_name_th,false],
+   ['district.district_name_th',row.district.district_name_th,false],
+   ['subdistrict.subdistrict_name_th',row.subdistrict.subdistrict_name_th,false],
+   ['province.province_name_en',row.province.province_name_en,true],
+   ['district.district_name_en',row.district.district_name_en,true],
+   ['subdistrict.subdistrict_name_en',row.subdistrict.subdistrict_name_en,true]
+ ]){
+   if(!(nullable?nullableStr(value):str(value)))
+     return {error:'INVALID_HEALTH_SERVICE_ROW',invalidField:field};
  }
  if(!Array.isArray(row.service_areas)||row.service_areas.length>100)
    return 'UNEXPECTED_RESPONSE_SCHEMA';
@@ -96,9 +110,10 @@ function validatePage(data,offset,seen,expectedTotal){
  const expectedCount=Math.min(PAGE_SIZE,Math.max(0,data.total-offset));
  if(data.items.length!==expectedCount)return {error:'PAGINATION_ROW_COUNT_MISMATCH'};
  let zero=0;
- for(const row of data.items){
-   const error=validateRow(row,seen);
-   if(error)return {error};
+ for(const [rowIndex,row] of data.items.entries()){
+   const problem=validateRow(row,seen);
+   if(problem)return typeof problem==='string'?{error:problem}:
+     {...problem,pageOffset:offset,rowIndex};
    if(row.latitude===0&&row.longitude===0)zero++;
  }
  return {zero};
@@ -146,7 +161,7 @@ export async function liveFetchHealthServices({confirm,getToken,fetchImpl=global
        const parsed=await readBoundedJson(response);
        if(parsed.error)return summary(parsed.error,200);
        const verified=validatePage(parsed.data,offset,seen,total);
-       if(verified.error)return summary(verified.error,200);
+       if(verified.error)return summary(verified.error,200,null,verified);
        if(total===null)total=parsed.data.total;
        zeroCoordinateCount+=verified.zero;
        pagesFetched++;

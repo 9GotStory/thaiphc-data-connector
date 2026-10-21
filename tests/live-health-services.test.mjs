@@ -266,3 +266,65 @@ test('mock-only CLI integration: one confirmation, one token entry, two fake pag
  assert.equal(result.count,18);assert.equal(result.pagesFetched,2);
  assert.doesNotMatch(out.join(''),/TEST_ONLY|SYNTHETIC_SERVICE/);
 });
+
+test('T007A: invalid row reveals only allowlisted field path and page position',async()=>{
+ const variants=[
+   ['health_service_code',rows=>{rows[1].health_service_code='SECRET NAME /INVALID';}],
+   ['health_service_name_th',rows=>{rows[1].health_service_name_th='';}],
+   ['health_service_name_en',rows=>{rows[1].health_service_name_en=42;}],
+   ['legacy_5digit_code',rows=>{rows[1].legacy_5digit_code=null;}],
+   ['legacy_9digit_code',rows=>{rows[1].legacy_9digit_code=123456789;}],
+   ['village_no',rows=>{rows[1].village_no=null;}],
+   ['created_at',rows=>{rows[1].created_at=null;}],
+   ['updated_at',rows=>{rows[1].updated_at='';}],
+   ['deleted_at',rows=>{rows[1].deleted_at=123;}],
+   ['province.province_name_th',rows=>{rows[1].province.province_name_th='';}],
+   ['district.district_name_en',rows=>{rows[1].district.district_name_en=123;}],
+   ['subdistrict.subdistrict_name_th',rows=>{rows[1].subdistrict.subdistrict_name_th=null;}]
+ ];
+ for(const [invalidField,mutate] of variants){
+   const rows=services();mutate(rows);
+   const result=await injector(fetchPages(rows));
+   assert.equal(result.status,'INVALID_HEALTH_SERVICE_ROW');
+   assert.equal(result.success,false);
+   assert.equal(result.count,0);
+   assert.equal(result.httpStatus,200);
+   assert.equal(result.invalidField,invalidField);
+   assert.equal(result.pageOffset,0);
+   assert.equal(result.rowIndex,1);
+   const safe=JSON.stringify(result);
+   assert.doesNotMatch(safe,/SYNTHETIC_SERVICE|TEST_ONLY|SECRET NAME|00000000-0000/);
+   assert.deepEqual(Object.keys(result).sort(),[
+     'mode','endpoint','status','success','httpStatus','count',
+     'invalidField','pageOffset','rowIndex'
+   ].sort());
+ }
+});
+test('T007A: second-page row invalidField+offset+index without partial results',async()=>{
+ const rows=services();
+ rows[12].legacy_5digit_code=null;
+ let calls=0;
+ const fake=fetchPages(rows);
+ const result=await injector(async(url,opts)=>{calls++;return fake(url,opts);});
+ assert.equal(calls,2);
+ assert.equal(result.status,'INVALID_HEALTH_SERVICE_ROW');
+ assert.equal(result.invalidField,'legacy_5digit_code');
+ assert.equal(result.pageOffset,10);
+ assert.equal(result.rowIndex,2);
+ assert.equal(result.count,0);
+ assert.equal('total' in result,false);
+ assert.equal('pagesFetched' in result,false);
+ assert.doesNotMatch(JSON.stringify(result),/SYNTHETIC_SERVICE|TEST_ONLY/);
+});
+test('T007A: valid, schema, scope and HTTP failures do not contain invalidField',async()=>{
+ const good=await injector(fetchPages());
+ assert.equal(good.status,'PASS');
+ assert.equal('invalidField' in good,false);
+ const bad=services();bad[0].extraField='SECRET';
+ const schema=await injector(fetchPages(bad));
+ assert.equal(schema.status,'UNEXPECTED_RESPONSE_SCHEMA');
+ assert.equal('invalidField' in schema,false);
+ const forbidden=await injector(async()=>new Response('SECRET',{status:403}));
+ assert.equal(forbidden.status,'HTTP_403');
+ assert.equal('invalidField' in forbidden,false);
+});

@@ -196,7 +196,7 @@ test('token invalid and network exception never leaks strings and never reaches 
 test('CLI rejects extra live endpoints, missing authorization and token flags',async()=>{
  for(const args of [
    ['live-fetch','--endpoint','villages'],
-   ['live-fetch','--endpoint','health-services','--acknowledge-authorized-use'],
+   ['live-fetch','--endpoint','volunteer-gender','--acknowledge-authorized-use'],
    ['live-fetch','--endpoint','volunteer-family','--acknowledge-authorized-use'],
    ['live-fetch','--endpoint','villages','--token','DO_NOT_SHOW'],
    ['live-fetch','--endpoint','villages','--acknowledge-authorized-use','--url','https://bad'],

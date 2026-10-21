@@ -32,9 +32,26 @@ function summary(status,httpStatus=null,counts=null,diagnostic=null){
    ...(status==='INVALID_HEALTH_SERVICE_ROW'&&diagnostic?.invalidField?{
      invalidField:diagnostic.invalidField,
      pageOffset:diagnostic.pageOffset,
-     rowIndex:diagnostic.rowIndex
+     rowIndex:diagnostic.rowIndex,
+     ...(diagnostic.invalidField==='village_no'&&diagnostic.invalidReason?{
+       invalidReason:diagnostic.invalidReason
+     }:{})
    }:{})
  });
+}
+// Fixed categorical diagnostics: never pass source values, lengths or fragments to output.
+function classifyInvalidVillageNo(value){
+ if(value===null)return 'NULL_VALUE';
+ if(typeof value==='number')return 'NUMBER_TYPE';
+ if(typeof value==='boolean')return 'BOOLEAN_TYPE';
+ if(Array.isArray(value))return 'ARRAY_TYPE';
+ if(typeof value==='object')return 'OBJECT_TYPE';
+ if(typeof value==='undefined')return 'MISSING_OR_UNDEFINED';
+ if(typeof value!=='string')return 'OTHER_TYPE';
+ if(value==='')return 'EMPTY_STRING';
+ if(!/^\d{1,3}$/.test(value))return 'INVALID_STRING_FORMAT';
+ if(Number(value)<1)return 'ZERO_NOT_ALLOWED';
+ return 'UNCLASSIFIED_INVALID';
 }
 function record(v){return v!==null&&typeof v==='object'&&!Array.isArray(v);}
 function exactKeys(object,expected){
@@ -58,7 +75,10 @@ function validateRow(row,seen){
    ['deleted_at',nullableStr(row.deleted_at,80)]
  ];
  for(const [field,ok] of checks){
-   if(!ok)return {error:'INVALID_HEALTH_SERVICE_ROW',invalidField:field};
+   if(!ok)return {
+     error:'INVALID_HEALTH_SERVICE_ROW',invalidField:field,
+     ...(field==='village_no'?{invalidReason:classifyInvalidVillageNo(row.village_no)}:{})
+   };
  }
  if(typeof row.latitude!=='number'||!Number.isFinite(row.latitude)||
     row.latitude < -90||row.latitude > 90||

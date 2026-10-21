@@ -296,8 +296,10 @@ test('T007A: invalid row reveals only allowlisted field path and page position',
    assert.doesNotMatch(safe,/SYNTHETIC_SERVICE|TEST_ONLY|SECRET NAME|00000000-0000/);
    assert.deepEqual(Object.keys(result).sort(),[
      'mode','endpoint','status','success','httpStatus','count',
-     'invalidField','pageOffset','rowIndex'
+     'invalidField','pageOffset','rowIndex',
+     ...(invalidField==='village_no'?['invalidReason']:[])
    ].sort());
+   if(invalidField==='village_no')assert.equal(result.invalidReason,'NULL_VALUE');
  }
 });
 test('T007A: second-page row invalidField+offset+index without partial results',async()=>{
@@ -327,4 +329,62 @@ test('T007A: valid, schema, scope and HTTP failures do not contain invalidField'
  const forbidden=await injector(async()=>new Response('SECRET',{status:403}));
  assert.equal(forbidden.status,'HTTP_403');
  assert.equal('invalidField' in forbidden,false);
+});
+
+test('T007B: village_no reports fixed categories, never source values or lengths',async()=>{
+ const cases=[
+   [null,'NULL_VALUE'],
+   [1,'NUMBER_TYPE'],
+   [false,'BOOLEAN_TYPE'],
+   [[], 'ARRAY_TYPE'],
+   [{raw:'SECRET_OBJECT'},'OBJECT_TYPE'],
+   ['', 'EMPTY_STRING'],
+   ['invalid village_no SECRET_TEXT','INVALID_STRING_FORMAT'],
+   ['0','ZERO_NOT_ALLOWED'],
+   ['1234','INVALID_STRING_FORMAT']
+ ];
+ for(const [value,invalidReason] of cases){
+   const rows=services();
+   rows[10].village_no=value;
+   const out=await injector(fetchPages(rows));
+   assert.equal(out.status,'INVALID_HEALTH_SERVICE_ROW');
+   assert.equal(out.invalidField,'village_no');
+   assert.equal(out.invalidReason,invalidReason);
+   assert.equal(out.pageOffset,10);
+   assert.equal(out.rowIndex,0);
+   assert.equal(out.httpStatus,200);
+   assert.equal(out.count,0);
+   assert.equal('total' in out,false);
+   assert.equal('pagesFetched' in out,false);
+   assert.equal('zeroCoordinateCount' in out,false);
+   assert.deepEqual(Object.keys(out).sort(),[
+     'mode','endpoint','status','success','httpStatus','count',
+     'invalidField','pageOffset','rowIndex','invalidReason'
+   ].sort());
+   assert.doesNotMatch(JSON.stringify(out),/SECRET_OBJECT|SECRET_TEXT|SYNTHETIC_SERVICE|TEST_ONLY/);
+ }
+});
+test('T007B: village_no remains strict; zero-padded string accepted without coercion',async()=>{
+ const rows=services();
+ rows[10].village_no='01';
+ const good=await injector(fetchPages(rows));
+ assert.equal(good.status,'PASS');
+ assert.equal(good.count,18);
+ assert.equal('invalidReason' in good,false);
+});
+test('T007B: unrelated row, schema and HTTP failures never disclose reason',async()=>{
+ const rows=services();
+ rows[10].health_service_name_th='';
+ const invalidRow=await injector(fetchPages(rows));
+ assert.equal(invalidRow.status,'INVALID_HEALTH_SERVICE_ROW');
+ assert.equal(invalidRow.invalidField,'health_service_name_th');
+ assert.equal('invalidReason' in invalidRow,false);
+ const missing=services();
+ delete missing[10].village_no;
+ const wrongSchema=await injector(fetchPages(missing));
+ assert.equal(wrongSchema.status,'UNEXPECTED_RESPONSE_SCHEMA');
+ assert.equal('invalidReason' in wrongSchema,false);
+ const http=await injector(async()=>new Response('SECRET',{status:403}));
+ assert.equal(http.status,'HTTP_403');
+ assert.equal('invalidReason' in http,false);
 });

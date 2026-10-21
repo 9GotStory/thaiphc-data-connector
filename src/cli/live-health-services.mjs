@@ -43,8 +43,8 @@ function validateRow(row,seen){
    Object.keys(row).some(key=>!ROW_FIELDS.has(key)))return 'UNEXPECTED_RESPONSE_SCHEMA';
  if(!str(row.health_service_code,64)||!/^[A-Za-z0-9_-]+$/.test(row.health_service_code)||
    !str(row.health_service_name_th)||!nullableStr(row.health_service_name_en)||
-   !/^\d{5}$/.test(row.legacy_5digit_code)||!/^\d{9}$/.test(row.legacy_9digit_code)||
-   !/^\d{1,3}$/.test(row.village_no)||Number(row.village_no)<1||
+   (typeof row.legacy_5digit_code!=='string'||!/^\d{5}$/.test(row.legacy_5digit_code))||(typeof row.legacy_9digit_code!=='string'||!/^\d{9}$/.test(row.legacy_9digit_code))||
+   (typeof row.village_no!=='string'||!/^\d{1,3}$/.test(row.village_no))||Number(row.village_no)<1||
    !str(row.created_at,80)||!str(row.updated_at,80)||!nullableStr(row.deleted_at,80))
    return 'INVALID_HEALTH_SERVICE_ROW';
  if(typeof row.latitude!=='number'||!Number.isFinite(row.latitude)||
@@ -76,7 +76,7 @@ function validateRow(row,seen){
    if(!exactKeys(area,AREA_FIELDS)||!str(area.id,80)||
       !SUBDISTRICTS.has(area.subdistrict_code)||!str(area.subdistrict_name_th)||
       typeof area.is_primary!=='boolean'||!Array.isArray(area.village_nos)||
-      area.village_nos.length>100||area.village_nos.some(v=>!/^0*[1-9]\d{0,2}$/.test(v)))
+      area.village_nos.length>100||area.village_nos.some(v=>typeof v!=='string'||!/^0*[1-9]\d{0,2}$/.test(v)))
      return 'INVALID_SERVICE_AREA';
  }
  if(seen.has(row.health_service_code))return 'DUPLICATE_SOURCE_KEY';

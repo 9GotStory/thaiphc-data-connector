@@ -183,7 +183,10 @@ test('invalid coordinates, invalid leading-zero code strings, incorrect values f
   [rows=>{rows[0].latitude=NaN;},'INVALID_COORDINATES'],
   [rows=>{rows[0].longitude=181;},'INVALID_COORDINATES'],
   [rows=>{rows[0].legacy_5digit_code=6426;},'INVALID_HEALTH_SERVICE_ROW'],
+  [rows=>{rows[0].legacy_5digit_code=12345;},'INVALID_HEALTH_SERVICE_ROW'],
+  [rows=>{rows[0].legacy_9digit_code=123456789;},'INVALID_HEALTH_SERVICE_ROW'],
   [rows=>{rows[0].legacy_9digit_code='123';},'INVALID_HEALTH_SERVICE_ROW'],
+  [rows=>{rows[0].village_no=1;},'INVALID_HEALTH_SERVICE_ROW'],
   [rows=>{rows[0].health_service_code='';},'INVALID_HEALTH_SERVICE_ROW']
  ]){
   const rows=services();mutate(rows);

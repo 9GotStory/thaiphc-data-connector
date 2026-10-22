@@ -94,7 +94,7 @@ test('T012 deploy PS backs up BEFORE classifier and removes only verified empty 
  const src=readFileSync(new URL('../scripts/deploy-existing-apps-script.ps1',import.meta.url),'utf8');
  const backupPos=src.indexOf("Copy-Item -LiteralPath $file.FullName -Destination $destination -Force");
  const checkPos=src.indexOf("verify-pulled-apps-script.mjs");
- const removePos=src.indexOf("Remove-Item -LiteralPath (Join-Path $staging 'รหัส.js') -Force");
+ const removePos=src.indexOf("Remove-Item -LiteralPath $starterFiles[0].FullName -Force -ErrorAction Stop");
  const copyPos=src.indexOf("Copy-Item -LiteralPath $source -Destination (Join-Path $staging 'Code.gs')");
  const pushPos=src.indexOf("Invoke-Clasp -ClaspArgs @('push','--force')");
  assert.ok(backupPos>=0&&backupPos<checkPos&&checkPos<removePos&&removePos<copyPos&&copyPos<pushPos);

@@ -1,4 +1,4 @@
-# T011 / ThaiPHC — install verified T010 Apps Script source into the EXISTING project.
+# T011 / ThaiPHC - install verified T010 Apps Script source into the EXISTING project.
 # Run only on the owner's Windows PC; needs locally authorized clasp OAuth.
 # The non-secret Script, Deployment and Spreadsheet IDs live in config/thaiphc-targets.json.
 # Never stages apps-script/dev-receiver.gs (duplicate doPost).
@@ -79,7 +79,7 @@ if (-not $code.Contains("props.getProperty('THAIPHC_RECEIVER_ENABLED')!=='true'"
 }
 $release = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
 if ($release.runtimeVersion -ne 'V8') { throw 'Unexpected Apps Script runtime.' }
-Write-Host 'ThaiPHC T011 — existing Apps Script deployment, safe defaults OFF.'
+Write-Host 'ThaiPHC T011 - existing Apps Script deployment, safe defaults OFF.'
 Write-Host ('Repository: ' + $repo)
 Write-Host 'Deployment target IDs loaded from versioned config (no credentials).'
 Write-Host 'Running Node.js synthetic regression tests before any remote action...'
@@ -137,9 +137,17 @@ try {
     }
     $audit = ($auditOutput -join '').Trim()
     if ($audit -ceq 'DEFAULT_STARTER') {
-        # Remove the verified EMPTY starter ONLY from the temp staging folder.
-        # Its exact original bytes remain in the dated backup directory.
-        Remove-Item -LiteralPath (Join-Path $staging 'รหัส.js') -Force
+        # The UTF-8 Node verifier has already checked the exact filename and
+        # empty function body. Use the path obtained from the filesystem: a
+        # Unicode filename literal in UTF-8-without-BOM .ps1 is misread by
+        # Windows PowerShell 5.1 as the active ANSI code page.
+        # Only the verified EMPTY starter is removed from temporary staging.
+        $starterFiles = @($remoteFiles | Where-Object { $_.Name -cne 'appsscript.json' })
+        if ($starterFiles.Count -ne 1 -or
+            -not (Test-Path -LiteralPath $starterFiles[0].FullName -PathType Leaf)) {
+            throw 'Verified empty starter path mismatch. STOP before push.'
+        }
+        Remove-Item -LiteralPath $starterFiles[0].FullName -Force -ErrorAction Stop
         Write-Host 'Verified empty Thai myFunction() starter removed from temporary staging only.'
     } elseif ($audit -cne 'EMPTY') {
         Write-Host ('Backup of remote files: ' + $backup)

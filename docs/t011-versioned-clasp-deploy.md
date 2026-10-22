@@ -1,12 +1,25 @@
 # T011 — Versioned clasp install and existing target IDs
 
-Status: **SOURCE-ONLY / NOT PUSHED / NOT DEPLOYED**. Tracked under [Issue #39](https://github.com/9GotStory/thaiphc-data-connector/issues/39).
+Status (updated 2026-10-22): **OWNER-REPORTED SOURCE PUSH PASS / WEB APP V3 GET SMOKE PASS; POST/WRITES NOT TESTED**. This document retains T011–T014 installation history. Original work: [Issue #39](https://github.com/9GotStory/thaiphc-data-connector/issues/39). Active Web App target alignment: [T015 Issue #47](https://github.com/9GotStory/thaiphc-data-connector/issues/47).
 
 ## All three IDs in versioned configuration
 
-The **existing user-owned** destination identifiers are stored in `config/thaiphc-targets.json` with keys `scriptId`, `deploymentId` and `spreadsheetId`. The Sheet is the read-only verified **ThaiPHC Data** workbook, currently containing only `ชีต1`. IDs are project locators, **not credentials**, but can identify a deployed endpoint: review GitHub repository visibility and Google sharing permissions. NEVER commit OAuth credentials, the HMAC shared secret, ThaiPHC Bearer, `.clasprc.json` or source records.
+The **existing user-owned** destination identifiers are stored in `config/thaiphc-targets.json` with keys `scriptId`, `deploymentId` and `spreadsheetId`. As of T015, `deploymentId` targets the owner-created **Web App V3**, not the prior **Library V2**. The Sheet is the previously read-only verified **ThaiPHC Data** workbook; the last confirmed metadata check found only `ชีต1`. IDs are project locators, **not credentials**, but can identify a deployed endpoint: review GitHub repository visibility and Google sharing permissions. NEVER commit OAuth credentials, the HMAC shared secret, ThaiPHC Bearer, `.clasprc.json` or source records.
 
 The exact Spreadsheet ID is **not** hardcoded into `Code.gs`: it must be supplied via private Script Property `THAIPHC_SPREADSHEET_ID` if/when writes are separately authorized.
+
+## T015 — Verified Web App V3 and current operational boundary
+
+Evidence reported by the operator on 2026-10-22:
+
+- Local Windows offline regression: **213/213 PASS** after T014.
+- Guarded clasp upload: **2 files pushed** to the existing Script ID (`Code.gs`, `appsscript.json`).
+- The original versioned deployment ID `AKfycbwVnsHsWXRP_VliCUmOQ0bpRaHqjlR8YDe_JFUf39hRtBBiTknpXaGDESZTzCfQYLmDlg` was successfully updated to **Library V2**. The owner's Manage deployments UI confirmed a **Library** URL, not an HTTP Web App URL. Preserve this historical deployment; do not target it for POST.
+- Owner created **one Web App V3** in the **same Script project**. The active config `deploymentId` now points to `AKfycbw6FbaK1XM2AEVt0vokP2Ssz-UomZMmvX1oTOSVrZCpgxUVqScDjVqc9JJfUVkRUxQFlQ`. The operator-provided Web App URL is `https://script.google.com/macros/s/<deploymentId>/exec` after substituting that exact ID.
+- Owner's GET smoke test returned `{"protocol":"THAIPHC_SYNC_V1","status":"METHOD_DISABLED","accepted":false,"sheetsWrites":0}` — consistent with the deployed `doGet()` handler.
+- **This GET response does not inspect Script Properties.** Confirm both `THAIPHC_RECEIVER_ENABLED` and `THAIPHC_WRITE_ENABLED` are `false` or absent before any POST test. No signed POST, authentication/redirect test, real-data sync or Sheets write has been performed.
+
+**Do not rerun the initial installer** merely to change the tracked Deployment ID. Its current fail-closed remote-source classifier intentionally refuses a pulled project with non-starter `Code.gs`. Config changes alone do not require `clasp push` or `update-deployment`. Any future authorized source change needs a separately reviewed update workflow that backs up and verifies the existing remote code before mutation.
 
 ## Safe scope
 
@@ -16,7 +29,7 @@ The exact Spreadsheet ID is **not** hardcoded into `Code.gs`: it must be supplie
 - Every mutation is operator-confirmed: `OFF` acknowledges private Script Properties (receiver and write flags both `false` or absent), `PUSH` pushes the exact two source files, and `UPDATE` updates only the supplied existing Deployment ID. `-PushOnly` skips deployment version update.
 - No OAuth session is available to ChatGPT here. This is an operator-run Windows PowerShell workflow, never unattended CI. The source stays disabled by default; no real ThaiPHC data or Google Sheets values are read or written by the installer.
 
-## Windows PowerShell commands (after reviewed PR is merged)
+## Historical first-install Windows PowerShell commands (do not rerun after successful source push)
 
 Run from the local repository root, signed in to the Google account authorized to edit the existing Script ID:
 
@@ -45,7 +58,7 @@ This script uses clasp 3.x syntax `list-deployments`, `pull`, `show-file-status`
 
 ## What is NOT approved or complete
 
-The proposed real receiver is not deployed by this PR. The existing Node CLI still does **not** POST full live source rows; completing actual Manual Sync requires a separate authorized sender and validation of source-data transfer permissions. No data persistence, public endpoint enablement, or real Google Sheets write is performed in these tests. Neither `volunteer-gender` village-level aggregates nor four person-level endpoints are enabled.
+The owner-reported Web App V3 GET smoke test passed, but signed POST validation and data transfer remain untested. The existing Node CLI still does **not** POST full live source rows; completing actual Manual Sync requires a separate authorized sender and validation of source-data transfer permissions. No data persistence, public endpoint enablement, or real Google Sheets write is performed in these tests. Neither `volunteer-gender` village-level aggregates nor four person-level endpoints are enabled.
 
 ## T012 — Existing Thai-language starter gate
 

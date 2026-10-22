@@ -1,8 +1,8 @@
 # T010 — ThaiPHC Apps Script Receiver (existing user-owned project)
 
-**Status:** SOURCE WRITTEN, **NOT INSTALLED / NOT DEPLOYED / NOT ENABLED**.  
+**Status (2026-10-22 operator evidence):** SOURCE PUSHED into the existing Script project; **WEB APP V3 GET SMOKE PASS**, signed POST/Sheets writes **NOT TESTED OR APPROVED**. Check Script Properties before any ingress test.  
 **Issue:** [#37](https://github.com/9GotStory/thaiphc-data-connector/issues/37)  
-**Destination already confirmed (read-only via connected Drive):** Google Spreadsheet title **ThaiPHC Data**, time zone `Asia/Bangkok`, currently only `ชีต1`. The actual Spreadsheet ID and Script/Deployment IDs were supplied privately in conversation and are intentionally **not embedded in Git**.
+**Destination already confirmed (read-only via connected Drive):** Google Spreadsheet title **ThaiPHC Data**, time zone `Asia/Bangkok`, currently only `ชีต1`. The three non-secret destination IDs are tracked in `config/thaiphc-targets.json`; bearer tokens, HMAC secrets and OAuth credentials must remain private.
 
 ## 1. Source files / deployment boundary
 
@@ -12,7 +12,7 @@
 
 **Safety defaults:** If `THAIPHC_RECEIVER_ENABLED` is not exactly `true`, every HTTP POST returns `INGRESS_DISABLED` before parsing any request. If only the receiver is enabled, authenticated `mode=validate` works without opening Sheets, but `mode=commit` returns `WRITE_DISABLED` until a separate `THAIPHC_WRITE_ENABLED=true` setting is expressly approved. No automatic scheduling, deployment or hidden Sheets update.
 
-**Important:** This is new code to be **installed into the existing Script ID after separate approval**, not source recovered from that existing project. The existing **Deployment ID must not be treated as updated**; a script edit and deployment version are separate operations.
+**Current deployment distinction:** T010 receiver source was pushed to the original Script ID. The previously configured ID is a **Library V2**, retained as historical; owner-created **Web App V3** in the same project is the active `/exec` endpoint. The owner-reported GET returned `METHOD_DISABLED` (expected `doGet()` behavior); this is not a signed POST test and does not verify either receiver/write flag.
 
 ## 2. Allowed datasets and default isolation
 
@@ -77,16 +77,16 @@ The receiver limits body bytes/characters, HMAC verifies the **encoded payload i
 
 Apps Script ContentService may return a logical rejection with HTTP 200 and may redirect a successful response through Google-owned infrastructure. The future sender **must parse the JSON `accepted` and `status`**; it must not equate HTTP 200 with success and must never forward the ThaiPHC Bearer or HMAC secret through an unchecked redirect. Do not automate the sender until its Google Apps Script behavior is explicitly tested.
 
-## 4. Installation plan (NOT executed by ChatGPT)
+## 4. Owner-controlled configuration and safety gates (Web App V3 installed)
 
-1. **After PR review/explicit approval**, open the **existing** Apps Script project whose Script ID you provided. Do not create a separate project, replace the existing Deployment ID, or change any deployed Web App until specifically authorized.
-2. Add or replace `Code.gs` using `apps-script/Code.gs` and review `appsscript.json` (manifest visible in Apps Script project settings). Do not put IDs/credentials in code.
+1. The owner has already installed `Code.gs` and `appsscript.json` into the **existing Script ID** and published a **Web App V3**. Do not create further Script projects or Deployments for the configuration-only T015 change.
+2. Retain reviewed receiver source; do not push again merely to change the tracked target ID. The original first-install-only clasp script intentionally refuses a remote project already containing non-starter source.
 3. In Apps Script **Project Settings → Script properties**, add these values, privately:
    - `THAIPHC_SPREADSHEET_ID` = the **existing** `ThaiPHC Data` spreadsheet ID you supplied.
    - `THAIPHC_HMAC_KEY_B64` = your own **new random 32-byte key** encoded as standard base64. One local Windows command to generate it: `node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64'))"`. Never post the output in chat/issue/CI logs; do not reuse a ThaiPHC token.
    - `THAIPHC_RECEIVER_ENABLED` = `false` by default.
    - `THAIPHC_WRITE_ENABLED` = `false` by default.
-4. Obtain separate owner approval before enabling **signed validation-only** or deploying/updating a Web App. If a real `commit` test is later approved, **back up the spreadsheet first** and verify the intended tab/header/access; only then explicitly enable `THAIPHC_WRITE_ENABLED`.
+4. Obtain separate owner approval before enabling **signed validation-only**. No further Web App deployment update is needed for the T015 tracked-ID change. If a real `commit` test is later approved, **back up the spreadsheet first** and verify the intended tab/header/access; only then explicitly enable `THAIPHC_WRITE_ENABLED`.
 5. Do not install triggers, enable automatic refresh, share the spreadsheet publicly, or log/copy any real raw API rows to GitHub. When deploying, use the least exposed access mode that actually supports your Node client; "Execute as me" + public URL grants the script owner's Sheets rights to the handler, so the HMAC secret's protection is essential and must be tested carefully.
 
 ## 5. Sheet storage behavior / limits
@@ -103,4 +103,4 @@ A commit updates changed keyed rows individually and appends new keyed rows as o
 
 Run `npm.cmd test` in Windows PowerShell on the associated PR branch after review; all T010 tests use **synthetic** source rows, local HMAC fixtures, an in-memory fake `SpreadsheetApp`, and the exact `Code.gs` loaded in `node:vm`. The tests must pass on Node.js 24 CI.
 
-**Not yet done:** installed source in the user's Script ID; actual `doPost` HTTP request; authenticated dry-run over the deployed endpoint; live ThaiPHC row export; live Google Sheets writes, recovery/restore UAT or an end-to-end real-data sync. Those steps require separate approval. Existing spreadsheet tabs/data and deployment remain unchanged by this PR.
+**Operator-reported completed:** source push into the original Script ID, Web App V3 deployment, and GET smoke response `METHOD_DISABLED` / `accepted:false` / `sheetsWrites:0`. **Not yet done:** signed `doPost` HTTP test, authenticated `mode=validate`, live ThaiPHC row export, real Sheets writes, recovery/restore UAT or end-to-end sync. The GET response is not evidence of disabled Script Properties; independently recheck both flags. Those future steps require separate approval. This repository update changes only tracked references, tests and documentation, not the deployed service or spreadsheet.

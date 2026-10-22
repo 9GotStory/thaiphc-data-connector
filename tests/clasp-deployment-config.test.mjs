@@ -5,10 +5,12 @@ const read=(path)=>readFileSync(new URL('../'+path,import.meta.url),'utf8');
 const cfg=JSON.parse(read('config/thaiphc-targets.json'));
 const ps=read('scripts/deploy-existing-apps-script.ps1');
 
-test('T011 tracks exactly the approved 3 non-secret destination IDs',()=>{
+test('T015 tracks approved Web App V3 deployment with unchanged Script and Spreadsheet IDs',()=>{
  assert.equal(cfg.scriptId,'131WvR9DXpBFlh4snqGQG3VVV5ljkqcysRK_s0-HaKwQDnzpZs2UfCkE6');
- assert.equal(cfg.deploymentId,'AKfycbwVnsHsWXRP_VliCUmOQ0bpRaHqjlR8YDe_JFUf39hRtBBiTknpXaGDESZTzCfQYLmDlg');
+ assert.equal(cfg.deploymentId,'AKfycbw6FbaK1XM2AEVt0vokP2Ssz-UomZMmvX1oTOSVrZCpgxUVqScDjVqc9JJfUVkRUxQFlQ');
  assert.equal(cfg.spreadsheetId,'14yQGRu3EOFVae_IgDR4A3uEGqaza6a2bAhX-DYx68lA');
+ assert.match(cfg.deploymentId,/^AKfycb[A-Za-z0-9_-]{40,120}$/);
+ assert.notEqual(cfg.deploymentId,'AKfycbwVnsHsWXRP_VliCUmOQ0bpRaHqjlR8YDe_JFUf39hRtBBiTknpXaGDESZTzCfQYLmDlg'); // Library V2 must never be the active HTTP receiver.
  assert.deepEqual(Object.keys(cfg).sort(),['deploymentId','description','scriptId','spreadsheetId'].sort());
  assert.doesNotMatch(JSON.stringify(cfg),/token|bearer|HMAC_KEY|password|secret\s*:/i);
 });

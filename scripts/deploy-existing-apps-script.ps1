@@ -123,14 +123,27 @@ try {
         New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
         Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
     }
-    # User said the project has no receiver source. Any unexpected remote source
-    # must be inspected by a human, never overwritten by --force.
-    $unexpected = @($remoteFiles | Where-Object {
-        $_.FullName.Substring($staging.Length).TrimStart([char]'\',[char]'/') -ne 'appsscript.json'
-    })
-    if ($unexpected.Count -gt 0) {
+    # Inspect only already-backed-up pull results. Allow the verified 29-byte
+    # default Thai Apps Script starter, but no executable/non-default source.
+    # The classifier is independently tested with synthetic local fixtures.
+    $auditTool = Join-Path $repo 'scripts\verify-pulled-apps-script.mjs'
+    if (-not (Test-Path -LiteralPath $auditTool -PathType Leaf)) {
+        throw 'Pulled project guard missing. STOP before push.'
+    }
+    $auditOutput = @(& node.exe $auditTool $staging)
+    if ($LASTEXITCODE -ne 0) {
         Write-Host ('Backup of remote files: ' + $backup)
         throw 'Existing remote code detected. STOP: do not overwrite unknown source.'
+    }
+    $audit = ($auditOutput -join '').Trim()
+    if ($audit -ceq 'DEFAULT_STARTER') {
+        # Remove the verified EMPTY starter ONLY from the temp staging folder.
+        # Its exact original bytes remain in the dated backup directory.
+        Remove-Item -LiteralPath (Join-Path $staging 'รหัส.js') -Force
+        Write-Host 'Verified empty Thai myFunction() starter removed from temporary staging only.'
+    } elseif ($audit -cne 'EMPTY') {
+        Write-Host ('Backup of remote files: ' + $backup)
+        throw 'Existing remote code detected. STOP: unrecognized audit classification.'
     }
     Copy-Item -LiteralPath $source -Destination (Join-Path $staging 'Code.gs') -Force
     Copy-Item -LiteralPath $manifest -Destination (Join-Path $staging 'appsscript.json') -Force

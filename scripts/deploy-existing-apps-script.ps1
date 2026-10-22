@@ -159,8 +159,10 @@ try {
         Where-Object { $_.Name -ne '.clasp.json' } |
         ForEach-Object { $_.FullName.Substring($staging.Length).TrimStart([char]'\',[char]'/') } |
         Sort-Object)
+    # Order-independent, case-sensitive allowlist; sort order varies by locale.
     if ($stagedFiles.Count -ne 2 -or
-        $stagedFiles[0] -ne 'Code.gs' -or $stagedFiles[1] -ne 'appsscript.json') {
+        -not ($stagedFiles -ccontains 'Code.gs') -or
+        -not ($stagedFiles -ccontains 'appsscript.json')) {
         throw ('Unsafe staged files: ' + ($stagedFiles -join ', '))
     }
     Write-Host 'Only Code.gs + appsscript.json will be pushed. Not dev-receiver.gs.'

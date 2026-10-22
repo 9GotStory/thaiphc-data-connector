@@ -52,3 +52,28 @@ test('T013 does not modify receiver code, change targets, or create a new deploy
  assert.match(ps,/update-deployment/);
  assert.doesNotMatch(ps,/create-deployment|create-script/);
 });
+
+test('T014 staged file allowlist is case-sensitive and independent of PowerShell sort order',()=>{
+ assert.match(ps,/\$stagedFiles\.Count -ne 2/);
+ assert.match(ps,/-not \(\$stagedFiles -ccontains 'Code\.gs'\)/);
+ assert.match(ps,/-not \(\$stagedFiles -ccontains 'appsscript\.json'\)/);
+ assert.doesNotMatch(ps,/\$stagedFiles\[\d+\]\s+-ne\s+'(?:Code\.gs|appsscript\.json)'/);
+ assert.match(ps,/Where-Object \{ \$_\.Name -ne '\.clasp\.json' \}/);
+});
+
+test('T014 two-file allowlist accepts both permutations and refuses extras or wrong case',()=>{
+ const exactNames=[...ps.matchAll(/-ccontains '(Code\.gs|appsscript\.json)'/g)].map(match=>match[1]);
+ assert.deepEqual(exactNames,['Code.gs','appsscript.json']);
+ const accepted=files=>files.length===2 && exactNames.every(name=>files.includes(name));
+ assert.equal(accepted(['Code.gs','appsscript.json']),true);
+ assert.equal(accepted(['appsscript.json','Code.gs']),true);
+ for(const files of [
+  ['Code.gs'],
+  ['Code.gs','appsscript.json','dev-receiver.gs'],
+  ['Code.gs','appsscript.json','.clasp.json'],
+  ['code.gs','appsscript.json'],
+  ['Code.gs','Appsscript.json'],
+  ['nested/Code.gs','appsscript.json'],
+  ['Code.gs','Code.gs'],
+ ])assert.equal(accepted(files),false,files.join(', '));
+});

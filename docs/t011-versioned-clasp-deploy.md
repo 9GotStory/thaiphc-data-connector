@@ -12,7 +12,7 @@ The exact Spreadsheet ID is **not** hardcoded into `Code.gs`: it must be supplie
 
 - `scripts/deploy-existing-apps-script.ps1` stages ONLY `apps-script/Code.gs` and `apps-script/appsscript.json` in a temporary directory outside the Git repository, using `scriptId` from the tracked config. The older `apps-script/dev-receiver.gs` **must not be pushed** because it also declares `doPost`.
 - The script pins the original T010 reviewed **Git blob SHA** for Code.gs and manifest, verifies clean `main` and reruns `npm.cmd test`. A later intentional receiver change needs fresh review and updating those pins.
-- It checks the exact existing deployment ID through `clasp list-deployments`, pulls and backs up existing remote source, and **stops if any unexpected remote code exists**. This prevents blind overwrites by `clasp push --force`, which otherwise replaces full online project contents.
+- It checks the exact existing deployment ID through `clasp list-deployments`, pulls and **backs up existing remote source before inspecting it**. Normally it stops on unexpected code. **T012 exception:** when and only when the complete project contains `appsscript.json` plus exactly one root `รหัส.js` consisting exclusively of an empty `myFunction()` body (whitespace only, at most 128 bytes), it removes that starter **from temporary staging only**; its original bytes remain in the dated backup. Any nonempty body, other file or directory, or unexpected name still blocks deployment. This prevents blind overwrites by `clasp push --force`.
 - Every mutation is operator-confirmed: `OFF` acknowledges private Script Properties (receiver and write flags both `false` or absent), `PUSH` pushes the exact two source files, and `UPDATE` updates only the supplied existing Deployment ID. `-PushOnly` skips deployment version update.
 - No OAuth session is available to ChatGPT here. This is an operator-run Windows PowerShell workflow, never unattended CI. The source stays disabled by default; no real ThaiPHC data or Google Sheets values are read or written by the installer.
 
@@ -46,3 +46,11 @@ This script uses clasp 3.x syntax `list-deployments`, `pull`, `show-file-status`
 ## What is NOT approved or complete
 
 The proposed real receiver is not deployed by this PR. The existing Node CLI still does **not** POST full live source rows; completing actual Manual Sync requires a separate authorized sender and validation of source-data transfer permissions. No data persistence, public endpoint enablement, or real Google Sheets write is performed in these tests. Neither `volunteer-gender` village-level aggregates nor four person-level endpoints are enabled.
+
+## T012 — Existing Thai-language starter gate
+
+On 2026-10-22, the operator's first guarded clasp run found exactly two remote files: `appsscript.json` and `รหัส.js` (29 bytes). They verified that `รหัส.js` matched a whitespace-only `function myFunction() {}` body. The installer **correctly stopped before push** under the original conservative policy. This change accepts that exact harmless starter case, without accepting unknown scripts.
+
+The Node.js offline guard `scripts/verify-pulled-apps-script.mjs` checks the pulled staging directory. Synthetic tests cover the legitimate starter, missing files, extra files/directories, executable code, non-default filenames and oversized sources. No CI job uses `clasp` or modifies Google Apps Script. The previous backup remains intact; each new installer run produces another dated backup before stage cleanup.
+
+After this reviewed fix is **merged**, on the owner’s Windows terminal run `git switch main`, `git pull origin main`, then the same PowerShell installer command above. Confirm Script Properties are both OFF, type `OFF`, inspect the read-only deployment check and backup, then type `PUSH` and optionally `UPDATE` only when ready for those Google operations. A successful default-starter check does **not** authorize real-data Sheets writes or source row transfers.

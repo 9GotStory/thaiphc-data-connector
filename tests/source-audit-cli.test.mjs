@@ -145,7 +145,8 @@ test('T009D denied TTY confirmation stops before bearer prompt and source GET',a
   calls++;return respond({items:[]});
  },{confirmation:'NO'});
  assert.equal(code,2);assert.equal(calls,0);
- assert.equal(logged[0],'CLI_REJECTED: consult help (no request was executed)');
+ assert.equal(JSON.parse(logged[0]).status,'SNAPSHOT_REJECTED');
+ assert.equal(JSON.parse(logged[0]).networkRequests,0);
  assert.ok(io.prompts.every(x=>!x.includes('Paste authorized Bearer')));
 });
 test('T009D schema failure redacts source text and exposes only bounded status',async()=>{

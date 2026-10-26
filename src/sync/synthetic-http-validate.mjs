@@ -119,7 +119,9 @@ function resultFromBody(r,methods,endpoint,expectedRowCount){
  * No actual request is constructed or sent; a real HTTP sender is NOT approved.
  * Never pass live service data as synthetic replies.
  */
-export function simulateValidateHttp({prepared,exchanges}={}){
+export function simulateValidateHttp(options={}){
+ if(!keys(options,['prepared','exchanges']))reject();
+ const {prepared,exchanges}=options;
  const {endpoint,rowCount}=inspectPrepared(prepared);
  if(!Array.isArray(exchanges)||exchanges.length<1||exchanges.length>2)reject();
  const methods=['POST']; // pinned Web App URL, no user-selectable origin.

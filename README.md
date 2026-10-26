@@ -16,7 +16,8 @@ Private project for a **manual** ThaiPHC data pipeline using **Node.js 24 → Go
 - `docs/cli-offline.md` — T004 Phase A offline simulator usage
 - `docs/live-access-gate.md` — T004B authorization/privacy decision (**HOLD**)
 - `src/cli/` — offline-first CLI; bounded, manually confirmed read-only requests for four non-person endpoints
-- `src/sync/` — T009A offline-only destination contract preflight; no row export/POST/writes
+- `src/sync/` — T009A offline-only destination preflight and T017 **in-memory HMAC validate-envelope preparation**; no network POST/Sheets writes or live sender
+- `docs/t017-offline-validate-envelope.md` — T017 signed validate-only wire contract and separate future authorization gates
 - `tests/` — synthetic offline/schema/live-transport-injection tests, no real API calls in CI
 - `apps-script/Code.gs` — T010 guarded receiver source; `apps-script/dev-receiver.gs` is a separate deny-by-default mock **and must not be deployed together**
 - `config/thaiphc-targets.json` — existing Script ID, active Web App V3 Deployment ID and Spreadsheet ID (identifiers only, no credentials); the older Library V2 is not the active HTTP target

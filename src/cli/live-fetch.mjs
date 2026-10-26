@@ -18,7 +18,7 @@ function summary(status,httpStatus=null,count=0){
   status,success:status==='PASS',httpStatus,count});
 }
 
-function validateRows(payload){
+export function validateRows(payload){
  if(!payload||typeof payload!=='object'||Array.isArray(payload)||
    !Array.isArray(payload.items)||Object.keys(payload).some(key=>key!=='items'))
    return 'UNEXPECTED_RESPONSE_SCHEMA';

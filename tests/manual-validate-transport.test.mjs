@@ -85,6 +85,21 @@ test('T009D manual POST pins existing V3; emits only redacted status and valid H
  assert.equal(count,3);
 });
 
+test('T009D cannot send source-like rows even when correctly HMAC-signed',async()=>{
+ const variant=syntheticReferenceRow('villages',manifest);
+ variant.name_th='SOURCE_LIKE_BUT_SYNTHETIC';
+ const altered=buildOfflineValidateEnvelope({
+  endpoint:'villages',rows:[variant],manifest,keyB64,
+  runId:'synthetic-test-009d',fetchedAtUtc:new Date().toISOString()
+ });
+ let calls=0;
+ const r=await send(altered,async()=>{calls++;return response(valid('villages'));});
+ assert.equal(r.status,'INPUT_REJECTED');
+ assert.equal(r.networkRequests,0);
+ assert.equal(r.appsScriptPosts,0);
+ assert.equal(calls,0);
+});
+
 test('T009D 302/303 Google ContentService redirect is HTTPS-only GET with no POST body',async()=>{
  for(const redirectCode of [302,303]){
   const calls=[];

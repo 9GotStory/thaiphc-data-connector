@@ -13,7 +13,7 @@ const manifest=JSON.parse(readFileSync(new URL('../docs/sheets-schema.json',impo
 const targets=JSON.parse(readFileSync(new URL('../config/thaiphc-targets.json',import.meta.url),'utf8'));
 const keyB64=Buffer.alloc(32,73).toString('base64'); // INVENTED TEST KEY
 const TOKEN='FAKE_TEST_BEARER_1234567890';
-const URL='https://script.google.com/macros/s/'+targets.deploymentId+'/exec';
+const WEB_APP_URL='https://script.google.com/macros/s/'+targets.deploymentId+'/exec';
 const GOOGLE='https://script.googleusercontent.com/macros/echo?user_content_key=FAKE';
 const refCount={subdistricts:8,villages:85,'health-services':18};
 function row(endpoint,i=1){
@@ -72,7 +72,7 @@ test('T009D real-reference validate can POST exactly verified source snapshots f
   const out=await sendReferenceValidate({
    snapshot,prepared:p,acknowledgement:REFERENCE_VALIDATE_CONFIRM,
    fetchImpl:async(target,opts)=>{
-    calls++;assert.equal(target,URL);
+    calls++;assert.equal(target,WEB_APP_URL);
     assert.equal(opts.method,'POST');assert.equal(opts.redirect,'manual');
     assert.equal(opts.credentials,'omit');
     assert.equal(opts.headers.Authorization,undefined);
@@ -191,7 +191,7 @@ test('T009D CLI end-to-end manually fetches and validates 8 source rows but emit
    if(url.includes('/api/v1/lookups/subdistricts')){
     src++;assert.equal(opts.method,'GET');return respond({items:Array.from({length:8},(_,i)=>row('subdistricts',i+1))});
    }
-   dst++;assert.equal(url,URL);assert.equal(opts.method,'POST');
+   dst++;assert.equal(url,WEB_APP_URL);assert.equal(opts.method,'POST');
    const p=JSON.parse(Buffer.from(JSON.parse(opts.body).payloadB64,'base64'));
    assert.equal(p.mode,'validate');assert.equal(p.rows.length,8);
    return respond(valid('subdistricts',8));

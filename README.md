@@ -21,6 +21,7 @@ Private project for a **manual** ThaiPHC data pipeline using **Node.js 24 → Go
 - `src/sync/synthetic-http-validate.mjs` / `docs/t018-synthetic-http-validate.md` — T018 synthetic HTTP protocol/Google ContentService redirect simulation only (no real POST, no live sender)
 - `src/sync/manual-validate-transport.mjs` / `docs/t009d-manual-validate-transport.md` — T009D **real, opt-in HTTPS validate-only sender** for explicitly synthetic rows (no real POST performed by development/CI; live test needs separate approval)
 - `src/sync/reference-snapshot.mjs` — opt-in bounded read-only collector that can return three reference datasets in memory (no CLI raw-row output; never auto-sends; transfer approval still required)
+- `docs/t009d-source-destination-readiness.md` — verified destination has only blank `ชีต1`, source-audit CLI and remaining source permissions / completeness / backup gates
 - `tests/` — synthetic offline/schema/live-transport-injection tests, no real API calls in CI
 - `apps-script/Code.gs` — T010 guarded receiver source; `apps-script/dev-receiver.gs` is a separate deny-by-default mock **and must not be deployed together**
 - `config/thaiphc-targets.json` — existing Script ID, active Web App V3 Deployment ID and Spreadsheet ID (identifiers only, no credentials); the older Library V2 is not the active HTTP target
@@ -35,6 +36,8 @@ npm test            # offline tests; no network requests
 npm run cli -- inspect
 npm run cli -- dry-run --endpoint villages
 npm run cli -- sync-plan # T009A manifest only; status HOLD, no network or writes
+# After explicit authorization for read-only ThaiPHC lookup inspection:
+# npm run cli -- audit-source --endpoint villages --acknowledge-authorized-use
 ```
 
 No live API credentials are needed for tests, dry-runs or `sync-plan`. All real read-only fetches require an explicit TTY acknowledgement and an appropriately authorized token.

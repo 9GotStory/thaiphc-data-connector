@@ -108,3 +108,16 @@ export async function readDestinationHmacFromTTY(io={}){
  if(!/^[A-Za-z0-9+/]{43}=$/.test(key))throw Error('DESTINATION_HMAC_INVALID');
  return key;
 }
+
+
+// T009D: operator-approved READ-ONLY source readiness audit.
+// The phrase does not authorize sending source rows downstream or writing Sheets.
+export async function confirmReferenceAuditFromTTY(io={}){
+ const phrase='READ REFERENCE SNAPSHOT 5406';
+ const answer=await readHiddenLine({...io,
+  label:'Read-only reference schema audit for 5406 (source rows stay in memory). Type '+phrase+' (hidden): ',
+  maxChars:64,allowSpaces:true,timeoutMs:30000
+ });
+ if(answer!==phrase)throw Error('REFERENCE_AUDIT_NOT_CONFIRMED');
+ return phrase;
+}

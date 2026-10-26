@@ -32,9 +32,19 @@ It then asks for the private **44-character base64 destination HMAC key**, with 
 ## CI and tests
 `npm.cmd test` on Windows or `npm test` on CI uses injected `fetchImpl` only, with fake HMAC keys and fabricated rows. The test code never calls the real Web App. It tests HMAC compatibility, endpoint allowlists, exact config target, POST/GET split, unsafe redirects, errors, no retry, and TTY guards. It also retains the T017/T018 offline tests.
 
+## Bounded reference snapshot collection (code complete; not wired to outbound POST)
+
+`src/sync/reference-snapshot.mjs` exports `collectReferenceSnapshot({endpoint,confirm,getToken,fetchImpl,manifest})`. Unlike the existing CLI aggregate read-only summaries, it can return **the actual source reference rows in memory** after explicit `READ REFERENCE SNAPSHOT 5406` confirmation and a privately supplied authorized ThaiPHC bearer. It supports only the same three allowlisted endpoints, reuses the already-tested source validators, checks the exact 54/5406 request scope, bounds HTTP responses/timeouts and pagination, and invokes T009C projection to reject unexpected source fields, unsafe cells and duplicate keys.
+
+For health-services it reads at most 10 pages of 10 records and checks page offsets, total consistency and actual row counts; for the unpaginated subdistrict/village lookups, **there is no authoritative source total**, so a single response does NOT prove the complete population. `observedCountMatches` is a comparison against operator-reported historical counts 8/85/18, **not a completeness certification**. Its result always has `transferApproved:false`, `appsScriptPosts:0`, `sheetsWrites:0`. On success `rows` contains private in-memory reference values; **never print, log, write or upload that return object**.
+
+This collector is intentionally not exposed as a new raw-row CLI command and is not connected to the network sender. Its HTTP behavior is tested with **injected synthetic fetch responses only**, without accessing real ThaiPHC. Before any real source snapshot read/transfer, confirm provider access/transfer rights and an operator-approved data-handling process.
+
+The **outbound Web App sender independently enforces the exact one-row synthetic fixture**, even if given a correctly HMAC-signed different reference row. This is a concrete protection against accidentally sending collected real ThaiPHC rows through the newly added sender.
+
 ## Remaining within T009D / actual reference sync goal
 
-The existing ThaiPHC `live-fetch` commands **only report aggregate results**. They deliberately discard source rows, so no real source data can yet be synchronized to Sheets. The next implementation pass **within this same feature**, rather than a succession of simulator Issues, must obtain explicitly authorized, complete, bounded source snapshots in process memory, validate all pages and keys, and link that to the signed sender under a specific reference-data transfer approval.
+The existing ThaiPHC `live-fetch` CLI commands **still report aggregates only**. The new `reference-snapshot` collector can hold bounded rows in memory, but the real network sender intentionally accepts **synthetic fixture rows only**. A real source-data sync therefore still requires an explicit provider-transfer authorization, a safe manual operator workflow and a distinct reviewed capability for transmitting approved complete snapshots to a writable destination. The unpaginated lookup completeness gap must be resolved or separately accepted by the data owner.
 
 The three allowed source datasets remain `subdistricts`, `villages`, `health-services`. `volunteer-gender` is privacy HOLD; the four person-grain endpoints remain disabled. Confirm ThaiPHC provider extraction/transfer rights and destination sharing/retention before transferring source rows.
 

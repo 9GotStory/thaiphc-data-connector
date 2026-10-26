@@ -32,7 +32,7 @@ function report(status,httpStatus=null,detail=null){
    }:{})
  });
 }
-function validateVillageResponse(data){
+export function validateVillageResponse(data){
  if(!data||typeof data!=='object'||Array.isArray(data)||
     !Array.isArray(data.items)||Object.keys(data).some(key=>key!=='items'))
     return {error:'UNEXPECTED_RESPONSE_SCHEMA'};

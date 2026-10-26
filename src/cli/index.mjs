@@ -12,12 +12,18 @@ import { liveFetchVillages } from './live-villages.mjs';
 import { liveFetchHealthServices } from './live-health-services.mjs';
 import { liveFetchVolunteerGender } from './live-volunteer-gender.mjs';
 import { buildSyncPlan } from '../sync/preflight.mjs';
+import sheetManifest from '../../docs/sheets-schema.json' with {type:'json'};
+import {randomBytes} from 'node:crypto';
+import {syntheticReferenceRow} from '../sync/synthetic-reference-row.mjs';
+import {buildOfflineValidateEnvelope} from '../sync/offline-validate-envelope.mjs';
+import {sendSyntheticValidate} from '../sync/manual-validate-transport.mjs';
+import {confirmSyntheticValidateFromTTY,readDestinationHmacFromTTY} from './live-tty.mjs';
 
-const HELP='ThaiPHC Node.js 24 Manual Connector\nCommands: help | sync-plan [--endpoint ID] | inspect [--endpoint ID] | validate [--endpoint ID] | dry-run [--endpoint ID] [--max-pages N] | auth-mock [--endpoint subdistricts] | live-fetch --endpoint subdistricts|villages|health-services|volunteer-gender --acknowledge-authorized-use\nLive-fetch requires interactive confirmation + manually pasted authorized Bearer token; bounded read-only lookups/reports (health services max 10 pages, volunteer gender max 15 pages); aggregate-only output. No Google Sheets/App Script writes. sync-plan is manifest-only and never sends rows.\nDefault commands and auth-mock remain fully offline. No --token, --output, --url, or multi-endpoint live calls.';
+const HELP='ThaiPHC Node.js 24 Manual Connector\nCommands: help | sync-plan [--endpoint ID] | inspect [--endpoint ID] | validate [--endpoint ID] | dry-run [--endpoint ID] [--max-pages N] | auth-mock [--endpoint subdistricts] | live-fetch --endpoint subdistricts|villages|health-services|volunteer-gender --acknowledge-authorized-use | send-validate --synthetic --endpoint subdistricts|villages|health-services --acknowledge-synthetic-post\nLive-fetch requires interactive confirmation + manually pasted authorized Bearer token; bounded read-only lookups/reports (health services max 10 pages, volunteer gender max 15 pages); aggregate-only output. No Google Sheets/App Script writes. sync-plan is manifest-only and never sends rows.\nDefault commands and auth-mock remain fully offline. send-validate is an explicit REAL HTTPS POST of one SYNTHETIC-only validate batch to existing Web App V3, gated by hidden TTY confirmation + privately entered destination HMAC key (never ThaiPHC bearer); use only after separate live UAT approval. No commit or Sheets writes. No --token, --output, --url, or multi-endpoint live calls.';
 function parseArgs(argv){
   const [command='help',...tail]=argv;
-  if(!['help','inspect','validate','dry-run','auth-mock','live-fetch','sync-plan'].includes(command))throw Error('UNSUPPORTED_COMMAND');
-  let endpoint='all',maxPages=10,acknowledged=false;
+  if(!['help','inspect','validate','dry-run','auth-mock','live-fetch','sync-plan','send-validate'].includes(command))throw Error('UNSUPPORTED_COMMAND');
+  let endpoint='all',maxPages=10,acknowledged=false,synthetic=false,sendAcknowledged=false;
   for(let i=0;i<tail.length;i++){
     const arg=tail[i];
     if(arg==='--endpoint'){
@@ -26,6 +32,12 @@ function parseArgs(argv){
     }else if(arg==='--acknowledge-authorized-use'){
       if(acknowledged)throw Error('DUPLICATE_ACKNOWLEDGEMENT');
       acknowledged=true;
+    }else if(arg==='--synthetic'){
+      if(synthetic)throw Error('DUPLICATE_SYNTHETIC_FLAG');
+      synthetic=true;
+    }else if(arg==='--acknowledge-synthetic-post'){
+      if(sendAcknowledged)throw Error('DUPLICATE_SYNTHETIC_ACK');
+      sendAcknowledged=true;
     }else if(arg==='--max-pages'){
       if(i===tail.length-1)throw Error('MISSING_MAX_PAGES');
       const raw=tail[++i];
@@ -37,6 +49,14 @@ function parseArgs(argv){
   if(endpoint!=='all'&&!Object.hasOwn(ENDPOINTS,endpoint))throw Error('UNKNOWN_ENDPOINT');
   if((command==='help'||command==='inspect'||command==='auth-mock'||command==='live-fetch'||command==='sync-plan')&&tail.some(x=>x==='--max-pages'))throw Error('UNSUPPORTED_FLAG');
   if(acknowledged&&command!=='live-fetch')throw Error('ACKNOWLEDGEMENT_ONLY_FOR_LIVE');
+  if((synthetic||sendAcknowledged)&&command!=='send-validate')
+    throw Error('SYNTHETIC_FLAGS_ONLY_FOR_SEND');
+  if(command==='send-validate'){
+    if(!synthetic||!sendAcknowledged||
+      !['subdistricts','villages','health-services'].includes(endpoint)||
+      tail.includes('--max-pages')||acknowledged)
+      throw Error('SEND_VALIDATE_SCOPE_NOT_CONFIRMED');
+  }
   if(command==='auth-mock'){
     if(endpoint==='all')endpoint='subdistricts';
     if(endpoint!=='subdistricts')throw Error('MOCK_ENDPOINT_DENIED');
@@ -53,6 +73,25 @@ export async function main(argv=process.argv.slice(2),write=console.log,tty={}){
     if(parsed.command==='sync-plan'){
       write(JSON.stringify(buildSyncPlan(parsed.endpoint),null,2));
       return 0; // Report generated; status HOLD explicitly forbids downstream writes.
+    }
+    if(parsed.command==='send-validate'){
+      // This command is a REAL opt-in POST, never invoked by CI with real fetch.
+      // Stage B live Web App testing still requires Product Owner approval.
+      const confirmation=await confirmSyntheticValidateFromTTY(tty);
+      const keyB64=await readDestinationHmacFromTTY(tty);
+      const prepared=buildOfflineValidateEnvelope({
+        endpoint:parsed.endpoint,
+        rows:[syntheticReferenceRow(parsed.endpoint,sheetManifest)],
+        manifest:sheetManifest,keyB64,
+        runId:'synthetic-'+randomBytes(8).toString('hex'),
+        fetchedAtUtc:new Date().toISOString()
+      });
+      const result=await sendSyntheticValidate({
+        prepared,acknowledgement:confirmation,
+        fetchImpl:tty.fetchImpl??globalThis.fetch
+      });
+      write(JSON.stringify(result,null,2));
+      return result.status==='VALIDATED'?0:2;
     }
     if(parsed.command==='live-fetch'){
       const liveRunner={subdistricts:liveFetchSubdistricts,villages:liveFetchVillages,'health-services':liveFetchHealthServices,'volunteer-gender':liveFetchVolunteerGender}[parsed.endpoint];

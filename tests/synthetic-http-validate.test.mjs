@@ -56,7 +56,7 @@ test('T018 pinned target is user-confirmed Web App V3, never Library V2 or arbit
  assert.equal(cfg.scriptId,'131WvR9DXpBFlh4snqGQG3VVV5ljkqcysRK_s0-HaKwQDnzpZs2UfCkE6');
  assert.equal(cfg.deploymentId,'AKfycbw6FbaK1XM2AEVt0vokP2Ssz-UomZMmvX1oTOSVrZCpgxUVqScDjVqc9JJfUVkRUxQFlQ');
  assert.notEqual(cfg.deploymentId,'AKfycbwVnsHsWXRP_VliCUmOQ0bpRaHqjlR8YDe_JFUf39hRtBBiTknpXaGDESZTzCfQYLmDlg');
- assert.equal(run(prepared(),ok(VALIDATED('villages'))).status,'VALIDATED');
+ assert.throws(()=>simulateValidateHttp({prepared:prepared(),exchanges:[ok(VALIDATED('villages'))],url:'https://example.invalid'}),/SYNTHETIC_HTTP_INPUT_REJECTED/);
 });
 test('T018 receiver VALIDATED JSON succeeds in direct 200 mock for all three references',()=>{
  for(const endpoint of ['subdistricts','villages','health-services']){

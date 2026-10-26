@@ -18,11 +18,13 @@ import {syntheticReferenceRow} from '../sync/synthetic-reference-row.mjs';
 import {buildOfflineValidateEnvelope} from '../sync/offline-validate-envelope.mjs';
 import {sendSyntheticValidate} from '../sync/manual-validate-transport.mjs';
 import {confirmSyntheticValidateFromTTY,readDestinationHmacFromTTY} from './live-tty.mjs';
+import {confirmReferenceAuditFromTTY} from './live-tty.mjs';
+import {collectReferenceSnapshot} from '../sync/reference-snapshot.mjs';
 
-const HELP='ThaiPHC Node.js 24 Manual Connector\nCommands: help | sync-plan [--endpoint ID] | inspect [--endpoint ID] | validate [--endpoint ID] | dry-run [--endpoint ID] [--max-pages N] | auth-mock [--endpoint subdistricts] | live-fetch --endpoint subdistricts|villages|health-services|volunteer-gender --acknowledge-authorized-use | send-validate --synthetic --endpoint subdistricts|villages|health-services --acknowledge-synthetic-post\nLive-fetch requires interactive confirmation + manually pasted authorized Bearer token; bounded read-only lookups/reports (health services max 10 pages, volunteer gender max 15 pages); aggregate-only output. No Google Sheets/App Script writes. sync-plan is manifest-only and never sends rows.\nDefault commands and auth-mock remain fully offline. send-validate is an explicit REAL HTTPS POST of one SYNTHETIC-only validate batch to existing Web App V3, gated by hidden TTY confirmation + privately entered destination HMAC key (never ThaiPHC bearer); use only after separate live UAT approval. No commit or Sheets writes. No --token, --output, --url, or multi-endpoint live calls.';
+const HELP='ThaiPHC Node.js 24 Manual Connector\nCommands: help | sync-plan [--endpoint ID] | inspect [--endpoint ID] | validate [--endpoint ID] | dry-run [--endpoint ID] [--max-pages N] | auth-mock [--endpoint subdistricts] | live-fetch --endpoint subdistricts|villages|health-services|volunteer-gender --acknowledge-authorized-use | send-validate --synthetic --endpoint subdistricts|villages|health-services --acknowledge-synthetic-post | audit-source --endpoint subdistricts|villages|health-services --acknowledge-authorized-use\nLive-fetch requires interactive confirmation + manually pasted authorized Bearer token; bounded read-only lookups/reports (health services max 10 pages, volunteer gender max 15 pages); aggregate-only output. No Google Sheets/App Script writes. sync-plan is manifest-only and never sends rows.\nSource audit makes only explicitly confirmed ThaiPHC read-only GET(s), keeps rows in memory and outputs counts/schema/completeness metadata only; it never sends rows to Apps Script or Sheets.\nDefault commands and auth-mock remain fully offline. send-validate is an explicit REAL HTTPS POST of one SYNTHETIC-only validate batch to existing Web App V3, gated by hidden TTY confirmation + privately entered destination HMAC key (never ThaiPHC bearer); use only after separate live UAT approval. No commit or Sheets writes. No --token, --output, --url, or multi-endpoint live calls.';
 function parseArgs(argv){
   const [command='help',...tail]=argv;
-  if(!['help','inspect','validate','dry-run','auth-mock','live-fetch','sync-plan','send-validate'].includes(command))throw Error('UNSUPPORTED_COMMAND');
+  if(!['help','inspect','validate','dry-run','auth-mock','live-fetch','sync-plan','send-validate','audit-source'].includes(command))throw Error('UNSUPPORTED_COMMAND');
   let endpoint='all',maxPages=10,acknowledged=false,synthetic=false,sendAcknowledged=false;
   for(let i=0;i<tail.length;i++){
     const arg=tail[i];
@@ -48,7 +50,7 @@ function parseArgs(argv){
   if(!Number.isSafeInteger(maxPages)||maxPages<1||maxPages>250)throw Error('INVALID_MAX_PAGES');
   if(endpoint!=='all'&&!Object.hasOwn(ENDPOINTS,endpoint))throw Error('UNKNOWN_ENDPOINT');
   if((command==='help'||command==='inspect'||command==='auth-mock'||command==='live-fetch'||command==='sync-plan')&&tail.some(x=>x==='--max-pages'))throw Error('UNSUPPORTED_FLAG');
-  if(acknowledged&&command!=='live-fetch')throw Error('ACKNOWLEDGEMENT_ONLY_FOR_LIVE');
+  if(acknowledged&&!['live-fetch','audit-source'].includes(command))throw Error('ACKNOWLEDGEMENT_ONLY_FOR_LIVE');
   if((synthetic||sendAcknowledged)&&command!=='send-validate')
     throw Error('SYNTHETIC_FLAGS_ONLY_FOR_SEND');
   if(command==='send-validate'){
@@ -64,6 +66,11 @@ function parseArgs(argv){
   if(command==='live-fetch'){
     if(!['subdistricts','villages','health-services','volunteer-gender'].includes(endpoint)||!acknowledged)throw Error('LIVE_SCOPE_OR_ACK_REQUIRED');
   }
+  if(command==='audit-source'){
+    if(!['subdistricts','villages','health-services'].includes(endpoint)||!acknowledged||
+      tail.includes('--max-pages')||synthetic||sendAcknowledged)
+      throw Error('REFERENCE_AUDIT_SCOPE_OR_ACK_REQUIRED');
+  }
   return {command,endpoint,maxPages};
 }
 export async function main(argv=process.argv.slice(2),write=console.log,tty={}){
@@ -73,6 +80,34 @@ export async function main(argv=process.argv.slice(2),write=console.log,tty={}){
     if(parsed.command==='sync-plan'){
       write(JSON.stringify(buildSyncPlan(parsed.endpoint),null,2));
       return 0; // Report generated; status HOLD explicitly forbids downstream writes.
+    }
+    if(parsed.command==='audit-source'){
+      const snapshot=await collectReferenceSnapshot({
+        endpoint:parsed.endpoint,
+        confirm:()=>confirmReferenceAuditFromTTY(tty),
+        getToken:()=>readRealBearerFromTTY(tty),
+        fetchImpl:tty.fetchImpl??globalThis.fetch,
+        manifest:sheetManifest
+      });
+      // EXPLICIT safe allowlist: never JSON.stringify(snapshot), it carries raw
+      // source reference rows in the memory-only success case.
+      const success=snapshot.status==='SNAPSHOT_VALIDATED_IN_MEMORY';
+      const report={
+        mode:'REFERENCE_AUDIT_READ_ONLY',endpoint:parsed.endpoint,
+        status:success?'SOURCE_SCHEMA_VALIDATED':snapshot.status,
+        ...(success?{
+          rowCount:snapshot.rowCount,
+          pagesFetched:snapshot.pagesFetched,
+          observedCountMatches:snapshot.observedCountMatches,
+          completeness:snapshot.completeness
+        }:{}),
+        networkRequests:snapshot.networkRequests,
+        appsScriptPosts:0,sheetsWrites:0,
+        transferApproved:false,
+        destinationWriteApproved:false
+      };
+      write(JSON.stringify(report,null,2));
+      return success&&snapshot.observedCountMatches?0:2;
     }
     if(parsed.command==='send-validate'){
       // This command is a REAL opt-in POST, never invoked by CI with real fetch.

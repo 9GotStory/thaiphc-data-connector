@@ -87,3 +87,24 @@ export async function readRealBearerFromTTY(io={}){
   if(!isCandidateRealBearer(value))throw new Error('INVALID_BEARER_TOKEN_FORMAT');
   return value;
 }
+
+
+// T009D: separate explicit authorization for synthetic-only destination test.
+// This prompt does NOT authorize a real ThaiPHC source-row transfer or Sheets write.
+export async function confirmSyntheticValidateFromTTY(io={}){
+ const expected='POST SYNTHETIC VALIDATE 5406';
+ const answer=await readHiddenLine({...io,
+  label:'SYNTHETIC validate-only POST to existing Web App V3 (no Sheets write). Type '+expected+' (hidden): ',
+  maxChars:64,allowSpaces:true,timeoutMs:30000
+ });
+ if(answer!==expected)throw Error('SYNTHETIC_VALIDATE_NOT_CONFIRMED');
+ return expected;
+}
+export async function readDestinationHmacFromTTY(io={}){
+ const key=await readHiddenLine({...io,
+  label:'Paste destination HMAC key (44-char standard base64, hidden, not ThaiPHC bearer): ',
+  maxChars:44,timeoutMs:60000
+ });
+ if(!/^[A-Za-z0-9+/]{43}=$/.test(key))throw Error('DESTINATION_HMAC_INVALID');
+ return key;
+}

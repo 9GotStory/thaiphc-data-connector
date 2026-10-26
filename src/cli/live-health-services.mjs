@@ -127,7 +127,7 @@ function validateRow(row,seen){
  return null;
 }
 
-function validatePage(data,offset,seen,expectedTotal){
+export function validatePage(data,offset,seen,expectedTotal){
  if(!exactKeys(data,['items','total','limit','offset'])||
     !Array.isArray(data.items)||!Number.isSafeInteger(data.total)||
     !Number.isSafeInteger(data.limit)||!Number.isSafeInteger(data.offset)||

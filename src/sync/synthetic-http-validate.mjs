@@ -114,6 +114,11 @@ function resultFromBody(r,methods,endpoint,expectedRowCount){
  return syntheticReply(data.status,methods,endpoint,0,r.status);
 }
 
+// Shared pure checks: a real sender can use the same preflight and Google
+// ContentService redirect policy before issuing an allowed request.
+export function inspectPreparedForValidate(prepared){return inspectPrepared(prepared);}
+export function isSafeGoogleContentRedirect(location){return safeGoogleRedirect(location);}
+
 /**
  * Simulate HTTP exchanges using plain synthetic response descriptions.
  * No actual request is constructed or sent; a real HTTP sender is NOT approved.

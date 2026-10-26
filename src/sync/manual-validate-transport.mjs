@@ -2,12 +2,26 @@
 // NEVER called by tests with real network; cannot write Sheets or send mode=commit.
 // No arbitrary destination URL, redirects with body, retries, bearer tokens or output logs.
 import targets from '../../config/thaiphc-targets.json' with {type:'json'};
+import manifest from '../../docs/sheets-schema.json' with {type:'json'};
+import {syntheticReferenceRow} from './synthetic-reference-row.mjs';
+import {projectReferenceRows} from './reference-projection.mjs';
 import {
  inspectPreparedForValidate,isSafeGoogleContentRedirect,simulateValidateHttp
 } from './synthetic-http-validate.mjs';
 
 export const SYNTHETIC_VALIDATE_CONFIRM='POST SYNTHETIC VALIDATE 5406';
 const WEB_APP_URL='https://script.google.com/macros/s/'+targets.deploymentId+'/exec';
+function assertSyntheticFixture(prepared,endpoint){
+ const raw=JSON.parse(Buffer.from(prepared.envelope.payloadB64,'base64').toString('utf8'));
+ const expected=projectReferenceRows(endpoint,[syntheticReferenceRow(endpoint,manifest)],manifest);
+ // This network-facing function is for ONE exact synthetic fixture only.
+ // Deliberately refuses genuine source rows even if a caller can sign them.
+ if(raw.rows.length!==1||raw.sourceFieldNames.length!==expected.sourceFieldNames.length||
+    JSON.stringify(raw.sourceFieldNames)!==JSON.stringify(expected.sourceFieldNames)||
+    JSON.stringify(raw.rows[0])!==JSON.stringify(expected.rows[0]))
+  throw Error('SYNTHETIC_ONLY_REQUIRED');
+}
+
 const REPLY_LIMIT=16*1024, TIMEOUT_MS=10000;
 const isPlain=o=>o!==null&&typeof o==='object'&&!Array.isArray(o)&&
  (Object.getPrototypeOf(o)===Object.prototype||Object.getPrototypeOf(o)===null);
@@ -79,6 +93,7 @@ export async function sendSyntheticValidate({prepared,acknowledgement,fetchImpl=
  let endpoint=null;
  try{
   ({endpoint}=inspectPreparedForValidate(prepared));
+  assertSyntheticFixture(prepared,endpoint);
   if(acknowledgement!==SYNTHETIC_VALIDATE_CONFIRM)
    return reply('MANUAL_CONFIRMATION_REQUIRED',endpoint);
   if(typeof fetchImpl!=='function')return reply('TRANSPORT_UNAVAILABLE',endpoint);

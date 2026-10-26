@@ -130,9 +130,9 @@ export function simulateValidateHttp({prepared,exchanges}={}){
     origin.search!==''||origin.hash!=='')reject();
  const first=responseStep(exchanges[0]);
  if([302,303].includes(first.status)){
-  if(!safeGoogleRedirect(first.headers.location)||exchanges.length!==2||
-     first.body.length!==0)
+  if(!safeGoogleRedirect(first.headers.location)||exchanges.length!==2)
    return syntheticReply('REDIRECT_REJECTED',methods,endpoint,0,first.status);
+  // Ignore any HTML redirect body; do not reflect it, nor forward POST contents.
   methods.push('GET'); // NO signed body, Authorization, credentials or retry.
   const second=responseStep(exchanges[1]);
   if([301,302,303,307,308].includes(second.status))

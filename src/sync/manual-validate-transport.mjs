@@ -83,19 +83,13 @@ const methodOptions=(signal,method,body)=>({
  }:{Accept:'application/json'},
  ...(method==='POST'?{body}:{}),
 });
-/**
- * Real network capability, explicitly dormant until operator invokes it.
- * "prepared" MUST be generated from synthetic rows by an authorized caller;
- * future real row transfers need an additional explicit approval/gate.
- * Returns REDACTED metadata only; no payload, Google redirect token or exception.
- */
-export async function sendSyntheticValidate({prepared,acknowledgement,fetchImpl=globalThis.fetch}={}){
+/** Shared tightly scoped validate-only HTTPS transport, with NO commit or retries.
+ * This private function is invoked only after the synthetic fixture or source
+ * snapshot checks pass. No source row is ever printed. */
+async function performValidatePost(prepared,fetchImpl){
  let endpoint=null;
  try{
   ({endpoint}=inspectPreparedForValidate(prepared));
-  assertSyntheticFixture(prepared,endpoint);
-  if(acknowledgement!==SYNTHETIC_VALIDATE_CONFIRM)
-   return reply('MANUAL_CONFIRMATION_REQUIRED',endpoint);
   if(typeof fetchImpl!=='function')return reply('TRANSPORT_UNAVAILABLE',endpoint);
   const target=pinnedTarget();
   // Timestamp freshness was verified by shared preflight. No POST retries.
@@ -143,4 +137,80 @@ export async function sendSyntheticValidate({prepared,acknowledgement,fetchImpl=
  }catch{
   return reply('INPUT_REJECTED',endpoint);
  }
+}
+
+
+// T009D real-source validation is a separate, explicitly gated capability.
+// Source rows may be sent in mode=validate only; no commit or Sheet access here.
+export const REFERENCE_VALIDATE_CONFIRM='TRANSFER REFERENCE VALIDATE 5406';
+const EXPECTED_COUNTS=Object.freeze({
+ subdistricts:8,villages:85,'health-services':18
+});
+function checkReferenceSnapshot(prepared,snapshot){
+ const {endpoint,rowCount}=inspectPreparedForValidate(prepared);
+ const complete=endpoint==='health-services';
+ if(!snapshot||snapshot.mode!=='READ_ONLY_REFERENCE_MEMORY'||
+    snapshot.status!=='SNAPSHOT_VALIDATED_IN_MEMORY'||
+    snapshot.endpoint!==endpoint||snapshot.rowCount!==rowCount||
+    snapshot.rowCount!==EXPECTED_COUNTS[endpoint]||
+    snapshot.observedCountMatches!==true||
+    !Array.isArray(snapshot.rows)||snapshot.rows.length!==rowCount||
+    snapshot.transferApproved!==false||snapshot.appsScriptPosts!==0||
+    snapshot.sheetsWrites!==0||
+    !Number.isSafeInteger(snapshot.networkRequests)||
+    snapshot.networkRequests!==(complete?2:1)||
+    snapshot.completeness!==(complete?
+      'SOURCE_TOTAL_CHECKED':'UNPAGINATED_SOURCE_HAS_NO_TOTAL')||
+    (complete&&snapshot.paginationComplete!==true))
+   throw Error('REFERENCE_SNAPSHOT_NOT_READY');
+ const encoded=JSON.parse(Buffer.from(prepared.envelope.payloadB64,'base64').toString('utf8'));
+ if(encoded.mode!=='validate'||encoded.endpoint!==endpoint||
+    encoded.rows.length!==snapshot.rows.length)
+   throw Error('REFERENCE_VALIDATE_ONLY');
+ // Fail closed if a different, injected or stale payload is substituted.
+ const current=projectReferenceRows(endpoint,snapshot.rows,manifest);
+ if(JSON.stringify(current.sourceFieldNames)!==JSON.stringify(encoded.sourceFieldNames)||
+    JSON.stringify(current.rows)!==JSON.stringify(encoded.rows))
+   throw Error('REFERENCE_PAYLOAD_MISMATCH');
+ return {endpoint,rowCount};
+}
+export async function sendReferenceValidate({
+ prepared,snapshot,acknowledgement,fetchImpl=globalThis.fetch
+}={}){
+ let endpoint=null;
+ try{
+  ({endpoint}=checkReferenceSnapshot(prepared,snapshot));
+  if(acknowledgement!==REFERENCE_VALIDATE_CONFIRM)
+   return Object.freeze({...reply('MANUAL_CONFIRMATION_REQUIRED',endpoint),
+     mode:'MANUAL_REFERENCE_VALIDATE_ONLY'});
+  const out=await performValidatePost(prepared,fetchImpl);
+  return Object.freeze({...out,
+    mode:'MANUAL_REFERENCE_VALIDATE_ONLY',
+    sourceNetworkRequests:snapshot.networkRequests,
+    sourceCompleteness:snapshot.completeness,
+    destinationWriteApproved:false,
+    // May be true on failure/timeout: never assume no POST just from rejection.
+    sourceRowsPostAttempted:out.appsScriptPosts===1
+  });
+ }catch{
+  return Object.freeze({...reply('INPUT_REJECTED',endpoint),
+    mode:'MANUAL_REFERENCE_VALIDATE_ONLY',
+    destinationWriteApproved:false,
+    sourceRowsPostAttempted:false
+  });
+ }
+}
+
+// Existing synthetic sender remains fixture-locked independently of real rows.
+export async function sendSyntheticValidate({
+ prepared,acknowledgement,fetchImpl=globalThis.fetch
+}={}){
+ let endpoint=null;
+ try{
+  ({endpoint}=inspectPreparedForValidate(prepared));
+  assertSyntheticFixture(prepared,endpoint);
+  if(acknowledgement!==SYNTHETIC_VALIDATE_CONFIRM)
+   return reply('MANUAL_CONFIRMATION_REQUIRED',endpoint);
+  return await performValidatePost(prepared,fetchImpl);
+ }catch{return reply('INPUT_REJECTED',endpoint);}
 }

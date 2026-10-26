@@ -121,3 +121,16 @@ export async function confirmReferenceAuditFromTTY(io={}){
  if(answer!==phrase)throw Error('REFERENCE_AUDIT_NOT_CONFIRMED');
  return phrase;
 }
+
+
+// Transfer of actual reference rows to the existing receiver for schema
+// validation ONLY (mode=validate). Never authorizes mode=commit / Sheets write.
+export async function confirmReferenceValidateTransferFromTTY(io={}){
+ const phrase='TRANSFER REFERENCE VALIDATE 5406';
+ const answer=await readHiddenLine({...io,
+  label:'Real reference rows will be POSTed to pinned Web App V3 for validate-only; no Sheets writes. Type '+phrase+' (hidden): ',
+  maxChars:64,allowSpaces:true,timeoutMs:30000
+ });
+ if(answer!==phrase)throw Error('REFERENCE_TRANSFER_NOT_CONFIRMED');
+ return phrase;
+}

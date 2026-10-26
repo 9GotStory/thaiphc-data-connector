@@ -2,7 +2,7 @@
 
 Private project for a **manual** ThaiPHC data pipeline using **Node.js 24 → Google Apps Script → Google Sheets**.
 
-**Current status (2026-10-26):** Operator-reported manual read-only Live UAT PASS for `subdistricts` (8), `villages` (85), `health-services` (18, all coordinates zero) and `volunteer-gender` (85 village report rows, 1,571 source-aggregated volunteers). These remain **explicit opt-in, bounded, aggregate-output-only** CLI requests. T003 Google Sheets schema remains a **draft**. T010 Apps Script receiver source was pushed to the **existing Script project** on 2026-10-22. The previously targeted deployment is **Library V2**, not an HTTP endpoint. An owner-created **Web App V3** in the same project returned an expected read-only GET response (`METHOD_DISABLED`, `accepted:false`, `sheetsWrites:0`). GET does not prove receiver/write Script Properties are disabled; recheck both before any POST. T009D now includes code for an **opt-in real HTTPS synthetic-only validate sender** and separately a bounded **in-memory reference snapshot collector**; no live signed POST has been performed, no real ThaiPHC source rows are authorized for downstream transfer, and no real Sheet write has been verified. Person-level export remains disabled. Provider authorization and destination transfer rights are separate checks.
+**Current status (2026-10-26):** T009D operator-confirmed real one-row synthetic Web App V3 signed validation PASS; Node.js source-audit CLI read all three references (subdistricts 8, villages 85, health-services 18), schema PASS and source total checked for health services. Receiver and Write properties were both confirmed OFF by operator after that test. The source audit did not POST reference rows or write Sheets. This candidate adds **separately gated real reference row `mode=validate` transport**, NOT a live execution or `mode=commit` implementation. Existing T003 eight-dataset Sheet schema is design-only; the target Sheet has only `ชีต1` as last read; backup/restore and first-write authorization remain outstanding. `volunteer-gender` and all person-level transfers remain blocked.
 
 ## Source API coverage
 8 documented endpoints, in [docs/api-inventory.md](docs/api-inventory.md), with observed field schemas under [docs/schemas/](docs/schemas/).
@@ -22,6 +22,7 @@ Private project for a **manual** ThaiPHC data pipeline using **Node.js 24 → Go
 - `src/sync/manual-validate-transport.mjs` / `docs/t009d-manual-validate-transport.md` — T009D **real, opt-in HTTPS validate-only sender** for explicitly synthetic rows (no real POST performed by development/CI; live test needs separate approval)
 - `src/sync/reference-snapshot.mjs` — opt-in bounded read-only collector that can return three reference datasets in memory (no CLI raw-row output; never auto-sends; transfer approval still required)
 - `docs/t009d-source-destination-readiness.md` — verified destination has only blank `ชีต1`, source-audit CLI and remaining source permissions / completeness / backup gates
+- `docs/t009d-real-reference-validate-recovery.md` — T009D opt-in real-source validate-only transfer scope, operator gates, backup verification and original-file restoration before any later `commit`
 - `tests/` — synthetic offline/schema/live-transport-injection tests, no real API calls in CI
 - `apps-script/Code.gs` — T010 guarded receiver source; `apps-script/dev-receiver.gs` is a separate deny-by-default mock **and must not be deployed together**
 - `config/thaiphc-targets.json` — existing Script ID, active Web App V3 Deployment ID and Spreadsheet ID (identifiers only, no credentials); the older Library V2 is not the active HTTP target
@@ -38,6 +39,8 @@ npm run cli -- dry-run --endpoint villages
 npm run cli -- sync-plan # T009A manifest only; status HOLD, no network or writes
 # After explicit authorization for read-only ThaiPHC lookup inspection:
 # npm run cli -- audit-source --endpoint villages --acknowledge-authorized-use
+# DO NOT RUN until separate owner approval for real row transfer and controlled Receiver activation:
+# npm run cli -- send-reference-validate --endpoint villages --acknowledge-reference-validate
 ```
 
 No live API credentials are needed for tests, dry-runs or `sync-plan`. All real read-only fetches require an explicit TTY acknowledgement and an appropriately authorized token.

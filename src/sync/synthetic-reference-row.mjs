@@ -18,7 +18,8 @@ export function syntheticReferenceRow(endpoint,manifest){
   }
  }
  if(endpoint==='subdistricts'){
-  r.code='540601';r.id=r.code;r.district_code='5406';r.province_code='54';
+  r.code='540601';r.id=r.code;r.district_code='5406';
+  // Province code is observed null_only for subdistricts: preserve null.
  }else if(endpoint==='villages'){
   r.code='540601001';r.id=r.code;r.village_code_8digit='54060101';
   r.province_code='54';r.district_code='5406';r.subdistrict_code='540601';

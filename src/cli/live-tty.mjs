@@ -139,6 +139,30 @@ export async function confirmReferenceValidateTransferFromTTY(io={}){
 // One explicit confirmation for a separately PO-approved real write.
 // The destination is always pinned in repository configuration, not typed.
 // Current Sheet state and Script Properties must be checked separately.
+// Numbered menu; no full COMMIT phrase, no Sheet ID and no HMAC prompt.
+// This menu is NOT an authorization for any live run; PO approval is external.
+export async function selectReferenceCommitFromTTY(io={}){
+ const choice=await readHiddenLine({...io,
+  label:'ThaiPHC reference commit (5406): 1) Subdistricts (8)  2) Villages (85)  3) Health Services (18)  0) Cancel. Select 1/2/3: ',
+  maxChars:1,timeoutMs:30000
+ });
+ const endpoint={1:'subdistricts',2:'villages',3:'health-services'}[choice];
+ if(!endpoint)throw Error('REFERENCE_MENU_CANCELLED_OR_INVALID');
+ return endpoint;
+}
+export async function confirmReferenceCommitSelectionFromTTY(io={},endpoint,rows){
+ const expected={subdistricts:8,villages:85,'health-services':18};
+ if(!Object.hasOwn(expected,endpoint)||expected[endpoint]!==rows)
+  throw Error('REFERENCE_MENU_SCOPE_REJECTED');
+ const confirm=await readHiddenLine({...io,
+  label:'REAL ONE-TIME WRITE: '+endpoint+' / '+rows+
+   ' rows / district 5406. Receiver may partially write; NO automatic retry. Type Y to proceed, any other key cancels: ',
+  maxChars:1,timeoutMs:30000
+ });
+ if(confirm!=='Y')throw Error('REFERENCE_MENU_WRITE_NOT_CONFIRMED');
+ return 'COMMIT '+endpoint+' '+rows+' ROWS 5406';
+}
+
 export async function confirmReferenceCommitFromTTY(io={},endpoint,rows){
  const phrase='COMMIT '+endpoint+' '+rows+' ROWS 5406';
  if(!['subdistricts','villages','health-services'].includes(endpoint)||

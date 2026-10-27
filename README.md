@@ -2,7 +2,7 @@
 
 Private project for a **manual** ThaiPHC data pipeline using **Node.js 24 → Google Apps Script → Google Sheets**.
 
-**Current status (2026-10-27):** Operator-reported live ThaiPHC → Node → Web App V3 *validate-only* PASS for all three real reference datasets (subdistricts 8, villages 85, health-services 18); Apps Script Receiver and Write properties were returned to `false` after testing. **No real Sheets writes have been performed**. This Draft PR introduces a deliberately gated, manual, single-endpoint **`mode=commit`** sender; execution requires separate PO approval, verified full backup and a restoration drill. A `COMMITTED` reply is NOT proof of persisted data: independent destination readback is mandatory. The user-owned Google Sheet was last read with only `ชีต1`; its current contents must be re-checked before writing. `volunteer-gender` and person-level endpoints remain out of scope.
+**Current status (2026-10-27):** Operator-reported live ThaiPHC → Node → Web App V3 *validate-only* PASS for all three real reference datasets (subdistricts 8, villages 85, health-services 18); Apps Script Receiver and Write properties were returned to `false` after testing. **No real Sheets writes have been performed**. PR #57 introduced a deliberately gated, manual, single-endpoint **`mode=commit`** sender. This code-only follow-up replaces the mandatory backup/restore test with operator-reviewed **Recovery by Re-Sync** (source-only datasets, target inventory and explicit limitations); a first real write still requires separate PO approval. A `COMMITTED` reply is NOT proof of persisted data: independent destination readback is mandatory. The user-owned Google Sheet was last read with only `ชีต1`; its current contents must be re-checked before writing. `volunteer-gender` and person-level endpoints remain out of scope.
 
 ## Source API coverage
 8 documented endpoints, in [docs/api-inventory.md](docs/api-inventory.md), with observed field schemas under [docs/schemas/](docs/schemas/).
@@ -21,9 +21,9 @@ Private project for a **manual** ThaiPHC data pipeline using **Node.js 24 → Go
 - `src/sync/synthetic-http-validate.mjs` / `docs/t018-synthetic-http-validate.md` — T018 synthetic HTTP protocol/Google ContentService redirect simulation only (no real POST, no live sender)
 - `src/sync/manual-validate-transport.mjs` / `docs/t009d-manual-validate-transport.md` — T009D **real, opt-in HTTPS validate-only sender** for explicitly synthetic rows (no real POST performed by development/CI; live test needs separate approval)
 - `src/sync/reference-snapshot.mjs` — opt-in bounded read-only collector that can return three reference datasets in memory (no CLI raw-row output; never auto-sends; transfer approval still required)
-- `docs/t009d-source-destination-readiness.md` — verified destination has only blank `ชีต1`, source-audit CLI and remaining source permissions / completeness / backup gates
-- `docs/t009d-real-reference-validate-recovery.md` — T009D opt-in real-source validate-only transfer scope, operator gates, backup verification and original-file restoration before any later `commit`
-- `src/sync/manual-commit-transport.mjs` / `docs/t009d-manual-commit-first-write-gate.md` — dormant, one-shot real reference commit sender, mandatory operator backup/restore attestation, strict COMMITTED receipt parsing, unknown-outcome STOP and real Sheet readback requirement
+- `docs/t009d-source-destination-readiness.md` — historical destination inventory (previously only blank `ชีต1`), source-readiness baseline; re-inspect destination before writing
+- `docs/t009d-real-reference-validate-recovery.md` — T009D historical validate-only transport evidence; current first-write recovery policy is the manual commit gate document
+- `src/sync/manual-commit-transport.mjs` / `docs/t009d-manual-commit-first-write-gate.md` — dormant, one-shot real reference commit sender, source-only recovery-by-re-sync operator gates, strict COMMITTED receipt parsing, unknown-outcome STOP and independent Sheet readback requirement
 - `tests/` — synthetic offline/schema/live-transport-injection tests, no real API calls in CI
 - `apps-script/Code.gs` — T010 guarded receiver source; `apps-script/dev-receiver.gs` is a separate deny-by-default mock **and must not be deployed together**
 - `config/thaiphc-targets.json` — existing Script ID, active Web App V3 Deployment ID and Spreadsheet ID (identifiers only, no credentials); the older Library V2 is not the active HTTP target
@@ -42,6 +42,8 @@ npm run cli -- sync-plan # T009A manifest only; status HOLD, no network or write
 # npm run cli -- audit-source --endpoint villages --acknowledge-authorized-use
 # DO NOT RUN until separate owner approval for real row transfer and controlled Receiver activation:
 # npm run cli -- send-reference-validate --endpoint villages --acknowledge-reference-validate
+# Real Sheets COMMIT is also on HOLD pending separate PO first-write approval and destination inspection:
+# npm run cli -- send-reference-commit --endpoint subdistricts --acknowledge-reference-commit
 ```
 
 No live API credentials are needed for tests, dry-runs or `sync-plan`. All real read-only fetches require an explicit TTY acknowledgement and an appropriately authorized token.

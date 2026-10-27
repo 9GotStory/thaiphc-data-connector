@@ -27,16 +27,32 @@ While both Script Properties are `false`:
 
 ## 2. Separate live first-write authority and guarded CLI
 
-**Do not run this command while this change remains a draft or while the previous CLI session is open.** Abort any existing input prompt with Ctrl+C and restore both Script Properties to `false` if enabled. After PR review/merge and local tests, obtain a **new, exact-version one-endpoint first-write execution approval**:
+**Do not run live commits while this change remains a draft or while the prior CLI session is open.** Abort the old session with Ctrl+C and restore both Script Properties to `false` if enabled. A new, exact-version one-endpoint first-write execution approval is required after review/merge/local tests. The advanced legacy command below is NOT the recommended menu route:
 
     npm.cmd run cli -- send-reference-commit --endpoint subdistricts --acknowledge-reference-commit
 
-**Only three hidden prompts, in order:**
-1. `COMMIT subdistricts 8 ROWS 5406` (or the expected 85/18 for the other separately authorized endpoint) — **one explicit live-write confirmation**, after reading the independently approved scope and understanding partial-write/re-sync limitations.
-2. Private ThaiPHC Bearer token.
-3. Private destination Web App HMAC key.
+**Recommended Windows CLI workflow — one-time HMAC setup, followed by a numbered menu:**
 
-**No manual Spreadsheet ID, separate general inventory phrase or recovery-risk phrase** is requested. The URL and spreadsheet ID remain pinned to repository configuration; no CLI `--url`, `--spreadsheet`, `--token`, or multi-endpoint modes are supported. This convenience does **not** enable the Receiver/Write properties or independently verify that their live `THAIPHC_SPREADSHEET_ID` matches the pinned value. Never turn both switches on unless the separately authorized one-shot window is active.
+**First-time only**, when the Receiver/Write switches are both OFF, run:
+
+    npm.cmd run cli -- hmac-setup
+
+This accepts the **existing** Web App HMAC secret once into a hidden PowerShell prompt and encrypts it using Windows **DPAPI CurrentUser** at `%LOCALAPPDATA%\ThaiPHC\DataConnector\hmac.dpapi` (outside the git checkout). It never prints the key, never passes it in CLI args or an environment variable, and requires the **same Windows user account** to decrypt. A process already running as that user may also decrypt it: this is convenience and OS-account isolation, **not a hardware-backed or admin-proof vault**. Changing Windows profile/user or losing the DPAPI user master key requires one-time setup again; do not export/commit the encrypted blob.
+
+After PR review, local tests, live target preflight and **new PO first-write approval for the exact merged code**, run:
+
+    npm.cmd run cli -- commit-menu
+
+Choose **1 / 2 / 3** from the terminal menu:
+1. `1` — `subdistricts`, 8 observed rows
+2. `2` — `villages`, 85 observed rows
+3. `3` — `health-services`, 18 observed rows
+
+Only the endpoint covered by a **separate explicit PO approval** may be selected. Then inspect the displayed one-endpoint / exact-row-count / district 5406 notice and enter `Y` to authorize a **single attempt**. The only per-run secret input is a **private ThaiPHC Bearer token**. There is **no** manually pasted spreadsheet ID, lengthy `COMMIT ...` phrase, or per-run HMAC key prompt.
+
+The existing signed HMAC `mode=commit` protocol is **unchanged**. The Windows-local saved HMAC is still required; if missing, the CLI fails closed BEFORE any network request with `HMAC_STORE_NOT_READY` and instructs `hmac-setup`. `commit-menu` cannot set Receiver/Write flags, read live Apps Script Properties, or independently inspect Sheet contents; external checks remain mandatory.
+
+Do not run the old `send-reference-commit` command from an interrupted session. Cancel it with Ctrl+C, set both switches OFF, review and merge the proposed change under the separate PO gate, then use the new menu only after authorization. The old explicit CLI command is preserved as an advanced compatibility path, and still enforces one endpoint and private credentials; it also retrieves HMAC from Windows DPAPI.
 
 Then source fetch and strict validation: district 5406, reference-only endpoints, full observed count, fields/schema/keys checked, health-services total/pagination. A fresh signed `mode=commit` envelope must exactly match the source snapshot in memory; at most **one** pinned Web App POST, followed by at most one allowlisted **bodyless GET** for Google ContentService redirect. No retry, schedule, deletion, arbitrary target, mass update or person-level sync.
 
@@ -57,7 +73,7 @@ A strict receiver `COMMITTED` reply only produces `COMMIT_REPORTED_READBACK_REQU
 |---|---|
 | Real validate-only for 8 / 85 / 18 | PASS; closed |
 | Recovery by Re-Sync code correction | PR #58 merged; Node tests passed |
-| Prompt simplification | Draft PR, pending review and code-merge gate |
+| Numbered CLI menu and Windows DPAPI secret store | Draft PR, pending review and code-merge gate |
 | Prior live destination read-only inventory | PASS when last inspected, recheck if changed |
 | First live mode=commit execution on simplified code | HOLD; require new exact-version PO gate |
 | Post-commit readback and any corrective Re-Sync | NOT EXECUTED / MUST BE SEPARATELY APPROVED |

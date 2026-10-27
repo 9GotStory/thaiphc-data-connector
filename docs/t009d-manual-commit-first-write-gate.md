@@ -43,12 +43,23 @@ After PR review, local tests, live target preflight and **new PO first-write app
 
     npm.cmd run cli -- commit-menu
 
-Choose **1 / 2 / 3** from the terminal menu:
-1. `1` — `subdistricts`, 8 observed rows
-2. `2` — `villages`, 85 observed rows
-3. `3` — `health-services`, 18 observed rows
+The menu presents **all 8 observed ThaiPHC API topics** with explicit groups. This is an **inventory display**, not blanket permission to commit:
 
-Only the endpoint covered by a **separate explicit PO approval** may be selected. Then inspect the displayed one-endpoint / exact-row-count / district 5406 notice and enter `Y` to authorize a **single attempt**. The only per-run secret input is a **private ThaiPHC Bearer token**. There is **no** manually pasted spreadsheet ID, lengthy `COMMIT ...` phrase, or per-run HMAC key prompt.
+| CLI selection | Dataset | Menu status | Commit |
+|---|---|---|---|
+| 1 | `subdistricts` — ตำบล (8 observed rows) | COMMIT GATED | Eligible **only with its own explicit PO authorization** |
+| 2 | `villages` — หมู่บ้าน (85 observed rows) | COMMIT GATED | Same separate authorization required |
+| 3 | `health-services` — หน่วยบริการสุขภาพ (18 observed rows) | COMMIT GATED | Same separate authorization required |
+| 4 | `volunteer-gender` — อสม. จำแนกตามเพศ | READ ONLY | **Blocked** (menu does not perform a read) |
+| 5 | `assignments` — การมอบหมาย อสม. | PERSON DATA HOLD | **Blocked** |
+| 6 | `volunteer-family` — ครอบครัว อสม. | PERSON DATA HOLD | **Blocked** |
+| 7 | `resigned-volunteers` — อสม. ที่ลาออก | PERSON DATA HOLD | **Blocked** |
+| 8 | `volunteer-tenure` — อายุงาน อสม. | PERSON DATA HOLD | **Blocked** |
+| 0 | Cancel | CANCELLED | **No operation** |
+
+Only choices **1–3** may reach `mode=commit`, and only after a separate, endpoint-specific PO approval. Selecting **4** returns `READ_ONLY_NO_COMMIT`; choices **5–8** return `PERSON_DATA_APPROVAL_REQUIRED`. These all exit without reading HMAC, prompting for Bearer, fetching ThaiPHC data or sending a Google Apps Script POST. The menu is **not** a general-purpose read-only query command; any actual read of `volunteer-gender` requires the separately authorized `live-fetch` workflow.
+
+For an eligible selection, read the displayed **one-endpoint / expected count / district 5406** warning, then enter `Y` to authorize **one attempt**. The only per-run secret input is a **private ThaiPHC Bearer token**. There is **no** manually pasted spreadsheet ID, long `COMMIT ...` phrase or recurring HMAC key prompt. Observed row counts are guards, **not current authoritative totals** for the two unpaginated endpoints.
 
 The existing signed HMAC `mode=commit` protocol is **unchanged**. The Windows-local saved HMAC is still required; if missing, the CLI fails closed BEFORE any network request with `HMAC_STORE_NOT_READY` and instructs `hmac-setup`. `commit-menu` cannot set Receiver/Write flags, read live Apps Script Properties, or independently inspect Sheet contents; external checks remain mandatory.
 

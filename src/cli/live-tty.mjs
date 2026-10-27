@@ -1,4 +1,3 @@
-import targets from '../../config/thaiphc-targets.json' with {type:'json'};
 // T005: explicit interactive TTY entry. Never read real tokens from argv, env, files, stdin pipes.
 const CONFIRM_PHRASE='FETCH SUBDISTRICTS 5406';
 const CONFIRM_VILLAGES_PHRASE='FETCH VILLAGES 5406';
@@ -137,37 +136,9 @@ export async function confirmReferenceValidateTransferFromTTY(io={}){
 }
 
 
-// T009D: replacement for mandatory backup/restore. Operator must independently
-// inspect the actual destination, source-managed scope and potential external
-// edits; these prompts do not programmatically read or verify any Google Sheet.
-// All live commit invocations still require separate PO first-write approval.
-export async function confirmCommitDestinationInventoryFromTTY(io={}){
- const phrase='DESTINATION INVENTORY VERIFIED 5406';
- const answer=await readHiddenLine({...io,
-  label:'Only after checking real destination tab/header/key inventory and verifying no unmanaged edits. Type '+phrase+' (hidden): ',
-  maxChars:64,allowSpaces:true,timeoutMs:30000
- });
- if(answer!==phrase)throw Error('DESTINATION_INVENTORY_NOT_CONFIRMED');
- return true;
-}
-export async function readCommitDestinationIdFromTTY(io={}){
- const value=await readHiddenLine({...io,
-  label:'Paste the EXACT approved original Google Sheet ID (hidden; not a backup ID): ',
-  maxChars:120,timeoutMs:60000
- });
- if(value!==targets.spreadsheetId)
-  throw Error('DESTINATION_ID_MISMATCH');
- return value;
-}
-export async function confirmRecoveryByResyncFromTTY(io={}){
- const phrase='RE-SYNC LIMITATIONS ACCEPTED 5406';
- const answer=await readHiddenLine({...io,
-  label:'Re-sync cannot restore historical/locally edited values, undo deletions, or fix wrong upstream data; unknown outcome STOP, never auto-retry. Type '+phrase+' (hidden): ',
-  maxChars:64,allowSpaces:true,timeoutMs:30000
- });
- if(answer!==phrase)throw Error('RECOVERY_LIMITATIONS_NOT_ACCEPTED');
- return true;
-}
+// One explicit confirmation for a separately PO-approved real write.
+// The destination is always pinned in repository configuration, not typed.
+// Current Sheet state and Script Properties must be checked separately.
 export async function confirmReferenceCommitFromTTY(io={},endpoint,rows){
  const phrase='COMMIT '+endpoint+' '+rows+' ROWS 5406';
  if(!['subdistricts','villages','health-services'].includes(endpoint)||

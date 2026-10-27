@@ -136,19 +136,46 @@ export async function confirmReferenceValidateTransferFromTTY(io={}){
 }
 
 
-// One explicit confirmation for a separately PO-approved real write.
-// The destination is always pinned in repository configuration, not typed.
-// Current Sheet state and Script Properties must be checked separately.
-// Numbered menu; no full COMMIT phrase, no Sheet ID and no HMAC prompt.
-// This menu is NOT an authorization for any live run; PO approval is external.
+// T009D full API inventory menu. This is a COMMAND SELECTION display, NOT
+// approval to write or fetch personal records. Exactly three reference
+// datasets may proceed to a separately PO-authorized commit attempt.
+export const REFERENCE_MENU_ITEMS=Object.freeze([
+ Object.freeze({choice:'1',endpoint:'subdistricts',title:'Subdistricts / ตำบล',status:'COMMIT_GATED',rows:8}),
+ Object.freeze({choice:'2',endpoint:'villages',title:'Villages / หมู่บ้าน',status:'COMMIT_GATED',rows:85}),
+ Object.freeze({choice:'3',endpoint:'health-services',title:'Health Services / หน่วยบริการสุขภาพ',status:'COMMIT_GATED',rows:18}),
+ Object.freeze({choice:'4',endpoint:'volunteer-gender',title:'Volunteer Gender / อสม. จำแนกตามเพศ',status:'READ_ONLY',rows:null}),
+ Object.freeze({choice:'5',endpoint:'assignments',title:'Assignments / การมอบหมาย อสม.',status:'PERSON_DATA_HOLD',rows:null}),
+ Object.freeze({choice:'6',endpoint:'volunteer-family',title:'Volunteer Family / ครอบครัว อสม.',status:'PERSON_DATA_HOLD',rows:null}),
+ Object.freeze({choice:'7',endpoint:'resigned-volunteers',title:'Resigned Volunteers / อสม. ที่ลาออก',status:'PERSON_DATA_HOLD',rows:null}),
+ Object.freeze({choice:'8',endpoint:'volunteer-tenure',title:'Volunteer Tenure / อายุงาน อสม.',status:'PERSON_DATA_HOLD',rows:null})
+]);
+const REFERENCE_MENU_LABEL='\nThaiPHC API (district 5406) — 8 topics\n'+
+ '\n[Commit eligible only after separate PO approval]\n'+
+ REFERENCE_MENU_ITEMS.slice(0,3).map(item=>
+  '  '+item.choice+') '+item.title+' ('+item.rows+' observed rows) [COMMIT GATED]').join('\n')+
+ '\n\n[Read only — NO COMMIT]\n'+
+ '  4) Volunteer Gender / อสม. จำแนกตามเพศ [READ ONLY]\n'+
+ '\n[Person-level data — APPROVAL REQUIRED; NO COMMIT]\n'+
+ REFERENCE_MENU_ITEMS.slice(4).map(item=>
+  '  '+item.choice+') '+item.title+' [PERSON DATA HOLD]').join('\n')+
+ '\n\n  0) Cancel\nSelect 0-8: ';
+
+// The menu itself NEVER makes any network request. Disabled selections
+// produce an explicit non-writing result, not an alternative sender route.
 export async function selectReferenceCommitFromTTY(io={}){
  const choice=await readHiddenLine({...io,
-  label:'ThaiPHC reference commit (5406): 1) Subdistricts (8)  2) Villages (85)  3) Health Services (18)  0) Cancel. Select 1/2/3: ',
-  maxChars:1,timeoutMs:30000
+  label:REFERENCE_MENU_LABEL,maxChars:1,timeoutMs:30000
  });
- const endpoint={1:'subdistricts',2:'villages',3:'health-services'}[choice];
- if(!endpoint)throw Error('REFERENCE_MENU_CANCELLED_OR_INVALID');
- return endpoint;
+ if(choice==='0')return Object.freeze({status:'CANCELLED'});
+ const item=REFERENCE_MENU_ITEMS.find(i=>i.choice===choice);
+ if(!item)throw Error('REFERENCE_MENU_INVALID_SELECTION');
+ if(item.status==='READ_ONLY')
+  return Object.freeze({status:'READ_ONLY_NO_COMMIT',endpoint:item.endpoint});
+ if(item.status==='PERSON_DATA_HOLD')
+  return Object.freeze({status:'PERSON_DATA_APPROVAL_REQUIRED',endpoint:item.endpoint});
+ if(item.status!=='COMMIT_GATED'||!Number.isSafeInteger(item.rows))
+  throw Error('REFERENCE_MENU_SCOPE_REJECTED');
+ return Object.freeze({status:'COMMIT_SELECTION',endpoint:item.endpoint,rows:item.rows});
 }
 export async function confirmReferenceCommitSelectionFromTTY(io={},endpoint,rows){
  const expected={subdistricts:8,villages:85,'health-services':18};

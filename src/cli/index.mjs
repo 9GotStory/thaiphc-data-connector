@@ -21,12 +21,14 @@ import {confirmSyntheticValidateFromTTY,readDestinationHmacFromTTY} from './live
 import {confirmReferenceAuditFromTTY,confirmReferenceValidateTransferFromTTY} from './live-tty.mjs';
 import {collectReferenceSnapshot,SNAPSHOT_CONFIRM} from '../sync/reference-snapshot.mjs';
 import {sendReferenceCommit,commitPhrase} from '../sync/manual-commit-transport.mjs';
-import {confirmReferenceCommitFromTTY} from './live-tty.mjs';
+import {confirmReferenceCommitFromTTY,selectReferenceCommitFromTTY,
+        confirmReferenceCommitSelectionFromTTY} from './live-tty.mjs';
+import {readStoredHmac,setupStoredHmac} from './windows-hmac-store.mjs';
 
-const HELP='ThaiPHC Node.js 24 Manual Connector\nCommands: help | sync-plan [--endpoint ID] | inspect [--endpoint ID] | validate [--endpoint ID] | dry-run [--endpoint ID] [--max-pages N] | auth-mock [--endpoint subdistricts] | live-fetch --endpoint subdistricts|villages|health-services|volunteer-gender --acknowledge-authorized-use | send-validate --synthetic --endpoint subdistricts|villages|health-services --acknowledge-synthetic-post | audit-source --endpoint subdistricts|villages|health-services --acknowledge-authorized-use | send-reference-validate --endpoint subdistricts|villages|health-services --acknowledge-reference-validate | send-reference-commit --endpoint subdistricts|villages|health-services --acknowledge-reference-commit\nLive-fetch requires interactive confirmation + manually pasted authorized Bearer token; bounded read-only lookups/reports (health services max 10 pages, volunteer gender max 15 pages); aggregate-only output. No Google Sheets/App Script writes. sync-plan is manifest-only and never sends rows.\nSource audit makes only explicitly confirmed ThaiPHC read-only GET(s), keeps rows in memory and outputs counts/schema/completeness metadata only; it never sends rows to Apps Script or Sheets.\nsend-reference-validate is a separately approved opt-in real-row, validate-only HTTPS POST with exact snapshot count/schema gates. Receiver must be separately approved to enable; never use for commit.\nsend-reference-commit is DORMANT until separate PO first-write approval and independently reviewed destination inventory. Destination ID is pinned in config (not prompted). One exact endpoint/count confirmation plus private Bearer and HMAC prompts. After COMMITTED independent destination readback is required; never automatically retry unknown outcomes.\nDefault commands and auth-mock remain fully offline. send-validate is an explicit REAL HTTPS POST of one SYNTHETIC-only validate batch to existing Web App V3, gated by hidden TTY confirmation + privately entered destination HMAC key (never ThaiPHC bearer); use only after separate live UAT approval. No commit or Sheets writes. No --token, --output, --url, or multi-endpoint live calls.';
+const HELP='ThaiPHC Node.js 24 Manual Connector\nCommands: help | sync-plan [--endpoint ID] | inspect [--endpoint ID] | validate [--endpoint ID] | dry-run [--endpoint ID] [--max-pages N] | auth-mock [--endpoint subdistricts] | live-fetch --endpoint subdistricts|villages|health-services|volunteer-gender --acknowledge-authorized-use | send-validate --synthetic --endpoint subdistricts|villages|health-services --acknowledge-synthetic-post | audit-source --endpoint subdistricts|villages|health-services --acknowledge-authorized-use | send-reference-validate --endpoint subdistricts|villages|health-services --acknowledge-reference-validate | send-reference-commit --endpoint subdistricts|villages|health-services --acknowledge-reference-commit | commit-menu | hmac-setup\nLive-fetch requires interactive confirmation + manually pasted authorized Bearer token; bounded read-only lookups/reports (health services max 10 pages, volunteer gender max 15 pages); aggregate-only output. No Google Sheets/App Script writes. sync-plan is manifest-only and never sends rows.\nSource audit makes only explicitly confirmed ThaiPHC read-only GET(s), keeps rows in memory and outputs counts/schema/completeness metadata only; it never sends rows to Apps Script or Sheets.\nsend-reference-validate is a separately approved opt-in real-row, validate-only HTTPS POST with exact snapshot count/schema gates. Receiver must be separately approved to enable; never use for commit.\nUse hmac-setup ONCE on Windows to store the existing Web App HMAC in CurrentUser DPAPI outside the repo; commit-menu then requires only menu selection, Y, and private ThaiPHC bearer. Never run a real commit without separate PO one-endpoint authorization and independent destination inventory. The Sheet ID and Web App URL are pinned in config. After COMMITTED independently read back Sheet; never auto-retry unknown outcomes.\nDefault commands and auth-mock remain fully offline. send-validate is an explicit REAL HTTPS POST of one SYNTHETIC-only validate batch to existing Web App V3, gated by hidden TTY confirmation + privately entered destination HMAC key (never ThaiPHC bearer); use only after separate live UAT approval. No commit or Sheets writes. No --token, --output, --url, or multi-endpoint live calls.';
 function parseArgs(argv){
   const [command='help',...tail]=argv;
-  if(!['help','inspect','validate','dry-run','auth-mock','live-fetch','sync-plan','send-validate','audit-source','send-reference-validate','send-reference-commit'].includes(command))throw Error('UNSUPPORTED_COMMAND');
+  if(!['help','inspect','validate','dry-run','auth-mock','live-fetch','sync-plan','send-validate','audit-source','send-reference-validate','send-reference-commit','commit-menu','hmac-setup'].includes(command))throw Error('UNSUPPORTED_COMMAND');
   let endpoint='all',maxPages=10,acknowledged=false,synthetic=false,sendAcknowledged=false,referenceAcknowledged=false,commitAcknowledged=false;
   for(let i=0;i<tail.length;i++){
     const arg=tail[i];
@@ -69,6 +71,8 @@ function parseArgs(argv){
       tail.includes('--max-pages')||acknowledged)
       throw Error('SEND_VALIDATE_SCOPE_NOT_CONFIRMED');
   }
+  if((command==='commit-menu'||command==='hmac-setup')&&tail.length!==0)
+    throw Error('MENU_OR_SETUP_TAKES_NO_FLAGS');
   if(command==='auth-mock'){
     if(endpoint==='all')endpoint='subdistricts';
     if(endpoint!=='subdistricts')throw Error('MOCK_ENDPOINT_DENIED');
@@ -103,41 +107,63 @@ export async function main(argv=process.argv.slice(2),write=console.log,tty={}){
       write(JSON.stringify(buildSyncPlan(parsed.endpoint),null,2));
       return 0; // Report generated; status HOLD explicitly forbids downstream writes.
     }
-    if(parsed.command==='send-reference-commit'){
-      // This path is NOT authorization. Operator must separately inspect the
-      // pinned destination and get an exact PO first-write gate before use.
-      // Redundant target ID / general-risk prompts are intentionally removed.
-      let sourceCalls=0;
-      const count={subdistricts:8,villages:85,'health-services':18}[parsed.endpoint];
-      const confirmation=await confirmReferenceCommitFromTTY(tty,parsed.endpoint,count);
-      if(confirmation!==commitPhrase(parsed.endpoint))
+    if(parsed.command==='hmac-setup'){
+      try{
+        const setup=tty.setupStoredHmac??setupStoredHmac;
+        setup({...tty});
+        write('HMAC_STORED_CURRENT_USER_DPAPI');
+        return 0;
+      }catch{
+        write('HMAC_SETUP_FAILED: use Windows interactive terminal');
+        return 2;
+      }
+    }
+    if(parsed.command==='send-reference-commit'||parsed.command==='commit-menu'){
+      // Operator separately confirms the live destination Script Properties
+      // and PO first-write window before invoking this dangerous command.
+      const endpoint=parsed.command==='commit-menu'?
+        await selectReferenceCommitFromTTY(tty):parsed.endpoint;
+      const count={subdistricts:8,villages:85,'health-services':18}[endpoint];
+      const confirmation=parsed.command==='commit-menu'?
+        await confirmReferenceCommitSelectionFromTTY(tty,endpoint,count):
+        await confirmReferenceCommitFromTTY(tty,endpoint,count);
+      if(confirmation!==commitPhrase(endpoint))
         throw Error('COMMIT_CONFIRM_MISMATCH');
+      // Fail CLOSED before ThaiPHC GET if DPAPI setup is absent/invalid.
+      let keyB64;
+      try{
+        const load=tty.readStoredHmac??readStoredHmac;
+        keyB64=load({...tty});
+        if(typeof keyB64!=='string'||!/^[A-Za-z0-9+/]{43}=$/.test(keyB64))
+          throw Error('HMAC_STORE_INVALID');
+      }catch{
+        write('HMAC_STORE_NOT_READY: run npm.cmd run cli -- hmac-setup once');
+        return 2;
+      }
       const snapshot=await collectReferenceSnapshot({
-        endpoint:parsed.endpoint,
+        endpoint,
         confirm:async()=>SNAPSHOT_CONFIRM,
         getToken:()=>readRealBearerFromTTY(tty),
         fetchImpl:tty.fetchImpl??globalThis.fetch,
         manifest:sheetManifest
       });
-      sourceCalls=snapshot.networkRequests;
+      const sourceCalls=snapshot.networkRequests;
       const ready=snapshot.status==='SNAPSHOT_VALIDATED_IN_MEMORY'&&
         snapshot.rowCount===count&&snapshot.observedCountMatches===true&&
-        (parsed.endpoint!=='health-services'||
+        (endpoint!=='health-services'||
           (snapshot.paginationComplete===true&&
            snapshot.completeness==='SOURCE_TOTAL_CHECKED'));
       if(!ready){
         write(JSON.stringify({
-          mode:'MANUAL_REFERENCE_COMMIT',endpoint:parsed.endpoint,
+          mode:'MANUAL_REFERENCE_COMMIT',endpoint,
           status:'SOURCE_NOT_READY',sourceStatus:snapshot.status,
           sourceNetworkRequests:sourceCalls,appsScriptPosts:0,
           writeOutcome:'NOT_ATTEMPTED',destinationReadbackVerified:false
         },null,2));
         return 2;
       }
-      // Destination key is never requested unless source checks succeeded.
-      const keyB64=await readDestinationHmacFromTTY(tty);
       const prepared=buildOfflineCommitEnvelope({
-        endpoint:parsed.endpoint,rows:snapshot.rows,manifest:sheetManifest,
+        endpoint,rows:snapshot.rows,manifest:sheetManifest,
         keyB64,runId:'manual-'+randomBytes(12).toString('hex'),
         fetchedAtUtc:new Date().toISOString()
       });
@@ -146,8 +172,7 @@ export async function main(argv=process.argv.slice(2),write=console.log,tty={}){
         fetchImpl:tty.fetchImpl??globalThis.fetch
       });
       write(JSON.stringify({...result,sourceNetworkRequests:sourceCalls},null,2));
-      // Even a valid COMMITTED response must be reconciled with the real Sheet
-      // through a separate operator-controlled readback before acceptance.
+      // COMMITTED is not independently reconciled to the real Sheet.
       return 2;
     }
     if(parsed.command==='send-reference-validate'){

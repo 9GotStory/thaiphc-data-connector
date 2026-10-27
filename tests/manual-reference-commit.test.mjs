@@ -323,7 +323,7 @@ test('T009D commit-menu selects one authorized endpoint by number, verifies Y, a
  assert.equal(exit,2);
  assert.equal(sourceGets,1);assert.equal(targetPosts,1);
  assert.equal(JSON.parse(outputs[0]).status,'COMMIT_REPORTED_READBACK_REQUIRED');
- assert.equal(io.prompts.length,3);
+ assert.equal(io.prompts.filter(p=>p.trim()!=='' ).length,3); // TTY also writes 3 newlines
  assert.equal(io.prompts.some(x=>/Paste destination HMAC|Paste the EXACT|Type COMMIT /.test(x)),false);
  assert.match(io.prompts[0],/Select 1\/2\/3/);
  assert.match(io.prompts[1],/8 rows/);

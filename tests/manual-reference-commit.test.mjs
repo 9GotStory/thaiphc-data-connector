@@ -423,7 +423,7 @@ test('T009D menu renders all eight topics and blocked item 4-8 cannot fetch, dec
   const visible=io.prompts.filter(v=>v.trim()!=='');
   assert.equal(visible.length,1);
   const label=visible[0];
-  for(let n=1;n<=8;n++)assert.match(label,new RegExp('\\\\b'+n+'\\\\)'));
+  for(let n=1;n<=8;n++)assert.ok(label.includes('  '+n+')'), 'missing menu option '+n);
   assert.match(label,/READ ONLY/);
   assert.match(label,/PERSON DATA HOLD/);
   assert.match(label,/COMMIT GATED/);

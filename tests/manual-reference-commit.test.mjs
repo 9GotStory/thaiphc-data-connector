@@ -8,6 +8,8 @@ import {syntheticReferenceRow} from '../src/sync/synthetic-reference-row.mjs';
 import {buildOfflineCommitEnvelope,buildOfflineValidateEnvelope} from '../src/sync/offline-validate-envelope.mjs';
 import {sendReferenceCommit,commitPhrase} from '../src/sync/manual-commit-transport.mjs';
 import {main} from '../src/cli/index.mjs';
+import {REFERENCE_MENU_ITEMS} from '../src/cli/live-tty.mjs';
+import {ENDPOINTS} from '../src/cli/endpoints.mjs';
 import {readStoredHmac,setupStoredHmac} from '../src/cli/windows-hmac-store.mjs';
 
 const manifest=JSON.parse(readFileSync(new URL('../docs/sheets-schema.json',import.meta.url),'utf8'));
@@ -241,7 +243,7 @@ function tty(overrides={}){
   let value=null;
   if(msg.includes('Type COMMIT '))value=values.confirm;
   if(msg.includes('Paste authorized Bearer'))value=values.bearer;
-  if(msg.includes('Select 1/2/3: '))value=values.menu;
+  if(msg.includes('Select 0-8: '))value=values.menu;
   if(msg.includes('Type Y to proceed'))value=values.menuConfirm;
   if(value!==null)queueMicrotask(()=>input.emit('data',Buffer.from(value+'\r')));
   return true;
@@ -326,7 +328,7 @@ test('T009D commit-menu selects one authorized endpoint by number, verifies Y, a
  assert.equal(io.prompts.filter(p=>p.trim()!=='' ).length,3); // TTY also writes 3 newlines
  assert.equal(io.prompts.some(x=>/Paste destination HMAC|Paste the EXACT|Type COMMIT /.test(x)),false);
  const visiblePrompts=io.prompts.filter(p=>p.trim()!=='');
- assert.match(visiblePrompts[0],/Select 1\/2\/3/);
+ assert.match(visiblePrompts[0],/Select 0-8/);
  assert.match(visiblePrompts[1],/8 rows/);
  assert.equal(io.input.isRaw,false);
 });
@@ -334,7 +336,7 @@ test('T009D commit-menu selects one authorized endpoint by number, verifies Y, a
 test('T009D commit-menu cancels, rejects invalid flags and denies on missing secure HMAC before any source GET/POST',async()=>{
  let calls=0;
  const fetchImpl=async()=>{calls++;throw Error('NETWORK_MUST_NOT_START')};
- for(const opts of [{menu:'0'},{menu:'4'},{menu:'1',menuConfirm:'N'}]){
+ for(const opts of [{menu:'0'},{menu:'9'},{menu:'1',menuConfirm:'N'}]){
   const io=tty(opts);
   assert.equal(await main(['commit-menu'],()=>{}, {...io,fetchImpl}),2);
  }
@@ -385,4 +387,53 @@ test('T009D hmac-setup CLI calls secure user-bound setup without fetching source
  });
  assert.equal(code,0);assert.equal(setups,1);assert.equal(fetches,0);
  assert.deepEqual(out,['HMAC_STORED_CURRENT_USER_DPAPI']);
+});
+
+test('T009D commit-menu lists all eight inventory endpoints with exactly 3 commit eligible, 1 read-only and 4 blocked person-level',()=>{
+ assert.equal(REFERENCE_MENU_ITEMS.length,8);
+ assert.deepEqual(REFERENCE_MENU_ITEMS.map(x=>x.endpoint),[
+  'subdistricts','villages','health-services','volunteer-gender',
+  'assignments','volunteer-family','resigned-volunteers','volunteer-tenure'
+ ]);
+ assert.deepEqual(REFERENCE_MENU_ITEMS.map(x=>x.status),[
+  'COMMIT_GATED','COMMIT_GATED','COMMIT_GATED','READ_ONLY',
+  'PERSON_DATA_HOLD','PERSON_DATA_HOLD','PERSON_DATA_HOLD','PERSON_DATA_HOLD'
+ ]);
+ assert.deepEqual(REFERENCE_MENU_ITEMS.slice(0,3).map(x=>x.rows),[8,85,18]);
+ for(const item of REFERENCE_MENU_ITEMS){
+  assert.ok(Object.hasOwn(ENDPOINTS,item.endpoint));
+  if(item.status==='PERSON_DATA_HOLD')
+   assert.equal(ENDPOINTS[item.endpoint].personLevel,true);
+  if(item.status==='COMMIT_GATED')
+   assert.equal(ENDPOINTS[item.endpoint].personLevel,false);
+ }
+});
+
+test('T009D menu renders all eight topics and blocked item 4-8 cannot fetch, decrypt key or POST',async()=>{
+ let sourceOrDestRequests=0,hmacReads=0;
+ for(const blockedChoice of ['4','5','6','7','8']){
+  const io=tty({menu:blockedChoice});
+  const output=[];
+  const exit=await main(['commit-menu'],v=>output.push(v),{
+   ...io,
+   readStoredHmac:()=>{hmacReads++;throw Error('NO_KEY_READ_FOR_BLOCKED_MENU')},
+   fetchImpl:async()=>{sourceOrDestRequests++;throw Error('NO_NETWORK_FOR_BLOCKED_MENU')}
+  });
+  assert.equal(exit,2);
+  const visible=io.prompts.filter(v=>v.trim()!=='');
+  assert.equal(visible.length,1);
+  const label=visible[0];
+  for(let n=1;n<=8;n++)assert.match(label,new RegExp('\\\\b'+n+'\\\\)'));
+  assert.match(label,/READ ONLY/);
+  assert.match(label,/PERSON DATA HOLD/);
+  assert.match(label,/COMMIT GATED/);
+  const report=JSON.parse(output[0]);
+  assert.equal(report.status,blockedChoice==='4'?'READ_ONLY_NO_COMMIT':'PERSON_DATA_APPROVAL_REQUIRED');
+  assert.equal(report.appsScriptPosts,0);
+  assert.equal(report.sourceNetworkRequests,0);
+  assert.equal(report.sheetsWrites,0);
+  assert.equal(report.writeOutcome,'NOT_ATTEMPTED');
+ }
+ assert.equal(sourceOrDestRequests,0);
+ assert.equal(hmacReads,0);
 });

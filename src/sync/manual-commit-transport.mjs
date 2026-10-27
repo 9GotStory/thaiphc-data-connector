@@ -1,6 +1,7 @@
 // T009D: DORMANT manual real-reference COMMIT transport.
 // No network except one separately approved invocation; never retry unknown writes.
-// A COMMITTED response is only a receipt: destination readback/restore remains required.
+// COMMITTED is only a receipt. A manually confirmed inventory and later
+// independent destination readback are mandatory; a re-sync is NEVER automatic.
 import targets from '../../config/thaiphc-targets.json' with {type:'json'};
 import manifest from '../../docs/sheets-schema.json' with {type:'json'};
 import {projectReferenceRows} from './reference-projection.mjs';
@@ -31,10 +32,11 @@ function safeSummary(endpoint,status,requests=0,posts=0,httpStatus=null,other={}
   networkRequests:requests,appsScriptPosts:posts,httpStatus,
   writeOutcome:posts?'STOP_VERIFY_DESTINATION':'NOT_ATTEMPTED',
   destinationReadbackVerified:false,
+  recoveryStrategy:'MANUAL_RE_SYNC_AFTER_READBACK',
   ...other
  });
 }
-function preflight(prepared,snapshot,backupId,restoreConfirmed){
+function preflight(prepared,snapshot,destinationId,inventoryConfirmed,recoveryAcknowledged){
  if(!exact(prepared,['status','transferApproved','endpoint','rowCount',
     'networkRequests','appsScriptPosts','sheetsWrites','envelope'])||
     prepared.status!=='OFFLINE_COMMIT_PREPARED_NOT_SENT'||
@@ -56,10 +58,11 @@ function preflight(prepared,snapshot,backupId,restoreConfirmed){
     (health&&snapshot.paginationComplete!==true)||
     !Array.isArray(snapshot.rows)||snapshot.rows.length!==prepared.rowCount)
    fail();
- // This is OPERATOR ATTESTATION, not an independently verified Google Drive backup.
- if(typeof backupId!=='string'||!KEY_RE.test(backupId)||
-    backupId===targets.spreadsheetId||restoreConfirmed!==true)
-  fail();
+ // A target identity match and TWO distinct OPERATOR ATTESTATIONS are
+ // required. They are NOT a live Google Sheet inventory, readback or proof
+ // that upstream can reconstruct deleted/historical or manually edited data.
+ if(destinationId!==targets.spreadsheetId||
+    inventoryConfirmed!==true||recoveryAcknowledged!==true)fail();
  if(!/^AKfycb[A-Za-z0-9_-]{40,120}$/.test(targets.deploymentId)||
     !KEY_RE.test(targets.spreadsheetId))fail();
  const dest=new URL(WEB_APP_URL);
@@ -167,17 +170,18 @@ function parsedReply(response,text,endpoint,rowCount,requests){
 }
 /**
  * This function MUST only run after a separately approved first-write window,
- * verified destination backup/restore, and two explicit operator affirmations.
- * It does not itself prove a backup exists or read back the Google Sheet.
+ * operator-reviewed destination inventory, declared re-sync limitations,
+ * and independent PO first-write authorization. All are manual gates.
+ * It cannot independently read or inspect the live Google Sheet.
  * One POST only, never retry, even when the response is lost or rejected.
  */
 export async function sendReferenceCommit({
- prepared,snapshot,acknowledgement,backupId,restoreConfirmed=false,
- fetchImpl=globalThis.fetch
+ prepared,snapshot,acknowledgement,destinationId,inventoryConfirmed=false,
+ recoveryAcknowledged=false,fetchImpl=globalThis.fetch
 }={}){
  let endpoint=null;
  try{
-  endpoint=preflight(prepared,snapshot,backupId,restoreConfirmed);
+  endpoint=preflight(prepared,snapshot,destinationId,inventoryConfirmed,recoveryAcknowledged);
   if(acknowledgement!==commitPhrase(endpoint))
    return safeSummary(endpoint,'CONFIRMATION_REQUIRED');
   if(typeof fetchImpl!=='function')return safeSummary(endpoint,'TRANSPORT_UNAVAILABLE');

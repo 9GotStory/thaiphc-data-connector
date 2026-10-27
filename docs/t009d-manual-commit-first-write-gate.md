@@ -1,44 +1,64 @@
-# T009D — Manual real-reference commit: FIRST-WRITE HOLD
+# T009D — Recovery by Re-Sync (no mandatory Backup/Restore) — FIRST-WRITE HOLD
 
 Issue: https://github.com/9GotStory/thaiphc-data-connector/issues/53
 
-This increment adds code and synthetic tests, not a real write. The three reference datasets (8 / 85 / 18) have passed validate-only HTTP; Receiver and Write properties were confirmed OFF. No backup, disposable restore, live commit, or destination change is claimed here.
+Decision: the Product Owner authorized replacing the full Google Sheets backup-ID / restore-drill **requirement** with **Recovery by Re-Sync** for **only** the three reproducible ThaiPHC reference datasets: `subdistricts`, `villages`, `health-services`. This changes the operator gate, not the signed protocol or Apps Script receiver. It does **not** authorize the first live write, change Script Properties, or create/change any Google Sheet.
 
-## Command, only after SEPARATE first-write PO approval
+## What is — and is not — recoverable
+
+Re-fetching source records plus keyed upsert can repair **incomplete application of the same current upstream reference state**, after inspection and separate authorization. The Apps Script receiver updates existing source keys, appends missing keys, **never automatically deletes records**, and is **not transactional**. Therefore a partial write, lost HTTP response, or upstream change is **not** permission to retry.
+
+Re-Sync cannot guarantee recovery of:
+- historical state or former values overwritten after ThaiPHC itself changes;
+- locally edited cells, locally created rows, formulas/formatting, manually deleted values or unrelated tabs;
+- data errors caused by an incorrect upstream response, incompleteness or lost deleted records.
+For `subdistricts` (observed 8) and `villages` (observed 85), upstream provides **no authoritative total**: matching old counts is a guard against unexpected change, **not** a completeness certificate. `health-services` (observed 18) has an API total across two pages.
+
+No first-write occurs if there is user-authored or otherwise non-reproducible information in any destination target tab. If such information is discovered, **STOP and obtain an independent preservation strategy and PO approval** (a backup might then be necessary). Leave `ชีต1` and other unrelated tabs untouched.
+
+## 1. Pre-commit read-only inspection — performed by operator, NOT automated by CLI
+
+While both Script Properties are `false`:
+1. Verify the exact owner-controlled existing Spreadsheet ID, and that the Script Properties project's `THAIPHC_SPREADSHEET_ID` points to the same original target. Verify the approved V3 Web App project/deployment identity; no redeployment is required for this code-only change.
+2. Inspect the target Sheet's current tabs and target tab (`Subdistricts`, `Villages` or `HealthServices`) as applicable: tab/header column order, data row count, key column and `_source_key` uniqueness, `_row_digest` availability, formula cells, manual changes and any unrelated content. First-run expectation of empty/new target tabs must be verified again, not assumed from previous checks.
+3. Determine and record an independently reviewed source-only inventory (counts only; no source rows or credentials in issue logs), with read-only permissions. If a target tab differs from the expected receiver-managed layout, has duplicate keys, local edits or any content not reconstructable from ThaiPHC, **STOP**.
+
+The CLI only obtains **operator attestations** for this inspection. It cannot access Google Sheets to verify the target or compare rows. A typed confirmation is not proof an inventory happened.
+
+## 2. Separate live first-write authority and guarded CLI
+
+**Do not run this command now.** After PR review/merge, local tests and a **separate PO one-endpoint first-write approval** (which will specify the first-write window and post-write verification):
 
     npm.cmd run cli -- send-reference-commit --endpoint subdistricts --acknowledge-reference-commit
 
-This command is not authorized for execution by the current PR approval. The scope is exactly one manually selected reference dataset at a time, fixed district 5406 and pinned Web App V3. No multi-endpoint job, schedule, arbitrary URL, bearer/HMAC argument, person-level record, or volunteer-gender transfer.
+The hidden operator prompts are:
+- `DESTINATION INVENTORY VERIFIED 5406` — operator previously checked live destination structure and absence of non-source edits;
+- exact **original approved destination Spreadsheet ID** (hidden; rejects any other ID; no backup file ID);
+- `RE-SYNC LIMITATIONS ACCEPTED 5406` — explicitly acknowledges non-atomic writes, impossibility of historical/local-edit rollback, and STOP before any re-sync;
+- endpoint-specific `COMMIT subdistricts 8 ROWS 5406` (or 85/18 for the other endpoints);
+- separate private ThaiPHC bearer and Web App HMAC key, hidden from output and logs.
 
-The CLI obtains hidden operator evidence BEFORE any source GET:
-1. Exact hidden phrase: BACKUP VERIFIED RESTORE TESTED 5406. **Operator attestation only**; does not mean this CLI independently queried Drive or verified the backup.
-2. Different backup spreadsheet copy ID (must not equal canonical target, no ID shown in output).
-3. Exact endpoint confirmation: COMMIT subdistricts 8 ROWS 5406; for villages use 85; for health-services use 18.
+Then source fetch and strict validation: district 5406, reference-only endpoints, full observed count, fields/schema/keys checked, health-services total/pagination. A fresh signed `mode=commit` envelope must exactly match the source snapshot in memory; at most **one** pinned Web App POST, followed by at most one allowlisted **bodyless GET** for Google ContentService redirect. No retry, schedule, deletion, arbitrary target, mass update or person-level sync.
 
-Only then collect one genuine scope-pinned ThaiPHC source snapshot using private Bearer, inspect rows and schema in memory, require observed 8/85/18 and strict key checks; health-services needs its two pages and API total. Other two have no authoritative total, so 8/85 is a conservative stop-on-change rule, not completeness proof. Obtain separate hidden HMAC key after source passes. Build a fresh HMAC-signed COMMIT envelope matching the projected snapshot exactly, then at most one HTTPS POST to existing Web App V3 and only allowlisted Google redirect via bodyless GET.
+A strict receiver `COMMITTED` reply only produces `COMMIT_REPORTED_READBACK_REQUIRED`, `destinationReadbackVerified:false`, and deliberate nonzero CLI exit code. The separate operator readback is mandatory.
 
-Receiver status COMMITTED is not considered proof of persisted state: emit COMMIT_REPORTED_READBACK_REQUIRED and destinationReadbackVerified:false with inserted/updated/unchanged/write-call counters. Require independent Google Sheets readback/reconciliation and exit the CLI nonzero deliberately. Reply counters must match inserted+updated+unchanged=expected batch rows and sheetsWrites=updated+(inserted>0?1:0) per reviewed receiver.
+## 3. Post-write readback and recovery decision
 
-On POST timeout, lost reply, unexpected 5xx, malformed response, unsafe redirect or receiver REJECTED, output OUTCOME_UNKNOWN_STOP. The receiver might have performed some writes, so **never retry automatically** or presume rollback; stop, close flags, inspect and restore by separate approval. A pre-write WRITE_DISABLED / INGRESS_DISABLED denial is a STOP too.
+1. Immediately return `THAIPHC_RECEIVER_ENABLED=false` and `THAIPHC_WRITE_ENABLED=false` after **any** commit attempt, whatever its response.
+2. Reopen the **original** Google Sheet read-only. Compare the intended target tab (and unrelated tab survival) with the submitted endpoint, receiver-reported count, key uniqueness, expected scope, headers, presence/digest metadata and actual row count. Record **counts and statuses only**, not source records/secrets.
+3. If everything is independently reconciled, only then declare the specific one-endpoint sync accepted. Note that the existing CLI cannot itself perform Sheet readback or mark acceptance.
+4. If the server replies `REJECTED`, the network times out, counters differ, the response is lost, readback is incomplete, or source changed: classify as **UNKNOWN / PARTIAL POSSIBLE**, keep both gates OFF, and STOP. **Do not automatically retry or claim rollback.**
+5. Identify which keys were inserted/updated/missing/mismatched in the destination through read-only inspection and verify the **latest complete upstream snapshot** again. If all target data is exclusively managed by ThaiPHC and reproducible, propose a bounded, fresh **manual Re-Sync** to repair missing or outdated keyed rows, **under its own separate PO approval**. Never delete absent upstream keys automatically; never assume this restores a prior historical state.
+6. If any non-reproducible or manual content is involved, block Re-Sync and request a separate recovery/preservation decision. Do not blindly rewrite unrelated tabs.
 
-## Backup and restore DRILL (not performed by PR)
+## Status and separation of approvals
 
-Before FIRST live write and while both Apps Script properties are OFF:
-1. Independently verify the exact existing destination Spreadsheet ID and V3 deployment/project identity; cross-check THAIPHC_SPREADSHEET_ID privately with the canonical target.
-2. Read-only inventory the original spreadsheet: tab names, IDs, headers, formats, values/formulas, row/key/digest counts and restricted sharing. Previously only an empty ชีต1 was present; verify again, don't assume it remains blank.
-3. Create a full timestamped Drive COPY, different spreadsheet ID. Open it and compare tab structure, data, formats and any formulas; store proof privately, never secrets/source rows in GitHub.
-4. On a disposable third workbook, demonstrate actual restore from the verified backup. Read back for equivalence. A backup without tested restore does not clear this gate.
-5. Obtain explicit PO authorization for exactly one bounded first-write endpoint/window, with backup proof and a verified restoration procedure. Only then, privately enable BOTH Receiver and Write gates for the approved window. This PR cannot toggle flags.
-6. After live commit, promptly disable both gates even if unknown or failed. Read back actual original Sheet by ID and compare source keys/values/digests, header order, number formatting, record totals, unrelated tabs and ชีต1 untouched. Accept only after independent reconciliation. If incomplete, stop and use an explicit owner-approved recovery restoring the ORIGINAL ID and unrelated content rather than blindly delete or recreate tabs.
+| Gate | Status |
+|---|---|
+| Real validate-only for 8 / 85 / 18 | PASS; closed |
+| Code-only switch from Backup/Restore requirement to Recovery by Re-Sync | Authorized for development; Draft PR pending review |
+| Actual Google Sheets pre-commit read-only inventory | NOT EXECUTED |
+| Real mode=commit / first Sheet write | NOT APPROVED / NOT EXECUTED |
+| Post-commit readback and any corrective Re-Sync | NOT EXECUTED / MUST BE SEPARATELY APPROVED |
 
-Receiver writes are NOT transactional: it updates existing keyed rows one by one then appends. There is no automatic deletion of source-missing keys, no durable replay ledger and no guaranteed rollback. Do not retry after a lost response.
-
-## Gate status
-
-- Offline synthetic commit sender/transport/tests: Draft PR, pending review and CI.
-- Real validate-only 8 + 85 + 18: PASS, closed.
-- First-write backup and recovery test: NOT YET DONE.
-- Any real COMMIT, Sheet mutation or restore: NOT APPROVED and NOT EXECUTED.
-- Stage Issue #53: OPEN.
-
-Both properties must remain false now. Existing Apps Script code, deployment, target configuration, Google Sheets, and CI workflows must not be changed in this PR.
+Keep `THAIPHC_RECEIVER_ENABLED=false` and `THAIPHC_WRITE_ENABLED=false` until an explicit and separately scoped PO first-write approval. Keep Issue #53 OPEN.

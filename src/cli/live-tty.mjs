@@ -137,26 +137,36 @@ export async function confirmReferenceValidateTransferFromTTY(io={}){
 }
 
 
-// T009D first-write path: independent operator attestations, NEVER an automated
-// verification that a real Google Drive backup exists. Live execution still
-// requires a separate explicit PO first-write approval.
-export async function confirmCommitBackupRestoreFromTTY(io={}){
- const phrase='BACKUP VERIFIED RESTORE TESTED 5406';
+// T009D: replacement for mandatory backup/restore. Operator must independently
+// inspect the actual destination, source-managed scope and potential external
+// edits; these prompts do not programmatically read or verify any Google Sheet.
+// All live commit invocations still require separate PO first-write approval.
+export async function confirmCommitDestinationInventoryFromTTY(io={}){
+ const phrase='DESTINATION INVENTORY VERIFIED 5406';
  const answer=await readHiddenLine({...io,
-  label:'Only after independently verifying a full destination copy AND a successful disposable restore. Type '+phrase+' (hidden): ',
+  label:'Only after checking real destination tab/header/key inventory and verifying no unmanaged edits. Type '+phrase+' (hidden): ',
   maxChars:64,allowSpaces:true,timeoutMs:30000
  });
- if(answer!==phrase)throw Error('BACKUP_RESTORE_ATTESTATION_MISSING');
+ if(answer!==phrase)throw Error('DESTINATION_INVENTORY_NOT_CONFIRMED');
  return true;
 }
-export async function readCommitBackupIdFromTTY(io={}){
+export async function readCommitDestinationIdFromTTY(io={}){
  const value=await readHiddenLine({...io,
-  label:'Paste ID of separate verified Google Sheets backup COPY (hidden; not original): ',
+  label:'Paste the EXACT approved original Google Sheet ID (hidden; not a backup ID): ',
   maxChars:120,timeoutMs:60000
  });
- if(!/^[A-Za-z0-9_-]{25,120}$/.test(value)||value===targets.spreadsheetId)
-  throw Error('BACKUP_COPY_ID_INVALID');
+ if(value!==targets.spreadsheetId)
+  throw Error('DESTINATION_ID_MISMATCH');
  return value;
+}
+export async function confirmRecoveryByResyncFromTTY(io={}){
+ const phrase='RE-SYNC LIMITATIONS ACCEPTED 5406';
+ const answer=await readHiddenLine({...io,
+  label:'Re-sync cannot restore historical/locally edited values, undo deletions, or fix wrong upstream data; unknown outcome STOP, never auto-retry. Type '+phrase+' (hidden): ',
+  maxChars:64,allowSpaces:true,timeoutMs:30000
+ });
+ if(answer!==phrase)throw Error('RECOVERY_LIMITATIONS_NOT_ACCEPTED');
+ return true;
 }
 export async function confirmReferenceCommitFromTTY(io={},endpoint,rows){
  const phrase='COMMIT '+endpoint+' '+rows+' ROWS 5406';

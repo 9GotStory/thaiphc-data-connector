@@ -1,3 +1,4 @@
+import targets from '../../config/thaiphc-targets.json' with {type:'json'};
 // T005: explicit interactive TTY entry. Never read real tokens from argv, env, files, stdin pipes.
 const CONFIRM_PHRASE='FETCH SUBDISTRICTS 5406';
 const CONFIRM_VILLAGES_PHRASE='FETCH VILLAGES 5406';
@@ -153,7 +154,7 @@ export async function readCommitBackupIdFromTTY(io={}){
   label:'Paste ID of separate verified Google Sheets backup COPY (hidden; not original): ',
   maxChars:120,timeoutMs:60000
  });
- if(!/^[A-Za-z0-9_-]{25,120}$/.test(value))
+ if(!/^[A-Za-z0-9_-]{25,120}$/.test(value)||value===targets.spreadsheetId)
   throw Error('BACKUP_COPY_ID_INVALID');
  return value;
 }

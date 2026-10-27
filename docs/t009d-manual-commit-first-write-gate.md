@@ -2,7 +2,7 @@
 
 Issue: https://github.com/9GotStory/thaiphc-data-connector/issues/53
 
-Decision: the Product Owner authorized replacing the full Google Sheets backup-ID / restore-drill **requirement** with **Recovery by Re-Sync** for **only** the three reproducible ThaiPHC reference datasets: `subdistricts`, `villages`, `health-services`. This changes the operator gate, not the signed protocol or Apps Script receiver. It does **not** authorize the first live write, change Script Properties, or create/change any Google Sheet.
+Decision: the Product Owner authorized **Recovery by Re-Sync** (not full Backup/Restore) for the three ThaiPHC reference datasets only. After a separate first-write authorization, the operator reported that the CLI required too many repeated prompts and asked for simplification. This follow-up PR changes only the CLI interaction; it does **not** perform, renew, or extend a real-write authorization, change Script Properties, or write any Google Sheet.
 
 ## What is — and is not — recoverable
 
@@ -23,20 +23,20 @@ While both Script Properties are `false`:
 2. Inspect the target Sheet's current tabs and target tab (`Subdistricts`, `Villages` or `HealthServices`) as applicable: tab/header column order, data row count, key column and `_source_key` uniqueness, `_row_digest` availability, formula cells, manual changes and any unrelated content. First-run expectation of empty/new target tabs must be verified again, not assumed from previous checks.
 3. Determine and record an independently reviewed source-only inventory (counts only; no source rows or credentials in issue logs), with read-only permissions. If a target tab differs from the expected receiver-managed layout, has duplicate keys, local edits or any content not reconstructable from ThaiPHC, **STOP**.
 
-The CLI only obtains **operator attestations** for this inspection. It cannot access Google Sheets to verify the target or compare rows. A typed confirmation is not proof an inventory happened.
+**Inspection remains an external prerequisite, not a repetitive CLI question.** The CLI does not independently read Google Sheets or Apps Script properties. The destination ID is read from pinned `config/thaiphc-targets.json`; the operator must compare the live receiver's `THAIPHC_SPREADSHEET_ID` with that configured ID before opening the write window. The endpoint-specific confirmation is a deliberate live-write action, **not evidence of a completed Sheet inventory**.
 
 ## 2. Separate live first-write authority and guarded CLI
 
-**Do not run this command now.** After PR review/merge, local tests and a **separate PO one-endpoint first-write approval** (which will specify the first-write window and post-write verification):
+**Do not run this command while this change remains a draft or while the previous CLI session is open.** Abort any existing input prompt with Ctrl+C and restore both Script Properties to `false` if enabled. After PR review/merge and local tests, obtain a **new, exact-version one-endpoint first-write execution approval**:
 
     npm.cmd run cli -- send-reference-commit --endpoint subdistricts --acknowledge-reference-commit
 
-The hidden operator prompts are:
-- `DESTINATION INVENTORY VERIFIED 5406` — operator previously checked live destination structure and absence of non-source edits;
-- exact **original approved destination Spreadsheet ID** (hidden; rejects any other ID; no backup file ID);
-- `RE-SYNC LIMITATIONS ACCEPTED 5406` — explicitly acknowledges non-atomic writes, impossibility of historical/local-edit rollback, and STOP before any re-sync;
-- endpoint-specific `COMMIT subdistricts 8 ROWS 5406` (or 85/18 for the other endpoints);
-- separate private ThaiPHC bearer and Web App HMAC key, hidden from output and logs.
+**Only three hidden prompts, in order:**
+1. `COMMIT subdistricts 8 ROWS 5406` (or the expected 85/18 for the other separately authorized endpoint) — **one explicit live-write confirmation**, after reading the independently approved scope and understanding partial-write/re-sync limitations.
+2. Private ThaiPHC Bearer token.
+3. Private destination Web App HMAC key.
+
+**No manual Spreadsheet ID, separate general inventory phrase or recovery-risk phrase** is requested. The URL and spreadsheet ID remain pinned to repository configuration; no CLI `--url`, `--spreadsheet`, `--token`, or multi-endpoint modes are supported. This convenience does **not** enable the Receiver/Write properties or independently verify that their live `THAIPHC_SPREADSHEET_ID` matches the pinned value. Never turn both switches on unless the separately authorized one-shot window is active.
 
 Then source fetch and strict validation: district 5406, reference-only endpoints, full observed count, fields/schema/keys checked, health-services total/pagination. A fresh signed `mode=commit` envelope must exactly match the source snapshot in memory; at most **one** pinned Web App POST, followed by at most one allowlisted **bodyless GET** for Google ContentService redirect. No retry, schedule, deletion, arbitrary target, mass update or person-level sync.
 
@@ -56,9 +56,10 @@ A strict receiver `COMMITTED` reply only produces `COMMIT_REPORTED_READBACK_REQU
 | Gate | Status |
 |---|---|
 | Real validate-only for 8 / 85 / 18 | PASS; closed |
-| Code-only switch from Backup/Restore requirement to Recovery by Re-Sync | Authorized for development; Draft PR pending review |
-| Actual Google Sheets pre-commit read-only inventory | NOT EXECUTED |
-| Real mode=commit / first Sheet write | NOT APPROVED / NOT EXECUTED |
+| Recovery by Re-Sync code correction | PR #58 merged; Node tests passed |
+| Prompt simplification | Draft PR, pending review and code-merge gate |
+| Prior live destination read-only inventory | PASS when last inspected, recheck if changed |
+| First live mode=commit execution on simplified code | HOLD; require new exact-version PO gate |
 | Post-commit readback and any corrective Re-Sync | NOT EXECUTED / MUST BE SEPARATELY APPROVED |
 
-Keep `THAIPHC_RECEIVER_ENABLED=false` and `THAIPHC_WRITE_ENABLED=false` until an explicit and separately scoped PO first-write approval. Keep Issue #53 OPEN.
+Keep `THAIPHC_RECEIVER_ENABLED=false` and `THAIPHC_WRITE_ENABLED=false` outside a separately authorized first-write window. If switches were enabled for the interrupted old CLI session, the operator must immediately turn both back OFF; no first-write has been confirmed. Keep Issue #53 OPEN.

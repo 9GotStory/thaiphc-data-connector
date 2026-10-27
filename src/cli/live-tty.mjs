@@ -1,4 +1,3 @@
-import targets from '../../config/thaiphc-targets.json' with {type:'json'};
 // T005: explicit interactive TTY entry. Never read real tokens from argv, env, files, stdin pipes.
 const CONFIRM_PHRASE='FETCH SUBDISTRICTS 5406';
 const CONFIRM_VILLAGES_PHRASE='FETCH VILLAGES 5406';
@@ -137,37 +136,60 @@ export async function confirmReferenceValidateTransferFromTTY(io={}){
 }
 
 
-// T009D: replacement for mandatory backup/restore. Operator must independently
-// inspect the actual destination, source-managed scope and potential external
-// edits; these prompts do not programmatically read or verify any Google Sheet.
-// All live commit invocations still require separate PO first-write approval.
-export async function confirmCommitDestinationInventoryFromTTY(io={}){
- const phrase='DESTINATION INVENTORY VERIFIED 5406';
- const answer=await readHiddenLine({...io,
-  label:'Only after checking real destination tab/header/key inventory and verifying no unmanaged edits. Type '+phrase+' (hidden): ',
-  maxChars:64,allowSpaces:true,timeoutMs:30000
+// T009D full API inventory menu. This is a COMMAND SELECTION display, NOT
+// approval to write or fetch personal records. Exactly three reference
+// datasets may proceed to a separately PO-authorized commit attempt.
+export const REFERENCE_MENU_ITEMS=Object.freeze([
+ Object.freeze({choice:'1',endpoint:'subdistricts',title:'Subdistricts / ตำบล',status:'COMMIT_GATED',rows:8}),
+ Object.freeze({choice:'2',endpoint:'villages',title:'Villages / หมู่บ้าน',status:'COMMIT_GATED',rows:85}),
+ Object.freeze({choice:'3',endpoint:'health-services',title:'Health Services / หน่วยบริการสุขภาพ',status:'COMMIT_GATED',rows:18}),
+ Object.freeze({choice:'4',endpoint:'volunteer-gender',title:'Volunteer Gender / อสม. จำแนกตามเพศ',status:'READ_ONLY',rows:null}),
+ Object.freeze({choice:'5',endpoint:'assignments',title:'Assignments / การมอบหมาย อสม.',status:'PERSON_DATA_HOLD',rows:null}),
+ Object.freeze({choice:'6',endpoint:'volunteer-family',title:'Volunteer Family / ครอบครัว อสม.',status:'PERSON_DATA_HOLD',rows:null}),
+ Object.freeze({choice:'7',endpoint:'resigned-volunteers',title:'Resigned Volunteers / อสม. ที่ลาออก',status:'PERSON_DATA_HOLD',rows:null}),
+ Object.freeze({choice:'8',endpoint:'volunteer-tenure',title:'Volunteer Tenure / อายุงาน อสม.',status:'PERSON_DATA_HOLD',rows:null})
+]);
+const REFERENCE_MENU_LABEL='\nThaiPHC API (district 5406) — 8 topics\n'+
+ '\n[Commit eligible only after separate PO approval]\n'+
+ REFERENCE_MENU_ITEMS.slice(0,3).map(item=>
+  '  '+item.choice+') '+item.title+' ('+item.rows+' observed rows) [COMMIT GATED]').join('\n')+
+ '\n\n[Read only — NO COMMIT]\n'+
+ '  4) Volunteer Gender / อสม. จำแนกตามเพศ [READ ONLY]\n'+
+ '\n[Person-level data — APPROVAL REQUIRED; NO COMMIT]\n'+
+ REFERENCE_MENU_ITEMS.slice(4).map(item=>
+  '  '+item.choice+') '+item.title+' [PERSON DATA HOLD]').join('\n')+
+ '\n\n  0) Cancel\nSelect 0-8: ';
+
+// The menu itself NEVER makes any network request. Disabled selections
+// produce an explicit non-writing result, not an alternative sender route.
+export async function selectReferenceCommitFromTTY(io={}){
+ const choice=await readHiddenLine({...io,
+  label:REFERENCE_MENU_LABEL,maxChars:1,timeoutMs:30000
  });
- if(answer!==phrase)throw Error('DESTINATION_INVENTORY_NOT_CONFIRMED');
- return true;
+ if(choice==='0')return Object.freeze({status:'CANCELLED'});
+ const item=REFERENCE_MENU_ITEMS.find(i=>i.choice===choice);
+ if(!item)throw Error('REFERENCE_MENU_INVALID_SELECTION');
+ if(item.status==='READ_ONLY')
+  return Object.freeze({status:'READ_ONLY_NO_COMMIT',endpoint:item.endpoint});
+ if(item.status==='PERSON_DATA_HOLD')
+  return Object.freeze({status:'PERSON_DATA_APPROVAL_REQUIRED',endpoint:item.endpoint});
+ if(item.status!=='COMMIT_GATED'||!Number.isSafeInteger(item.rows))
+  throw Error('REFERENCE_MENU_SCOPE_REJECTED');
+ return Object.freeze({status:'COMMIT_SELECTION',endpoint:item.endpoint,rows:item.rows});
 }
-export async function readCommitDestinationIdFromTTY(io={}){
- const value=await readHiddenLine({...io,
-  label:'Paste the EXACT approved original Google Sheet ID (hidden; not a backup ID): ',
-  maxChars:120,timeoutMs:60000
+export async function confirmReferenceCommitSelectionFromTTY(io={},endpoint,rows){
+ const expected={subdistricts:8,villages:85,'health-services':18};
+ if(!Object.hasOwn(expected,endpoint)||expected[endpoint]!==rows)
+  throw Error('REFERENCE_MENU_SCOPE_REJECTED');
+ const confirm=await readHiddenLine({...io,
+  label:'REAL ONE-TIME WRITE: '+endpoint+' / '+rows+
+   ' rows / district 5406. Receiver may partially write; NO automatic retry. Type Y to proceed, any other key cancels: ',
+  maxChars:1,timeoutMs:30000
  });
- if(value!==targets.spreadsheetId)
-  throw Error('DESTINATION_ID_MISMATCH');
- return value;
+ if(confirm!=='Y')throw Error('REFERENCE_MENU_WRITE_NOT_CONFIRMED');
+ return 'COMMIT '+endpoint+' '+rows+' ROWS 5406';
 }
-export async function confirmRecoveryByResyncFromTTY(io={}){
- const phrase='RE-SYNC LIMITATIONS ACCEPTED 5406';
- const answer=await readHiddenLine({...io,
-  label:'Re-sync cannot restore historical/locally edited values, undo deletions, or fix wrong upstream data; unknown outcome STOP, never auto-retry. Type '+phrase+' (hidden): ',
-  maxChars:64,allowSpaces:true,timeoutMs:30000
- });
- if(answer!==phrase)throw Error('RECOVERY_LIMITATIONS_NOT_ACCEPTED');
- return true;
-}
+
 export async function confirmReferenceCommitFromTTY(io={},endpoint,rows){
  const phrase='COMMIT '+endpoint+' '+rows+' ROWS 5406';
  if(!['subdistricts','villages','health-services'].includes(endpoint)||

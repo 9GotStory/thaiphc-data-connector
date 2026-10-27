@@ -2,7 +2,7 @@
 
 Issue: https://github.com/9GotStory/thaiphc-data-connector/issues/53
 
-Decision: the Product Owner authorized replacing the full Google Sheets backup-ID / restore-drill **requirement** with **Recovery by Re-Sync** for **only** the three reproducible ThaiPHC reference datasets: `subdistricts`, `villages`, `health-services`. This changes the operator gate, not the signed protocol or Apps Script receiver. It does **not** authorize the first live write, change Script Properties, or create/change any Google Sheet.
+Decision: the Product Owner authorized **Recovery by Re-Sync** (not full Backup/Restore) for the three ThaiPHC reference datasets only. After a separate first-write authorization, the operator reported that the CLI required too many repeated prompts and asked for simplification. This follow-up PR changes only the CLI interaction; it does **not** perform, renew, or extend a real-write authorization, change Script Properties, or write any Google Sheet.
 
 ## What is — and is not — recoverable
 
@@ -23,20 +23,47 @@ While both Script Properties are `false`:
 2. Inspect the target Sheet's current tabs and target tab (`Subdistricts`, `Villages` or `HealthServices`) as applicable: tab/header column order, data row count, key column and `_source_key` uniqueness, `_row_digest` availability, formula cells, manual changes and any unrelated content. First-run expectation of empty/new target tabs must be verified again, not assumed from previous checks.
 3. Determine and record an independently reviewed source-only inventory (counts only; no source rows or credentials in issue logs), with read-only permissions. If a target tab differs from the expected receiver-managed layout, has duplicate keys, local edits or any content not reconstructable from ThaiPHC, **STOP**.
 
-The CLI only obtains **operator attestations** for this inspection. It cannot access Google Sheets to verify the target or compare rows. A typed confirmation is not proof an inventory happened.
+**Inspection remains an external prerequisite, not a repetitive CLI question.** The CLI does not independently read Google Sheets or Apps Script properties. The destination ID is read from pinned `config/thaiphc-targets.json`; the operator must compare the live receiver's `THAIPHC_SPREADSHEET_ID` with that configured ID before opening the write window. The endpoint-specific confirmation is a deliberate live-write action, **not evidence of a completed Sheet inventory**.
 
 ## 2. Separate live first-write authority and guarded CLI
 
-**Do not run this command now.** After PR review/merge, local tests and a **separate PO one-endpoint first-write approval** (which will specify the first-write window and post-write verification):
+**Do not run live commits while this change remains a draft or while the prior CLI session is open.** Abort the old session with Ctrl+C and restore both Script Properties to `false` if enabled. A new, exact-version one-endpoint first-write execution approval is required after review/merge/local tests. The advanced legacy command below is NOT the recommended menu route:
 
     npm.cmd run cli -- send-reference-commit --endpoint subdistricts --acknowledge-reference-commit
 
-The hidden operator prompts are:
-- `DESTINATION INVENTORY VERIFIED 5406` — operator previously checked live destination structure and absence of non-source edits;
-- exact **original approved destination Spreadsheet ID** (hidden; rejects any other ID; no backup file ID);
-- `RE-SYNC LIMITATIONS ACCEPTED 5406` — explicitly acknowledges non-atomic writes, impossibility of historical/local-edit rollback, and STOP before any re-sync;
-- endpoint-specific `COMMIT subdistricts 8 ROWS 5406` (or 85/18 for the other endpoints);
-- separate private ThaiPHC bearer and Web App HMAC key, hidden from output and logs.
+**Recommended Windows CLI workflow — one-time HMAC setup, followed by a numbered menu:**
+
+**First-time only**, when the Receiver/Write switches are both OFF, run:
+
+    npm.cmd run cli -- hmac-setup
+
+This accepts the **existing** Web App HMAC secret once into a hidden PowerShell prompt and encrypts it using Windows **DPAPI CurrentUser** at `%LOCALAPPDATA%\ThaiPHC\DataConnector\hmac.dpapi` (outside the git checkout). It never prints the key, never passes it in CLI args or an environment variable, and requires the **same Windows user account** to decrypt. A process already running as that user may also decrypt it: this is convenience and OS-account isolation, **not a hardware-backed or admin-proof vault**. Changing Windows profile/user or losing the DPAPI user master key requires one-time setup again; do not export/commit the encrypted blob.
+
+After PR review, local tests, live target preflight and **new PO first-write approval for the exact merged code**, run:
+
+    npm.cmd run cli -- commit-menu
+
+The menu presents **all 8 observed ThaiPHC API topics** with explicit groups. This is an **inventory display**, not blanket permission to commit:
+
+| CLI selection | Dataset | Menu status | Commit |
+|---|---|---|---|
+| 1 | `subdistricts` — ตำบล (8 observed rows) | COMMIT GATED | Eligible **only with its own explicit PO authorization** |
+| 2 | `villages` — หมู่บ้าน (85 observed rows) | COMMIT GATED | Same separate authorization required |
+| 3 | `health-services` — หน่วยบริการสุขภาพ (18 observed rows) | COMMIT GATED | Same separate authorization required |
+| 4 | `volunteer-gender` — อสม. จำแนกตามเพศ | READ ONLY | **Blocked** (menu does not perform a read) |
+| 5 | `assignments` — การมอบหมาย อสม. | PERSON DATA HOLD | **Blocked** |
+| 6 | `volunteer-family` — ครอบครัว อสม. | PERSON DATA HOLD | **Blocked** |
+| 7 | `resigned-volunteers` — อสม. ที่ลาออก | PERSON DATA HOLD | **Blocked** |
+| 8 | `volunteer-tenure` — อายุงาน อสม. | PERSON DATA HOLD | **Blocked** |
+| 0 | Cancel | CANCELLED | **No operation** |
+
+Only choices **1–3** may reach `mode=commit`, and only after a separate, endpoint-specific PO approval. Selecting **4** returns `READ_ONLY_NO_COMMIT`; choices **5–8** return `PERSON_DATA_APPROVAL_REQUIRED`. These all exit without reading HMAC, prompting for Bearer, fetching ThaiPHC data or sending a Google Apps Script POST. The menu is **not** a general-purpose read-only query command; any actual read of `volunteer-gender` requires the separately authorized `live-fetch` workflow.
+
+For an eligible selection, read the displayed **one-endpoint / expected count / district 5406** warning, then enter `Y` to authorize **one attempt**. The only per-run secret input is a **private ThaiPHC Bearer token**. There is **no** manually pasted spreadsheet ID, long `COMMIT ...` phrase or recurring HMAC key prompt. Observed row counts are guards, **not current authoritative totals** for the two unpaginated endpoints.
+
+The existing signed HMAC `mode=commit` protocol is **unchanged**. The Windows-local saved HMAC is still required; if missing, the CLI fails closed BEFORE any network request with `HMAC_STORE_NOT_READY` and instructs `hmac-setup`. `commit-menu` cannot set Receiver/Write flags, read live Apps Script Properties, or independently inspect Sheet contents; external checks remain mandatory.
+
+Do not run the old `send-reference-commit` command from an interrupted session. Cancel it with Ctrl+C, set both switches OFF, review and merge the proposed change under the separate PO gate, then use the new menu only after authorization. The old explicit CLI command is preserved as an advanced compatibility path, and still enforces one endpoint and private credentials; it also retrieves HMAC from Windows DPAPI.
 
 Then source fetch and strict validation: district 5406, reference-only endpoints, full observed count, fields/schema/keys checked, health-services total/pagination. A fresh signed `mode=commit` envelope must exactly match the source snapshot in memory; at most **one** pinned Web App POST, followed by at most one allowlisted **bodyless GET** for Google ContentService redirect. No retry, schedule, deletion, arbitrary target, mass update or person-level sync.
 
@@ -56,9 +83,10 @@ A strict receiver `COMMITTED` reply only produces `COMMIT_REPORTED_READBACK_REQU
 | Gate | Status |
 |---|---|
 | Real validate-only for 8 / 85 / 18 | PASS; closed |
-| Code-only switch from Backup/Restore requirement to Recovery by Re-Sync | Authorized for development; Draft PR pending review |
-| Actual Google Sheets pre-commit read-only inventory | NOT EXECUTED |
-| Real mode=commit / first Sheet write | NOT APPROVED / NOT EXECUTED |
+| Recovery by Re-Sync code correction | PR #58 merged; Node tests passed |
+| Numbered CLI menu and Windows DPAPI secret store | Draft PR, pending review and code-merge gate |
+| Prior live destination read-only inventory | PASS when last inspected, recheck if changed |
+| First live mode=commit execution on simplified code | HOLD; require new exact-version PO gate |
 | Post-commit readback and any corrective Re-Sync | NOT EXECUTED / MUST BE SEPARATELY APPROVED |
 
-Keep `THAIPHC_RECEIVER_ENABLED=false` and `THAIPHC_WRITE_ENABLED=false` until an explicit and separately scoped PO first-write approval. Keep Issue #53 OPEN.
+Keep `THAIPHC_RECEIVER_ENABLED=false` and `THAIPHC_WRITE_ENABLED=false` outside a separately authorized first-write window. If switches were enabled for the interrupted old CLI session, the operator must immediately turn both back OFF; no first-write has been confirmed. Keep Issue #53 OPEN.

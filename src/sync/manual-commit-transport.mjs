@@ -36,7 +36,7 @@ function safeSummary(endpoint,status,requests=0,posts=0,httpStatus=null,other={}
   ...other
  });
 }
-function preflight(prepared,snapshot,destinationId,inventoryConfirmed,recoveryAcknowledged){
+function preflight(prepared,snapshot){
  if(!exact(prepared,['status','transferApproved','endpoint','rowCount',
     'networkRequests','appsScriptPosts','sheetsWrites','envelope'])||
     prepared.status!=='OFFLINE_COMMIT_PREPARED_NOT_SENT'||
@@ -58,11 +58,10 @@ function preflight(prepared,snapshot,destinationId,inventoryConfirmed,recoveryAc
     (health&&snapshot.paginationComplete!==true)||
     !Array.isArray(snapshot.rows)||snapshot.rows.length!==prepared.rowCount)
    fail();
- // A target identity match and TWO distinct OPERATOR ATTESTATIONS are
- // required. They are NOT a live Google Sheet inventory, readback or proof
- // that upstream can reconstruct deleted/historical or manually edited data.
- if(destinationId!==targets.spreadsheetId||
-    inventoryConfirmed!==true||recoveryAcknowledged!==true)fail();
+ // The destination ID is pinned in repository configuration; never request
+ // an operator-supplied ID or allow any CLI destination override. Live Apps
+ // Script property identity / Sheet content must still be checked externally.
+ // The only TTY confirmation covers one exact endpoint, row count and district.
  if(!/^AKfycb[A-Za-z0-9_-]{40,120}$/.test(targets.deploymentId)||
     !KEY_RE.test(targets.spreadsheetId))fail();
  const dest=new URL(WEB_APP_URL);
@@ -170,18 +169,17 @@ function parsedReply(response,text,endpoint,rowCount,requests){
 }
 /**
  * This function MUST only run after a separately approved first-write window,
- * operator-reviewed destination inventory, declared re-sync limitations,
- * and independent PO first-write authorization. All are manual gates.
- * It cannot independently read or inspect the live Google Sheet.
+ * a separately operator-reviewed destination inventory, and independent
+ * PO first-write authorization. The explicit endpoint/count TTY confirmation
+ * is not independent proof of the live Google Sheet or Apps Script properties.
  * One POST only, never retry, even when the response is lost or rejected.
  */
 export async function sendReferenceCommit({
- prepared,snapshot,acknowledgement,destinationId,inventoryConfirmed=false,
- recoveryAcknowledged=false,fetchImpl=globalThis.fetch
+ prepared,snapshot,acknowledgement,fetchImpl=globalThis.fetch
 }={}){
  let endpoint=null;
  try{
-  endpoint=preflight(prepared,snapshot,destinationId,inventoryConfirmed,recoveryAcknowledged);
+  endpoint=preflight(prepared,snapshot);
   if(acknowledgement!==commitPhrase(endpoint))
    return safeSummary(endpoint,'CONFIRMATION_REQUIRED');
   if(typeof fetchImpl!=='function')return safeSummary(endpoint,'TRANSPORT_UNAVAILABLE');

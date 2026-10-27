@@ -13,7 +13,6 @@ const manifest=JSON.parse(readFileSync(new URL('../docs/sheets-schema.json',impo
 const target=JSON.parse(readFileSync(new URL('../config/thaiphc-targets.json',import.meta.url),'utf8'));
 const keyB64=Buffer.alloc(32,42).toString('base64'); // FAKE, not production
 const bearer='FAKE_TEST_BEARER_1234567890';
-const backup='SYNTHETIC_BACKUP_COPY_ID_12345678901234567890';
 const url='https://script.google.com/macros/s/'+target.deploymentId+'/exec';
 const redirect='https://script.googleusercontent.com/macros/echo?user_content_key=FAKE';
 const counts={subdistricts:8,villages:85,'health-services':18};
@@ -71,7 +70,8 @@ const denial=(status='WRITE_DISABLED')=>({
 });
 const send=(p,snap,fetchImpl,other={})=>sendReferenceCommit({
  prepared:p,snapshot:snap,acknowledgement:commitPhrase(snap.endpoint),
- backupId:backup,restoreConfirmed:true,fetchImpl,...other
+ destinationId:target.spreadsheetId,inventoryConfirmed:true,
+ recoveryAcknowledged:true,fetchImpl,...other
 });
 
 test('T009D commit envelope uses exact signed mode=commit without altering existing validate-only builder',async()=>{
@@ -121,21 +121,23 @@ test('T009D commit sender accepts only strict receipt, never claims independentl
   assert.equal(out.reportedInserted,counts[endpoint]);
   assert.equal(out.reportedSheetsWrites,1);
   assert.equal(out.destinationReadbackVerified,false);
+  assert.equal(out.recoveryStrategy,'MANUAL_RE_SYNC_AFTER_READBACK');
   assert.equal(out.accepted,false);
   assert.equal(out.appsScriptPosts,1);
   assert.doesNotMatch(JSON.stringify(out),/payloadB64|signature|FAKE|SYNTHETIC|user_content_key|BACKUP_COPY/);
  }
 });
 
-test('T009D commit sender requires snapshot, valid distinct backup ID and confirmed restore BEFORE any network',async()=>{
+test('T009D commit sender requires snapshot, confirmed target inventory, exact ID and re-sync risk acceptance BEFORE any network',async()=>{
  const snap=await snapshot('villages'),p=prepare(snap);
  let calls=0;
  const fetchImpl=async()=>{calls++;return response(committed('villages',85,0,0));};
  const cases=[
-  {backupId:undefined},
-  {backupId:target.spreadsheetId},
-  {backupId:'invalid'},
-  {restoreConfirmed:false},
+  {destinationId:undefined},
+  {destinationId:'OTHER_DESTINATION_SPREADSHEET_ID_123456789012345'},
+  {destinationId:'invalid'},
+  {inventoryConfirmed:false},
+  {recoveryAcknowledged:false},
   {acknowledgement:'WRONG'},
   {snapshot:{...snap,observedCountMatches:false}},
   {snapshot:{...snap,rowCount:84}},
@@ -237,15 +239,17 @@ class FakeTTY extends EventEmitter{
 function tty(overrides={}){
  const input=new FakeTTY(),prompts=[];
  const values={
-  backupPhrase:'BACKUP VERIFIED RESTORE TESTED 5406',
-  backup,
+  inventoryPhrase:'DESTINATION INVENTORY VERIFIED 5406',
+  destination:target.spreadsheetId,
+  recoveryPhrase:'RE-SYNC LIMITATIONS ACCEPTED 5406',
   confirm:commitPhrase('subdistricts'),bearer,hmac:keyB64,...overrides
  };
  const output={isTTY:true,write(msg){
   prompts.push(msg);
   let value=null;
-  if(msg.includes('Type BACKUP VERIFIED RESTORE TESTED'))value=values.backupPhrase;
-  if(msg.includes('Paste ID of separate verified'))value=values.backup;
+  if(msg.includes('Type DESTINATION INVENTORY VERIFIED'))value=values.inventoryPhrase;
+  if(msg.includes('Paste the EXACT approved original Google Sheet ID'))value=values.destination;
+  if(msg.includes('Type RE-SYNC LIMITATIONS ACCEPTED'))value=values.recoveryPhrase;
   if(msg.includes('Type COMMIT '))value=values.confirm;
   if(msg.includes('Paste authorized Bearer'))value=values.bearer;
   if(msg.includes('Paste destination HMAC'))value=values.hmac;
@@ -254,7 +258,7 @@ function tty(overrides={}){
  }};
  return {input,output,prompts};
 }
-test('T009D CLI with verified fake backup obtains hidden credentials, sends one synthetic mocked real-reference commit and requires readback',async()=>{
+test('T009D CLI after operator inventory/re-sync attestations obtains hidden credentials, sends one synthetic mocked commit and still requires readback',async()=>{
  const io=tty(),logs=[];let source=0,dest=0;
  const exit=await main(
   ['send-reference-commit','--endpoint','subdistricts','--acknowledge-reference-commit'],
@@ -278,8 +282,9 @@ test('T009D CLI with verified fake backup obtains hidden credentials, sends one 
  assert.equal(parsed.destinationReadbackVerified,false);
  assert.equal(parsed.sourceNetworkRequests,1);
  assert.doesNotMatch(logs.join(''),/payloadB64|signature|FAKE|SYNTHETIC|BACKUP_COPY|Bearer/);
+ assert.doesNotMatch(logs.join(''),new RegExp(target.spreadsheetId));
 });
-test('T009D CLI invalid flags and wrong backup phrase block before ANY source/target request',async()=>{
+test('T009D CLI invalid flags, wrong destination ID, and rejected re-sync attestations block before ANY source/target request',async()=>{
  const bad=[
   ['send-reference-commit','--endpoint','subdistricts'],
   ['send-reference-commit','--endpoint','volunteer-gender','--acknowledge-reference-commit'],
@@ -294,7 +299,8 @@ test('T009D CLI invalid flags and wrong backup phrase block before ANY source/ta
   const code=await main(args,()=>{}, {fetchImpl:async()=>{calls++;}});
   assert.equal(code,2);
  }
- for(const overrides of [{backupPhrase:'WRONG'}, {backup:target.spreadsheetId}, {confirm:'WRONG'}]){
+ for(const overrides of [{inventoryPhrase:'WRONG'}, {destination:'OTHER_DESTINATION_SPREADSHEET_ID_1234567890'},
+   {recoveryPhrase:'WRONG'}, {confirm:'WRONG'}]){
   const io=tty(overrides);
   const code=await main(
    ['send-reference-commit','--endpoint','subdistricts','--acknowledge-reference-commit'],

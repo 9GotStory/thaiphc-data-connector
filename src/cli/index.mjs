@@ -21,10 +21,9 @@ import {confirmSyntheticValidateFromTTY,readDestinationHmacFromTTY} from './live
 import {confirmReferenceAuditFromTTY,confirmReferenceValidateTransferFromTTY} from './live-tty.mjs';
 import {collectReferenceSnapshot,SNAPSHOT_CONFIRM} from '../sync/reference-snapshot.mjs';
 import {sendReferenceCommit,commitPhrase} from '../sync/manual-commit-transport.mjs';
-import {confirmCommitDestinationInventoryFromTTY,readCommitDestinationIdFromTTY,
-        confirmRecoveryByResyncFromTTY,confirmReferenceCommitFromTTY} from './live-tty.mjs';
+import {confirmReferenceCommitFromTTY} from './live-tty.mjs';
 
-const HELP='ThaiPHC Node.js 24 Manual Connector\nCommands: help | sync-plan [--endpoint ID] | inspect [--endpoint ID] | validate [--endpoint ID] | dry-run [--endpoint ID] [--max-pages N] | auth-mock [--endpoint subdistricts] | live-fetch --endpoint subdistricts|villages|health-services|volunteer-gender --acknowledge-authorized-use | send-validate --synthetic --endpoint subdistricts|villages|health-services --acknowledge-synthetic-post | audit-source --endpoint subdistricts|villages|health-services --acknowledge-authorized-use | send-reference-validate --endpoint subdistricts|villages|health-services --acknowledge-reference-validate | send-reference-commit --endpoint subdistricts|villages|health-services --acknowledge-reference-commit\nLive-fetch requires interactive confirmation + manually pasted authorized Bearer token; bounded read-only lookups/reports (health services max 10 pages, volunteer gender max 15 pages); aggregate-only output. No Google Sheets/App Script writes. sync-plan is manifest-only and never sends rows.\nSource audit makes only explicitly confirmed ThaiPHC read-only GET(s), keeps rows in memory and outputs counts/schema/completeness metadata only; it never sends rows to Apps Script or Sheets.\nsend-reference-validate is a separately approved opt-in real-row, validate-only HTTPS POST with exact snapshot count/schema gates. Receiver must be separately approved to enable; never use for commit.\nsend-reference-commit is DORMANT until separate PO first-write approval, manual destination inventory and exact target ID confirmation. It can write real Sheets and requires independent readback after COMMITTED. Recovery is manually reviewed re-sync only; never retry unknown outcomes automatically.\nDefault commands and auth-mock remain fully offline. send-validate is an explicit REAL HTTPS POST of one SYNTHETIC-only validate batch to existing Web App V3, gated by hidden TTY confirmation + privately entered destination HMAC key (never ThaiPHC bearer); use only after separate live UAT approval. No commit or Sheets writes. No --token, --output, --url, or multi-endpoint live calls.';
+const HELP='ThaiPHC Node.js 24 Manual Connector\nCommands: help | sync-plan [--endpoint ID] | inspect [--endpoint ID] | validate [--endpoint ID] | dry-run [--endpoint ID] [--max-pages N] | auth-mock [--endpoint subdistricts] | live-fetch --endpoint subdistricts|villages|health-services|volunteer-gender --acknowledge-authorized-use | send-validate --synthetic --endpoint subdistricts|villages|health-services --acknowledge-synthetic-post | audit-source --endpoint subdistricts|villages|health-services --acknowledge-authorized-use | send-reference-validate --endpoint subdistricts|villages|health-services --acknowledge-reference-validate | send-reference-commit --endpoint subdistricts|villages|health-services --acknowledge-reference-commit\nLive-fetch requires interactive confirmation + manually pasted authorized Bearer token; bounded read-only lookups/reports (health services max 10 pages, volunteer gender max 15 pages); aggregate-only output. No Google Sheets/App Script writes. sync-plan is manifest-only and never sends rows.\nSource audit makes only explicitly confirmed ThaiPHC read-only GET(s), keeps rows in memory and outputs counts/schema/completeness metadata only; it never sends rows to Apps Script or Sheets.\nsend-reference-validate is a separately approved opt-in real-row, validate-only HTTPS POST with exact snapshot count/schema gates. Receiver must be separately approved to enable; never use for commit.\nsend-reference-commit is DORMANT until separate PO first-write approval and independently reviewed destination inventory. Destination ID is pinned in config (not prompted). One exact endpoint/count confirmation plus private Bearer and HMAC prompts. After COMMITTED independent destination readback is required; never automatically retry unknown outcomes.\nDefault commands and auth-mock remain fully offline. send-validate is an explicit REAL HTTPS POST of one SYNTHETIC-only validate batch to existing Web App V3, gated by hidden TTY confirmation + privately entered destination HMAC key (never ThaiPHC bearer); use only after separate live UAT approval. No commit or Sheets writes. No --token, --output, --url, or multi-endpoint live calls.';
 function parseArgs(argv){
   const [command='help',...tail]=argv;
   if(!['help','inspect','validate','dry-run','auth-mock','live-fetch','sync-plan','send-validate','audit-source','send-reference-validate','send-reference-commit'].includes(command))throw Error('UNSUPPORTED_COMMAND');
@@ -105,12 +104,10 @@ export async function main(argv=process.argv.slice(2),write=console.log,tty={}){
       return 0; // Report generated; status HOLD explicitly forbids downstream writes.
     }
     if(parsed.command==='send-reference-commit'){
-      // This path is NOT authorization. Use only after separate PO first-write
-      // approval, operator-verified destination inventory and re-sync risk review.
+      // This path is NOT authorization. Operator must separately inspect the
+      // pinned destination and get an exact PO first-write gate before use.
+      // Redundant target ID / general-risk prompts are intentionally removed.
       let sourceCalls=0;
-      const inventoryConfirmed=await confirmCommitDestinationInventoryFromTTY(tty);
-      const destinationId=await readCommitDestinationIdFromTTY(tty);
-      const recoveryAcknowledged=await confirmRecoveryByResyncFromTTY(tty);
       const count={subdistricts:8,villages:85,'health-services':18}[parsed.endpoint];
       const confirmation=await confirmReferenceCommitFromTTY(tty,parsed.endpoint,count);
       if(confirmation!==commitPhrase(parsed.endpoint))
@@ -145,8 +142,7 @@ export async function main(argv=process.argv.slice(2),write=console.log,tty={}){
         fetchedAtUtc:new Date().toISOString()
       });
       const result=await sendReferenceCommit({
-        prepared,snapshot,acknowledgement:confirmation,destinationId,
-        inventoryConfirmed,recoveryAcknowledged,
+        prepared,snapshot,acknowledgement:confirmation,
         fetchImpl:tty.fetchImpl??globalThis.fetch
       });
       write(JSON.stringify({...result,sourceNetworkRequests:sourceCalls},null,2));

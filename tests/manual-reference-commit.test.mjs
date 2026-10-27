@@ -70,8 +70,7 @@ const denial=(status='WRITE_DISABLED')=>({
 });
 const send=(p,snap,fetchImpl,other={})=>sendReferenceCommit({
  prepared:p,snapshot:snap,acknowledgement:commitPhrase(snap.endpoint),
- destinationId:target.spreadsheetId,inventoryConfirmed:true,
- recoveryAcknowledged:true,fetchImpl,...other
+ fetchImpl,...other
 });
 
 test('T009D commit envelope uses exact signed mode=commit without altering existing validate-only builder',async()=>{
@@ -128,16 +127,11 @@ test('T009D commit sender accepts only strict receipt, never claims independentl
  }
 });
 
-test('T009D commit sender requires snapshot, confirmed target inventory, exact ID and re-sync risk acceptance BEFORE any network',async()=>{
+test('T009D commit sender rejects tampered snapshot, wrong confirmation and validate envelope BEFORE network',async()=>{
  const snap=await snapshot('villages'),p=prepare(snap);
  let calls=0;
  const fetchImpl=async()=>{calls++;return response(committed('villages',85,0,0));};
  const cases=[
-  {destinationId:undefined},
-  {destinationId:'OTHER_DESTINATION_SPREADSHEET_ID_123456789012345'},
-  {destinationId:'invalid'},
-  {inventoryConfirmed:false},
-  {recoveryAcknowledged:false},
   {acknowledgement:'WRONG'},
   {snapshot:{...snap,observedCountMatches:false}},
   {snapshot:{...snap,rowCount:84}},
@@ -239,17 +233,11 @@ class FakeTTY extends EventEmitter{
 function tty(overrides={}){
  const input=new FakeTTY(),prompts=[];
  const values={
-  inventoryPhrase:'DESTINATION INVENTORY VERIFIED 5406',
-  destination:target.spreadsheetId,
-  recoveryPhrase:'RE-SYNC LIMITATIONS ACCEPTED 5406',
   confirm:commitPhrase('subdistricts'),bearer,hmac:keyB64,...overrides
  };
  const output={isTTY:true,write(msg){
   prompts.push(msg);
   let value=null;
-  if(msg.includes('Type DESTINATION INVENTORY VERIFIED'))value=values.inventoryPhrase;
-  if(msg.includes('Paste the EXACT approved original Google Sheet ID'))value=values.destination;
-  if(msg.includes('Type RE-SYNC LIMITATIONS ACCEPTED'))value=values.recoveryPhrase;
   if(msg.includes('Type COMMIT '))value=values.confirm;
   if(msg.includes('Paste authorized Bearer'))value=values.bearer;
   if(msg.includes('Paste destination HMAC'))value=values.hmac;
@@ -258,7 +246,7 @@ function tty(overrides={}){
  }};
  return {input,output,prompts};
 }
-test('T009D CLI after operator inventory/re-sync attestations obtains hidden credentials, sends one synthetic mocked commit and still requires readback',async()=>{
+test('T009D CLI uses exactly one explicit confirmation plus two secret prompts and requires readback',async()=>{
  const io=tty(),logs=[];let source=0,dest=0;
  const exit=await main(
   ['send-reference-commit','--endpoint','subdistricts','--acknowledge-reference-commit'],
@@ -277,6 +265,10 @@ test('T009D CLI after operator inventory/re-sync attestations obtains hidden cre
  assert.equal(exit,2); // deliberate: operator readback is still required
  assert.equal(source,1);assert.equal(dest,1);
  assert.equal(io.input.isRaw,false);
+ const promptLabels=io.prompts.filter(x=>x.includes('Type COMMIT ')||
+  x.includes('Paste authorized Bearer')||x.includes('Paste destination HMAC'));
+ assert.equal(promptLabels.length,3);
+ assert.equal(io.prompts.some(x=>/Paste the EXACT|DESTINATION INVENTORY|RE-SYNC LIMITATIONS|BACKUP VERIFIED/.test(x)),false);
  const parsed=JSON.parse(logs[0]);
  assert.equal(parsed.status,'COMMIT_REPORTED_READBACK_REQUIRED');
  assert.equal(parsed.destinationReadbackVerified,false);
@@ -284,7 +276,7 @@ test('T009D CLI after operator inventory/re-sync attestations obtains hidden cre
  assert.doesNotMatch(logs.join(''),/payloadB64|signature|FAKE|SYNTHETIC|BACKUP_COPY|Bearer/);
  assert.doesNotMatch(logs.join(''),new RegExp(target.spreadsheetId));
 });
-test('T009D CLI invalid flags, wrong destination ID, and rejected re-sync attestations block before ANY source/target request',async()=>{
+test('T009D CLI invalid flags and wrong COMMIT confirmation block BEFORE any network',async()=>{
  const bad=[
   ['send-reference-commit','--endpoint','subdistricts'],
   ['send-reference-commit','--endpoint','volunteer-gender','--acknowledge-reference-commit'],
@@ -299,8 +291,7 @@ test('T009D CLI invalid flags, wrong destination ID, and rejected re-sync attest
   const code=await main(args,()=>{}, {fetchImpl:async()=>{calls++;}});
   assert.equal(code,2);
  }
- for(const overrides of [{inventoryPhrase:'WRONG'}, {destination:'OTHER_DESTINATION_SPREADSHEET_ID_1234567890'},
-   {recoveryPhrase:'WRONG'}, {confirm:'WRONG'}]){
+ for(const overrides of [{confirm:'WRONG'}]){
   const io=tty(overrides);
   const code=await main(
    ['send-reference-commit','--endpoint','subdistricts','--acknowledge-reference-commit'],

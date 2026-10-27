@@ -18,7 +18,8 @@ function invalid(){throw new Error('OFFLINE_ENVELOPE_REJECTED');}
  * Returns an unsigned-for-transport gate: a signed validate-only envelope
  * in memory, with NO HTTP/CLI/file output. Sending requires separate approval.
  */
-export function buildOfflineValidateEnvelope(options){
+function buildReferenceEnvelope(options,mode){
+ if(mode!=='validate'&&mode!=='commit')invalid();
  if(options===null||typeof options!=='object'||Array.isArray(options)||
     Object.keys(options).some(key=>!INPUTS.has(key)))invalid();
  const {endpoint,rows,manifest,keyB64,runId,fetchedAtUtc,timestampMs=Date.now()}=options;
@@ -36,7 +37,7 @@ export function buildOfflineValidateEnvelope(options){
     projected.writeAllowed!==false||projected.appsScriptPosts!==0||
     projected.networkRequests!==0||projected.sheetsWrites!==0)invalid();
  const payload={
-  schemaVersion:'0.1.0',mode:'validate',endpoint,
+  schemaVersion:'0.1.0',mode,endpoint,
   scope:{provinceCode:'54',districtCode:'5406'},
   runId,fetchedAtUtc,sourceFieldNames:projected.sourceFieldNames,
   rows:projected.rows
@@ -50,10 +51,19 @@ export function buildOfflineValidateEnvelope(options){
  const envelope={version:VERSION,timestamp:timestampMs,nonce,payloadB64,signature};
  if(JSON.stringify(envelope).length>MAX_BODY)invalid();
  return Object.freeze({
-  status:'OFFLINE_ONLY_NOT_SENT',transferApproved:false,
+  status:mode==='validate'?'OFFLINE_ONLY_NOT_SENT':'OFFLINE_COMMIT_PREPARED_NOT_SENT',transferApproved:false,
   endpoint,rowCount:projected.rowCount,
   networkRequests:0,appsScriptPosts:0,sheetsWrites:0,
   // Sensitive in later authorized uses; never log/copy to GitHub.
   envelope:Object.freeze(envelope)
  });
+}
+
+export function buildOfflineValidateEnvelope(options){
+ return buildReferenceEnvelope(options,'validate');
+}
+
+// Offline-only: this creates bytes but grants no live write authority.
+export function buildOfflineCommitEnvelope(options){
+ return buildReferenceEnvelope(options,'commit');
 }

@@ -2,7 +2,7 @@
 
 Private project for a **manual** ThaiPHC data pipeline using **Node.js 24 → Google Apps Script → Google Sheets**.
 
-**Current status (2026-10-26):** T009D operator-confirmed real one-row synthetic Web App V3 signed validation PASS; Node.js source-audit CLI read all three references (subdistricts 8, villages 85, health-services 18), schema PASS and source total checked for health services. Receiver and Write properties were both confirmed OFF by operator after that test. The source audit did not POST reference rows or write Sheets. This candidate adds **separately gated real reference row `mode=validate` transport**, NOT a live execution or `mode=commit` implementation. Existing T003 eight-dataset Sheet schema is design-only; the target Sheet has only `ชีต1` as last read; backup/restore and first-write authorization remain outstanding. `volunteer-gender` and all person-level transfers remain blocked.
+**Current status (2026-10-27):** Operator-reported live ThaiPHC → Node → Web App V3 *validate-only* PASS for all three real reference datasets (subdistricts 8, villages 85, health-services 18); Apps Script Receiver and Write properties were returned to `false` after testing. **No real Sheets writes have been performed**. This Draft PR introduces a deliberately gated, manual, single-endpoint **`mode=commit`** sender; execution requires separate PO approval, verified full backup and a restoration drill. A `COMMITTED` reply is NOT proof of persisted data: independent destination readback is mandatory. The user-owned Google Sheet was last read with only `ชีต1`; its current contents must be re-checked before writing. `volunteer-gender` and person-level endpoints remain out of scope.
 
 ## Source API coverage
 8 documented endpoints, in [docs/api-inventory.md](docs/api-inventory.md), with observed field schemas under [docs/schemas/](docs/schemas/).
@@ -23,6 +23,7 @@ Private project for a **manual** ThaiPHC data pipeline using **Node.js 24 → Go
 - `src/sync/reference-snapshot.mjs` — opt-in bounded read-only collector that can return three reference datasets in memory (no CLI raw-row output; never auto-sends; transfer approval still required)
 - `docs/t009d-source-destination-readiness.md` — verified destination has only blank `ชีต1`, source-audit CLI and remaining source permissions / completeness / backup gates
 - `docs/t009d-real-reference-validate-recovery.md` — T009D opt-in real-source validate-only transfer scope, operator gates, backup verification and original-file restoration before any later `commit`
+- `src/sync/manual-commit-transport.mjs` / `docs/t009d-manual-commit-first-write-gate.md` — dormant, one-shot real reference commit sender, mandatory operator backup/restore attestation, strict COMMITTED receipt parsing, unknown-outcome STOP and real Sheet readback requirement
 - `tests/` — synthetic offline/schema/live-transport-injection tests, no real API calls in CI
 - `apps-script/Code.gs` — T010 guarded receiver source; `apps-script/dev-receiver.gs` is a separate deny-by-default mock **and must not be deployed together**
 - `config/thaiphc-targets.json` — existing Script ID, active Web App V3 Deployment ID and Spreadsheet ID (identifiers only, no credentials); the older Library V2 is not the active HTTP target

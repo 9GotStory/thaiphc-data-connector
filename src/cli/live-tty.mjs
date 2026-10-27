@@ -1,3 +1,4 @@
+import targets from '../../config/thaiphc-targets.json' with {type:'json'};
 // T005: explicit interactive TTY entry. Never read real tokens from argv, env, files, stdin pipes.
 const CONFIRM_PHRASE='FETCH SUBDISTRICTS 5406';
 const CONFIRM_VILLAGES_PHRASE='FETCH VILLAGES 5406';
@@ -132,5 +133,39 @@ export async function confirmReferenceValidateTransferFromTTY(io={}){
   maxChars:64,allowSpaces:true,timeoutMs:30000
  });
  if(answer!==phrase)throw Error('REFERENCE_TRANSFER_NOT_CONFIRMED');
+ return phrase;
+}
+
+
+// T009D first-write path: independent operator attestations, NEVER an automated
+// verification that a real Google Drive backup exists. Live execution still
+// requires a separate explicit PO first-write approval.
+export async function confirmCommitBackupRestoreFromTTY(io={}){
+ const phrase='BACKUP VERIFIED RESTORE TESTED 5406';
+ const answer=await readHiddenLine({...io,
+  label:'Only after independently verifying a full destination copy AND a successful disposable restore. Type '+phrase+' (hidden): ',
+  maxChars:64,allowSpaces:true,timeoutMs:30000
+ });
+ if(answer!==phrase)throw Error('BACKUP_RESTORE_ATTESTATION_MISSING');
+ return true;
+}
+export async function readCommitBackupIdFromTTY(io={}){
+ const value=await readHiddenLine({...io,
+  label:'Paste ID of separate verified Google Sheets backup COPY (hidden; not original): ',
+  maxChars:120,timeoutMs:60000
+ });
+ if(!/^[A-Za-z0-9_-]{25,120}$/.test(value)||value===targets.spreadsheetId)
+  throw Error('BACKUP_COPY_ID_INVALID');
+ return value;
+}
+export async function confirmReferenceCommitFromTTY(io={},endpoint,rows){
+ const phrase='COMMIT '+endpoint+' '+rows+' ROWS 5406';
+ if(!['subdistricts','villages','health-services'].includes(endpoint)||
+    ![8,85,18].includes(rows))throw Error('COMMIT_ENDPOINT_DENIED');
+ const answer=await readHiddenLine({...io,
+  label:'REAL GOOGLE SHEETS WRITE may partially succeed. Never retry unknown outcomes. Type '+phrase+' (hidden): ',
+  maxChars:75,allowSpaces:true,timeoutMs:30000
+ });
+ if(answer!==phrase)throw Error('REAL_COMMIT_NOT_CONFIRMED');
  return phrase;
 }

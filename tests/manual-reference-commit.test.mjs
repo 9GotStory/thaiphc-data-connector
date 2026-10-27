@@ -8,6 +8,7 @@ import {syntheticReferenceRow} from '../src/sync/synthetic-reference-row.mjs';
 import {buildOfflineCommitEnvelope,buildOfflineValidateEnvelope} from '../src/sync/offline-validate-envelope.mjs';
 import {sendReferenceCommit,commitPhrase} from '../src/sync/manual-commit-transport.mjs';
 import {main} from '../src/cli/index.mjs';
+import {readStoredHmac,setupStoredHmac} from '../src/cli/windows-hmac-store.mjs';
 
 const manifest=JSON.parse(readFileSync(new URL('../docs/sheets-schema.json',import.meta.url),'utf8'));
 const target=JSON.parse(readFileSync(new URL('../config/thaiphc-targets.json',import.meta.url),'utf8'));
@@ -233,20 +234,21 @@ class FakeTTY extends EventEmitter{
 function tty(overrides={}){
  const input=new FakeTTY(),prompts=[];
  const values={
-  confirm:commitPhrase('subdistricts'),bearer,hmac:keyB64,...overrides
+  confirm:commitPhrase('subdistricts'),menu:'1',menuConfirm:'Y',bearer,...overrides
  };
  const output={isTTY:true,write(msg){
   prompts.push(msg);
   let value=null;
   if(msg.includes('Type COMMIT '))value=values.confirm;
   if(msg.includes('Paste authorized Bearer'))value=values.bearer;
-  if(msg.includes('Paste destination HMAC'))value=values.hmac;
+  if(msg.includes('Select 1/2/3: '))value=values.menu;
+  if(msg.includes('Type Y to proceed'))value=values.menuConfirm;
   if(value!==null)queueMicrotask(()=>input.emit('data',Buffer.from(value+'\r')));
   return true;
  }};
- return {input,output,prompts};
+ return {input,output,prompts,readStoredHmac:()=>keyB64};
 }
-test('T009D CLI uses exactly one explicit confirmation plus two secret prompts and requires readback',async()=>{
+test('T009D legacy explicit commit command uses one confirmation, bearer and securely stored key and requires readback',async()=>{
  const io=tty(),logs=[];let source=0,dest=0;
  const exit=await main(
   ['send-reference-commit','--endpoint','subdistricts','--acknowledge-reference-commit'],
@@ -266,8 +268,9 @@ test('T009D CLI uses exactly one explicit confirmation plus two secret prompts a
  assert.equal(source,1);assert.equal(dest,1);
  assert.equal(io.input.isRaw,false);
  const promptLabels=io.prompts.filter(x=>x.includes('Type COMMIT ')||
-  x.includes('Paste authorized Bearer')||x.includes('Paste destination HMAC'));
- assert.equal(promptLabels.length,3);
+  x.includes('Paste authorized Bearer'));
+ assert.equal(promptLabels.length,2);
+ assert.equal(io.prompts.some(x=>x.includes('Paste destination HMAC')),false);
  assert.equal(io.prompts.some(x=>/Paste the EXACT|DESTINATION INVENTORY|RE-SYNC LIMITATIONS|BACKUP VERIFIED/.test(x)),false);
  const parsed=JSON.parse(logs[0]);
  assert.equal(parsed.status,'COMMIT_REPORTED_READBACK_REQUIRED');
@@ -300,4 +303,85 @@ test('T009D CLI invalid flags and wrong COMMIT confirmation block BEFORE any net
   assert.equal(io.input.isRaw,false);
  }
  assert.equal(calls,0);
+});
+
+test('T009D commit-menu selects one authorized endpoint by number, verifies Y, and never asks HMAC',async()=>{
+ const io=tty({menu:'1',menuConfirm:'Y'}),outputs=[];let sourceGets=0,targetPosts=0;
+ const exit=await main(['commit-menu'],x=>outputs.push(x),
+  {...io,fetchImpl:async(targetUrl,opts)=>{
+   if(targetUrl===url){
+    targetPosts++;assert.equal(opts.method,'POST');
+    const wire=JSON.parse(opts.body);
+    assert.equal(wire.signature,createHmac('sha256',Buffer.from(keyB64,'base64'))
+      .update('THAIPHC_SYNC_V1\n'+wire.timestamp+'\n'+wire.nonce+'\n'+wire.payloadB64)
+      .digest('base64'));
+    return response(committed('subdistricts',8,0,0));
+   }
+   sourceGets++;assert.equal(opts.method,'GET');
+   return response({items:data('subdistricts')});
+  }});
+ assert.equal(exit,2);
+ assert.equal(sourceGets,1);assert.equal(targetPosts,1);
+ assert.equal(JSON.parse(outputs[0]).status,'COMMIT_REPORTED_READBACK_REQUIRED');
+ assert.equal(io.prompts.length,3);
+ assert.equal(io.prompts.some(x=>/Paste destination HMAC|Paste the EXACT|Type COMMIT /.test(x)),false);
+ assert.match(io.prompts[0],/Select 1\/2\/3/);
+ assert.match(io.prompts[1],/8 rows/);
+ assert.equal(io.input.isRaw,false);
+});
+
+test('T009D commit-menu cancels, rejects invalid flags and denies on missing secure HMAC before any source GET/POST',async()=>{
+ let calls=0;
+ const fetchImpl=async()=>{calls++;throw Error('NETWORK_MUST_NOT_START')};
+ for(const opts of [{menu:'0'},{menu:'4'},{menu:'1',menuConfirm:'N'}]){
+  const io=tty(opts);
+  assert.equal(await main(['commit-menu'],()=>{}, {...io,fetchImpl}),2);
+ }
+ for(const args of [['commit-menu','--endpoint','subdistricts'],['hmac-setup','--token','secret']]){
+  assert.equal(await main(args,()=>{}, {fetchImpl}),2);
+ }
+ const io=tty({menu:'1',menuConfirm:'Y'}),logs=[];
+ const out=await main(['commit-menu'],x=>logs.push(x),{...io,
+  readStoredHmac:()=>{throw Error('HMAC_NOT_CONFIGURED')},fetchImpl});
+ assert.equal(out,2);
+ assert.match(logs.join(''),/HMAC_STORE_NOT_READY/);
+ assert.equal(calls,0);
+});
+
+test('T009D Windows DPAPI wrapper accepts only validated key from child stdout and is fail closed on Linux',()=>{
+ let callArgs=null;
+ const spawn=(exe,argv,opts)=>{
+  callArgs={exe,argv,opts};
+  return {status:0,stdout:Buffer.from(keyB64,'ascii')};
+ };
+ assert.equal(readStoredHmac({platform:'win32',spawn}),keyB64);
+ assert.equal(callArgs.exe,'powershell.exe');
+ assert.equal(callArgs.opts.stdio[0],'ignore');
+ assert.equal(callArgs.opts.stdio[2],'ignore');
+ assert.equal(callArgs.argv.includes(keyB64),false);
+ assert.throws(()=>readStoredHmac({platform:'linux',spawn}),/WINDOWS_ONLY/);
+ assert.throws(()=>readStoredHmac({platform:'win32',spawn:()=>({status:1,stdout:Buffer.from('EXCEPTION')})}),/NOT_READY/);
+ assert.throws(()=>readStoredHmac({platform:'win32',spawn:()=>({status:0,stdout:Buffer.from('INVALID')})}),/INVALID/);
+ let sets=0;
+ const result=setupStoredHmac({platform:'win32',
+  input:{isTTY:true},output:{isTTY:true},
+  spawn:(exe,argv,opts)=>{
+   sets++;assert.equal(exe,'powershell.exe');
+   assert.equal(opts.stdio,'inherit');
+   assert.equal(argv.includes(keyB64),false);
+   return {status:0};
+  }});
+ assert.equal(result,true);assert.equal(sets,1);
+ assert.throws(()=>setupStoredHmac({platform:'linux',input:{isTTY:true},output:{isTTY:true}}),/WINDOWS_ONLY/);
+});
+
+test('T009D hmac-setup CLI calls secure user-bound setup without fetching source or sending POST',async()=>{
+ let setups=0,fetches=0;
+ const out=[];
+ const code=await main(['hmac-setup'],x=>out.push(x),{
+  setupStoredHmac:()=>{setups++;return true;},
+  fetchImpl:()=>{fetches++}
+ });
+ assert.equal(code,0);assert.equal(setups,1);assert.equal(fetches,0);
+ assert.deepEqual(out,['HMAC_STORED_CURRENT_USER_DPAPI']);
 });

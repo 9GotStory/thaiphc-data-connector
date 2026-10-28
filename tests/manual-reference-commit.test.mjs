@@ -325,11 +325,15 @@ test('T009D commit-menu selects one authorized endpoint by number, verifies Y, a
  assert.equal(exit,2);
  assert.equal(sourceGets,1);assert.equal(targetPosts,1);
  assert.equal(JSON.parse(outputs[0]).status,'COMMIT_REPORTED_READBACK_REQUIRED');
- assert.equal(io.prompts.filter(p=>p.trim()!=='' ).length,3); // TTY also writes 3 newlines
+ assert.equal(io.prompts.filter(p=>p.trim()!=='' ).length,5); // 3 prompts + visible 1 and Y
  assert.equal(io.prompts.some(x=>/Paste destination HMAC|Paste the EXACT|Type COMMIT /.test(x)),false);
  const visiblePrompts=io.prompts.filter(p=>p.trim()!=='');
  assert.match(visiblePrompts[0],/Select 0-8/);
- assert.match(visiblePrompts[1],/8 rows/);
+ assert.equal(visiblePrompts[1],'1'); // public menu choice is visible
+ assert.match(visiblePrompts[2],/8 rows/);
+ assert.equal(visiblePrompts[3],'Y'); // public confirmation is visible
+ assert.match(visiblePrompts[4],/Paste authorized Bearer/);
+ assert.equal(visiblePrompts.includes(bearer),false); // secret never echoed
  assert.equal(io.input.isRaw,false);
 });
 
@@ -435,7 +439,8 @@ test('T009D menu renders all eight topics and blocked item 4-8 cannot fetch, dec
   });
   assert.equal(exit,2);
   const visible=io.prompts.filter(v=>v.trim()!=='');
-  assert.equal(visible.length,1);
+  assert.equal(visible.length,2); // label + visible digit
+  assert.equal(visible[1],blockedChoice);
   const label=visible[0];
   for(let n=1;n<=8;n++)assert.ok(label.includes('  '+n+')'), 'missing menu option '+n);
   assert.match(label,/READ ONLY/);
@@ -450,4 +455,34 @@ test('T009D menu renders all eight topics and blocked item 4-8 cannot fetch, dec
  }
  assert.equal(sourceOrDestRequests,0);
  assert.equal(hmacReads,0);
+});
+
+test('T009D public menu choice is echoed but disabled selections still cannot make network requests',async()=>{
+ let calls=0;
+ const io=tty({menu:'4'});
+ const outs=[];
+ const status=await main(['commit-menu'],line=>outs.push(line),{
+  ...io,fetchImpl:async()=>{calls++;throw Error('NETWORK_DENIED')},
+  readStoredHmac:()=>{throw Error('HMAC_MUST_NOT_BE_READ')}
+ });
+ assert.equal(status,2);
+ assert.equal(calls,0);
+ assert.deepEqual(JSON.parse(outs[0]).status,'READ_ONLY_NO_COMMIT');
+ assert.equal(io.prompts.includes('4'),true);
+ assert.equal(io.prompts.includes(bearer),false);
+ assert.equal(io.input.isRaw,false);
+});
+
+test('T009D public menu Backspace redraws the chosen digit; Bearer is never echoed',async()=>{
+ let calls=0;
+ const io=tty({menu:'1\x7f4'}); // first digit backspaced, then disabled choice 4
+ const code=await main(['commit-menu'],()=>{},{
+  ...io,fetchImpl:async()=>{calls++;throw Error('NETWORK_DENIED')},
+  readStoredHmac:()=>{throw Error('HMAC_MUST_NOT_BE_READ')}
+ });
+ assert.equal(code,2);assert.equal(calls,0);
+ assert.equal(io.prompts.includes('1'),true);
+ assert.equal(io.prompts.includes('\b \b'),true);
+ assert.equal(io.prompts.includes('4'),true);
+ assert.equal(io.prompts.includes(bearer),false);
 });

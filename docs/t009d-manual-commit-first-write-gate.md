@@ -57,6 +57,8 @@ The menu presents **all 8 observed ThaiPHC API topics** with explicit groups. Th
 | 8 | `volunteer-tenure` — อายุงาน อสม. | PERSON DATA HOLD | **Blocked** |
 | 0 | Cancel | CANCELLED | **No operation** |
 
+The menu now **echoes the selected public one-character digit** and **echoes `Y`** during the one-time write confirmation so the operator can see what they typed. Only these two bounded prompts expose characters; the ThaiPHC Bearer token, Web App HMAC, and other private credentials remain hidden. The echo correction is a standalone UI-only proposal, not permission to repeat an already reported commit.
+
 Only choices **1–3** may reach `mode=commit`, and only after a separate, endpoint-specific PO approval. Selecting **4** returns `READ_ONLY_NO_COMMIT`; choices **5–8** return `PERSON_DATA_APPROVAL_REQUIRED`. These all exit without reading HMAC, prompting for Bearer, fetching ThaiPHC data or sending a Google Apps Script POST. The menu is **not** a general-purpose read-only query command; any actual read of `volunteer-gender` requires the separately authorized `live-fetch` workflow.
 
 For an eligible selection, read the displayed **one-endpoint / expected count / district 5406** warning, then enter `Y` to authorize **one attempt**. The only per-run secret input is a **private ThaiPHC Bearer token**. There is **no** manually pasted spreadsheet ID, long `COMMIT ...` phrase or recurring HMAC key prompt. Observed row counts are guards, **not current authoritative totals** for the two unpaginated endpoints.

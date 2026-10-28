@@ -214,9 +214,16 @@ function doPost(e){
    return tphResponse_('AUTH_FAILED',{});
   const batch=JSON.parse(Utilities.newBlob(Utilities.base64Decode(wire.payloadB64))
    .getDataAsString('UTF-8'));
-  const validated=tphValidate_(batch);
-  if(validated.mode==='commit'&&props.getProperty('THAIPHC_WRITE_ENABLED')!=='true')
+  // Extended reports use a separate PRIVATE workbook and an independent
+  // person-data enable switch. Existing three reference routes are unchanged.
+  const isReport=batch&&typeof batch.mode==='string'&&
+   ['report-start','report-chunk','report-finalize'].includes(batch.mode);
+  const validated=isReport?tphReportValidate_(batch):tphValidate_(batch);
+  if((validated.mode==='commit'||isReport)&&
+     props.getProperty('THAIPHC_WRITE_ENABLED')!=='true')
    return tphResponse_('WRITE_DISABLED',{});
+  if(isReport&&props.getProperty('THAIPHC_PERSON_DATA_WRITE_ENABLED')!=='true')
+   return tphResponse_('PERSON_DATA_WRITE_DISABLED',{});
   lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))return tphResponse_('LOCK_BUSY',{});
   // Short-lived replay guard; not a durable request ledger. Keyed upsert provides
@@ -227,6 +234,7 @@ function doPost(e){
   cache.put(replayKey,'1',600);
   if(validated.mode==='validate')
    return tphResponse_('VALIDATED',{endpoint:validated.endpoint,rowCount:validated.rows.length});
+  if(isReport)return tphRHandle_(validated,props);
   if(props.getProperty('THAIPHC_SPREADSHEET_ID')===null||
      !/^[A-Za-z0-9_-]{25,120}$/.test(props.getProperty('THAIPHC_SPREADSHEET_ID')))
    return tphResponse_('NOT_CONFIGURED',{});

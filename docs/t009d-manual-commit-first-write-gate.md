@@ -1,8 +1,18 @@
-# T009D — Recovery by Re-Sync (no mandatory Backup/Restore) — FIRST-WRITE HOLD
+# T009D — Manual Reference Sync and Recovery by Re-Sync — Subdistricts First Write ACCEPTED
 
 Issue: https://github.com/9GotStory/thaiphc-data-connector/issues/53
 
-Decision: the Product Owner authorized **Recovery by Re-Sync** (not full Backup/Restore) for the three ThaiPHC reference datasets only. After a separate first-write authorization, the operator reported that the CLI required too many repeated prompts and asked for simplification. This follow-up PR changes only the CLI interaction; it does **not** perform, renew, or extend a real-write authorization, change Script Properties, or write any Google Sheet.
+Decision: the Product Owner authorized **Recovery by Re-Sync** rather than mandatory full Backup/Restore, limited to the three non-person reference datasets, with **separate authorization for every live write**. The CLI simplification (8-topic menu, DPAPI CurrentUser HMAC storage, visible one-character public input) was merged in PRs #59–#61. **One** explicitly approved First Write of `subdistricts` was completed and independently accepted; this **does not** approve `villages`, `health-services`, a second `subdistricts` attempt, or data-level correction.
+
+## Verified First Write — 2026-10-28 (one dataset only)
+
+- **Accepted target:** pinned original ThaiPHC Data Google Sheet; `Subdistricts` has **1 header and 8 data rows**; 20 fields in the reviewed order, eight distinct source keys and subdistrict codes, `district_code=5406` and `_quality_status=VALID` across all rows. Sync metadata and row digests are present. Original `ชีต1` remains empty and unchanged.
+- **Receipt vs actual:** operator-reported receiver `COMMITTED`, HTTP 200, one Apps Script POST, 8 inserted / 0 updated / 0 unchanged. The CLI's deliberate `COMMIT_REPORTED_READBACK_REQUIRED` status was resolved by **independent read-only Sheet inspection**, not by re-running the command.
+- **Null/source contract:** `province_code` is `NULL` for all eight; `_field_presence_json` records this as `NULL`, consistent with the observed `null_only` field definition. This does not imply the district scope was absent: `district_code` is 5406 on all rows and subdistrict codes were validated by the sender.
+- **Safe closure of this attempt:** operator separately confirmed `THAIPHC_RECEIVER_ENABLED=false` and `THAIPHC_WRITE_ENABLED=false` after execution. These are operator attestations, **not** connector-read Apps Script properties.
+- **Next candidate:** `villages`, previously **85 observed rows**. No `Villages` tab existed at the most recent read-only metadata inspection. **No current live source count has been verified here**. A new source/scope check, target inventory, safe-window plan, and independent PO authorization are required before any write. `health-services` requires its own separate approval too.
+
+**Never rerun `subdistricts` simply to verify the menu echo or repeat an accepted write. Keep Issue #53 OPEN until the remaining scoped tasks are decided.**
 
 ## What is — and is not — recoverable
 
@@ -27,7 +37,7 @@ While both Script Properties are `false`:
 
 ## 2. Separate live first-write authority and guarded CLI
 
-**Do not run live commits while this change remains a draft or while the prior CLI session is open.** Abort the old session with Ctrl+C and restore both Script Properties to `false` if enabled. A new, exact-version one-endpoint first-write execution approval is required after review/merge/local tests. The advanced legacy command below is NOT the recommended menu route:
+**The earlier `subdistricts` First Write is complete. No additional live write is authorized.** Keep both Script Properties at `false` unless a separately approved exact-version, single-endpoint window is opened. Do not resume or repeat an old CLI session. The advanced legacy command below is NOT the recommended menu route:
 
     npm.cmd run cli -- send-reference-commit --endpoint subdistricts --acknowledge-reference-commit
 
@@ -39,7 +49,7 @@ While both Script Properties are `false`:
 
 This accepts the **existing** Web App HMAC secret once into a hidden PowerShell prompt and encrypts it using Windows **DPAPI CurrentUser** at `%LOCALAPPDATA%\ThaiPHC\DataConnector\hmac.dpapi` (outside the git checkout). It never prints the key, never passes it in CLI args or an environment variable, and requires the **same Windows user account** to decrypt. A process already running as that user may also decrypt it: this is convenience and OS-account isolation, **not a hardware-backed or admin-proof vault**. Changing Windows profile/user or losing the DPAPI user master key requires one-time setup again; do not export/commit the encrypted blob.
 
-After PR review, local tests, live target preflight and **new PO first-write approval for the exact merged code**, run:
+Only **after** local tests, fresh live destination/source preflight, Script Property identity verification and a **new, endpoint-specific PO execution approval**, run:
 
     npm.cmd run cli -- commit-menu
 
@@ -57,7 +67,7 @@ The menu presents **all 8 observed ThaiPHC API topics** with explicit groups. Th
 | 8 | `volunteer-tenure` — อายุงาน อสม. | PERSON DATA HOLD | **Blocked** |
 | 0 | Cancel | CANCELLED | **No operation** |
 
-The menu now **echoes the selected public one-character digit** and **echoes `Y`** during the one-time write confirmation so the operator can see what they typed. Only these two bounded prompts expose characters; the ThaiPHC Bearer token, Web App HMAC, and other private credentials remain hidden. The echo correction is a standalone UI-only proposal, not permission to repeat an already reported commit.
+The menu **echoes the selected public one-character digit** and **echoes `Y`** during the one-time write confirmation so the operator can see what they typed. Only these two bounded prompts expose characters; the ThaiPHC Bearer token, Web App HMAC, and other private credentials remain hidden. The correction was merged in PR #61 and is **not** permission to repeat the accepted `subdistricts` write.
 
 Only choices **1–3** may reach `mode=commit`, and only after a separate, endpoint-specific PO approval. Selecting **4** returns `READ_ONLY_NO_COMMIT`; choices **5–8** return `PERSON_DATA_APPROVAL_REQUIRED`. These all exit without reading HMAC, prompting for Bearer, fetching ThaiPHC data or sending a Google Apps Script POST. The menu is **not** a general-purpose read-only query command; any actual read of `volunteer-gender` requires the separately authorized `live-fetch` workflow.
 
@@ -71,7 +81,7 @@ Some Windows PCs default to the `Restricted` PowerShell Execution Policy. The or
 
 If a machine's `MachinePolicy` or `UserPolicy` is enforced by the organization, that Group Policy still takes precedence. If the local script is tagged as downloaded from the Internet, RemoteSigned may also refuse it. Both cases must STOP and be reviewed separately; the CLI does not silently fall back to a weaker execution policy. Diagnose with `Get-ExecutionPolicy -List` without changing settings. A successful mock-based Node CI run does **not** prove real Windows DPAPI setup; the operator must verify `HMAC_STORED_CURRENT_USER_DPAPI` locally with Receiver and Write disabled.
 
-Do not run the old `send-reference-commit` command from an interrupted session. Cancel it with Ctrl+C, set both switches OFF, review and merge the proposed change under the separate PO gate, then use the new menu only after authorization. The old explicit CLI command is preserved as an advanced compatibility path, and still enforces one endpoint and private credentials; it also retrieves HMAC from Windows DPAPI.
+Do not run an old `send-reference-commit` command from any interrupted session. Cancel it with Ctrl+C, keep both switches OFF, and use the new menu only after **fresh authorization for a different approved dataset**. The legacy explicit command remains an advanced compatibility path, is subject to the same authorization and HMAC gates, and is not a retry mechanism.
 
 Then source fetch and strict validation: district 5406, reference-only endpoints, full observed count, fields/schema/keys checked, health-services total/pagination. A fresh signed `mode=commit` envelope must exactly match the source snapshot in memory; at most **one** pinned Web App POST, followed by at most one allowlisted **bodyless GET** for Google ContentService redirect. No retry, schedule, deletion, arbitrary target, mass update or person-level sync.
 
@@ -88,13 +98,16 @@ A strict receiver `COMMITTED` reply only produces `COMMIT_REPORTED_READBACK_REQU
 
 ## Status and separation of approvals
 
-| Gate | Status |
+| Gate | Status as of 2026-10-28 |
 |---|---|
-| Real validate-only for 8 / 85 / 18 | PASS; closed |
-| Recovery by Re-Sync code correction | PR #58 merged; Node tests passed |
-| Numbered CLI menu and Windows DPAPI secret store | Draft PR, pending review and code-merge gate |
-| Prior live destination read-only inventory | PASS when last inspected, recheck if changed |
-| First live mode=commit execution on simplified code | HOLD; require new exact-version PO gate |
-| Post-commit readback and any corrective Re-Sync | NOT EXECUTED / MUST BE SEPARATELY APPROVED |
+| Real validate-only for 8 / 85 / 18 | PASS; previously verified |
+| Recovery by Re-Sync code correction | PR #58 merged |
+| Numbered menu + Windows DPAPI + public input echo | PRs #59–#61 merged; PR #61 Windows tests operator-reported **282/282 PASS** (current local HEAD still to be reconfirmed) |
+| First live `subdistricts` mode=commit | **ACCEPTED**; 8 rows read back from original Google Sheet |
+| Both Apps Script Receiver/Write switches after first write | **OFF**, operator-attested; live connector verification unavailable |
+| Second `subdistricts` write or Re-Sync | **NOT AUTHORIZED** |
+| Next potential `villages` 85-row first write | **HOLD**; separate exact-version, source/target preflight and PO approval required |
+| `health-services` 18-row first write | **HOLD**; separate approval |
+| `volunteer-gender` and person-level datasets | **NO COMMIT** |
 
-Keep `THAIPHC_RECEIVER_ENABLED=false` and `THAIPHC_WRITE_ENABLED=false` outside a separately authorized first-write window. If switches were enabled for the interrupted old CLI session, the operator must immediately turn both back OFF; no first-write has been confirmed. Keep Issue #53 OPEN.
+Keep `THAIPHC_RECEIVER_ENABLED=false` and `THAIPHC_WRITE_ENABLED=false` at rest. No additional live request is authorized from the completed First Write. Keep Issue #53 OPEN.

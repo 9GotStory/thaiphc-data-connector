@@ -12,12 +12,13 @@ export function isCandidateRealBearer(value){
     REAL_BEARER.test(value)&&!value.startsWith('MOCK_ONLY_')&&!value.startsWith('Bearer');
 }
 
-function readHiddenLine({input=process.stdin,output=process.stderr,label,maxChars,allowSpaces=false,timeoutMs=60000}={}){
+function readHiddenLine({input=process.stdin,output=process.stderr,label,maxChars,allowSpaces=false,echoPublicChoice=false,timeoutMs=60000}={}){
   if(input?.isTTY!==true||output?.isTTY!==true||typeof input.setRawMode!=='function'||
     typeof input.on!=='function'||typeof input.removeListener!=='function'||
     typeof output.write!=='function')throw new Error('SECURE_INTERACTIVE_TTY_REQUIRED');
   if(!Number.isSafeInteger(maxChars)||maxChars<1||maxChars>8192||
-    !Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>120000)
+    !Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>120000||
+    (echoPublicChoice&&(maxChars!==1||allowSpaces)))
     throw new Error('INVALID_TTY_BOUND');
 
   return new Promise((resolve,reject)=>{
@@ -47,10 +48,20 @@ function readHiddenLine({input=process.stdin,output=process.stderr,label,maxChar
         for(const byte of bytes){
           if(byte===10||byte===13){finish();break;}
           if(byte===3||byte===4||byte===27){finish(new Error('TTY_INPUT_CANCELLED'));break;}
-          if(byte===127||byte===8){characters.pop();continue;}
+          if(byte===127||byte===8){
+            const previous=characters.pop();
+            if(echoPublicChoice&&previous&&/^[0-9YyNn]$/.test(previous))
+              output.write('\b \b');
+            continue;
+          }
           if((byte<33&&!(allowSpaces&&byte===32))||byte>126){finish(new Error('TTY_INVALID_CHARACTER'));break;}
           if(characters.length>=maxChars){finish(new Error('TTY_TOO_LONG'));break;}
-          characters.push(String.fromCharCode(byte));
+          const character=String.fromCharCode(byte);
+          characters.push(character);
+          // Only echo a one-character public menu selection/confirmation.
+          // Tokens, HMAC keys, and long confirmations are never echoed.
+          if(echoPublicChoice&&/^[0-9YyNn]$/.test(character))
+            output.write(character);
         }
       }finally{bytes.fill(0);}
     };
@@ -164,7 +175,7 @@ const REFERENCE_MENU_LABEL='\nThaiPHC API (district 5406) — 8 topics\n'+
 // produce an explicit non-writing result, not an alternative sender route.
 export async function selectReferenceCommitFromTTY(io={}){
  const choice=await readHiddenLine({...io,
-  label:REFERENCE_MENU_LABEL,maxChars:1,timeoutMs:30000
+  label:REFERENCE_MENU_LABEL,maxChars:1,echoPublicChoice:true,timeoutMs:30000
  });
  if(choice==='0')return Object.freeze({status:'CANCELLED'});
  const item=REFERENCE_MENU_ITEMS.find(i=>i.choice===choice);
@@ -184,7 +195,7 @@ export async function confirmReferenceCommitSelectionFromTTY(io={},endpoint,rows
  const confirm=await readHiddenLine({...io,
   label:'REAL ONE-TIME WRITE: '+endpoint+' / '+rows+
    ' rows / district 5406. Receiver may partially write; NO automatic retry. Type Y to proceed, any other key cancels: ',
-  maxChars:1,timeoutMs:30000
+  maxChars:1,echoPublicChoice:true,timeoutMs:30000
  });
  if(confirm!=='Y')throw Error('REFERENCE_MENU_WRITE_NOT_CONFIRMED');
  return 'COMMIT '+endpoint+' '+rows+' ROWS 5406';

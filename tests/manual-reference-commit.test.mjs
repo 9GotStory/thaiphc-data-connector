@@ -439,7 +439,8 @@ test('T009D menu renders all eight topics and blocked item 4-8 cannot fetch, dec
   });
   assert.equal(exit,2);
   const visible=io.prompts.filter(v=>v.trim()!=='');
-  assert.equal(visible.length,1);
+  assert.equal(visible.length,2); // label + visible digit
+  assert.equal(visible[1],blockedChoice);
   const label=visible[0];
   for(let n=1;n<=8;n++)assert.ok(label.includes('  '+n+')'), 'missing menu option '+n);
   assert.match(label,/READ ONLY/);
@@ -474,14 +475,14 @@ test('T009D public menu choice is echoed but disabled selections still cannot ma
 
 test('T009D public menu Backspace redraws the chosen digit; Bearer is never echoed',async()=>{
  let calls=0;
- const io=tty({menu:'1\\x7f4'}); // first digit backspaced, then disabled choice 4
+ const io=tty({menu:'1\x7f4'}); // first digit backspaced, then disabled choice 4
  const code=await main(['commit-menu'],()=>{},{
   ...io,fetchImpl:async()=>{calls++;throw Error('NETWORK_DENIED')},
   readStoredHmac:()=>{throw Error('HMAC_MUST_NOT_BE_READ')}
  });
  assert.equal(code,2);assert.equal(calls,0);
  assert.equal(io.prompts.includes('1'),true);
- assert.equal(io.prompts.includes('\\b \\b'),true);
+ assert.equal(io.prompts.includes('\b \b'),true);
  assert.equal(io.prompts.includes('4'),true);
  assert.equal(io.prompts.includes(bearer),false);
 });

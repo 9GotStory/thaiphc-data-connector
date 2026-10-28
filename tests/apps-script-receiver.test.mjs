@@ -61,13 +61,22 @@ function wire(payload,opts={}){
 }
 function makeSheet(name,head=[]){
  const data=head.length?[head.slice()]:[];
- const record={name,data,frozen:0};
+ const record={name,data,frozen:0,maxCols:26,columnsAdded:0};
  record.getLastRow=()=>data.length;
  record.getLastColumn=()=>data.reduce((max,r)=>Math.max(max,r.length),0);
  record.getMaxRows=()=>1000;
+ record.getMaxColumns=()=>record.maxCols;
+ record.insertColumnsAfter=(position,count)=>{
+  assert.equal(position,record.maxCols);
+  assert.ok(Number.isSafeInteger(count)&&count>0);
+  record.maxCols+=count;
+  record.columnsAdded+=count;
+ };
  record.insertRowsAfter=()=>{};
  record.setFrozenRows=n=>{record.frozen=n;};
- record.getRange=(r,c,rows,cols)=>({
+ record.getRange=(r,c,rows,cols)=>{
+  assert.ok(c>=1&&cols>=1&&c+cols-1<=record.maxCols,'RANGE_OUTSIDE_GRID_COLUMNS');
+  return ({
   getValues:()=>Array.from({length:rows},(_,i)=>
    Array.from({length:cols},(_,j)=>data[r+i-1]?.[c+j-1]??'')),
   setNumberFormat:()=>{},
@@ -80,6 +89,7 @@ function makeSheet(name,head=[]){
    }
   }
  });
+ };
  return record;
 }
 function harness(){
@@ -245,6 +255,9 @@ test('T010 signed commit to fake sheet creates only proposed tab and leaves ช�
  assert.ok(h.sheets.has('ชีต1'));
  const tab=h.sheets.get('Villages');
  assert.equal(tab.data.length,3);
+ assert.equal(tab.maxCols,28);
+ assert.equal(tab.columnsAdded,2); // real Google Sheets starts at 26 columns
+ assert.equal(h.sheets.get('ชีต1').columnsAdded,0);
  assert.equal(tab.data[1][0],'540601001');
  assert.equal(tab.data[2][0],'540601002');
  assert.equal(tab.data[1][p.sourceFieldNames.indexOf('name_en')],'');
@@ -293,6 +306,9 @@ test('T010 all three synthetic source projections can be committed to mock sheet
   assert.equal(res.sheetsWrites,1);
  }
  assert.deepEqual(Array.from(h.sheets.keys()),['ชีต1','Subdistricts','Villages','HealthServices']);
+ assert.equal(h.sheets.get('Subdistricts').columnsAdded,0);
+ assert.equal(h.sheets.get('Villages').columnsAdded,2);
+ assert.equal(h.sheets.get('HealthServices').columnsAdded,0);
 });
 test('T010 never hardcodes user spreadsheet/script/deployment IDs or logs source data',()=>{
  assert.doesNotMatch(script,/131WvR9DXpBFlh4snqGQG3VVV5ljkqcysRK_s0-HaKwQDnzpZs2UfCkE6|AKfycbwVnsHsWXRP|14yQGRu3EOFVae_IgDR4A3uEGqaza6a2bAhX-DYx68lA/);

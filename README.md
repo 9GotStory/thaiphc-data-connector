@@ -6,6 +6,20 @@ Private project for a **manual** ThaiPHC data pipeline using **Node.js 24 → Go
 
 **CLI / security:** PRs #59–#61 were merged. On Windows, the one-time DPAPI CurrentUser store was verified by the operator (`HMAC_READ_OK`). `commit-menu` shows all 8 documented APIs: 3 reference datasets are **COMMIT GATED** individually, `volunteer-gender` is **READ ONLY / NO COMMIT**, and 4 person-level datasets are **PERSON DATA HOLD**. Public one-character choices and `Y` are echoed; private Bearer/HMAC values are not. The target remains pinned, HMAC signature required, no auto-retry or auto-deletion, and each actual write still requires a **fresh, endpoint-specific PO authorization** and independent readback. The next candidate is **`villages` (85 previously observed rows)**; its live count/completeness and current destination inventory are not yet accepted. Keep Issue #53 OPEN.
 
+## Final release candidate (one operator UAT, no interim live tests)
+
+The Product Owner directed **implementation first, one consolidated Final UAT, then project closeout**. See [Final release/UAT acceptance](docs/final-release-uat.md) for the single operator session, source-permission gate, existing V3 receiver update, one-shot `villages`/`health-services` first writes and independent acceptance of all three reference tabs. During development, keep `THAIPHC_RECEIVER_ENABLED=false` and `THAIPHC_WRITE_ENABLED=false`; do **not** rerun the previously accepted `subdistricts` First Write.
+
+A source-only fix for the new `Villages` tab's **28 columns** is present in `apps-script/Code.gs`. **It is not live merely because code is merged**: the exact reviewed V3 deployment must be safely updated **once during approved Final UAT**, using the backup-and-preimage-guarded `scripts/update-existing-web-app-final.ps1`. The previous `scripts/deploy-existing-apps-script.ps1` is a first-install-only tool and deliberately rejects the already installed receiver; do not try to bypass it. Neither script may run from CI.
+
+To view the developer-side final release checklist **without any network or secret access**:
+
+```powershell
+npm.cmd run cli -- release-plan
+```
+
+Its expected status is `FINAL_UAT_EXECUTION_NOT_AUTHORIZED`. An offline plan never grants data transfer rights or proves live readiness. `villages` (historical 85, no source total) and `health-services` (historical 18, paginated total) still require one **fresh, explicit final-UAT authorization** and source-owner permission; `volunteer-gender` and all person-level datasets remain nonwritable.
+
 ## Source API coverage
 8 documented endpoints, in [docs/api-inventory.md](docs/api-inventory.md), with observed field schemas under [docs/schemas/](docs/schemas/).
 

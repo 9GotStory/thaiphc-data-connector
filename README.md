@@ -6,6 +6,18 @@ Private project for a **manual** ThaiPHC data pipeline using **Node.js 24 → Go
 
 **CLI / security:** PRs #59–#61 were merged. On Windows, the one-time DPAPI CurrentUser store was verified by the operator (`HMAC_READ_OK`). `commit-menu` shows all 8 documented APIs: 3 reference datasets are **COMMIT GATED** individually, `volunteer-gender` is **READ ONLY / NO COMMIT**, and 4 person-level datasets are **PERSON DATA HOLD**. Public one-character choices and `Y` are echoed; private Bearer/HMAC values are not. The target remains pinned, HMAC signature required, no auto-retry or auto-deletion, and each actual write still requires a **fresh, endpoint-specific PO authorization** and independent readback. The next candidate is **`villages` (85 previously observed rows)**; its live count/completeness and current destination inventory are not yet accepted. Keep Issue #53 OPEN.
 
+## Feature 010 — eight API topics, one final UAT
+
+**Operator-approved goal:** complete five additional report pipelines in the existing Node 24 CLI and Web App V3, then run ONE final real operator UAT. **Do not run development-time live tests, create person-data Sheets or enable any writing switch.**
+
+The existing original `ThaiPHC Data` Sheet has **111 independently accepted reference rows**: Subdistricts 8, Villages 85 and HealthServices 18. These remain unchanged. Feature 010 extends the same CLI with `audit-extended` (read-only) and `private-report-commit` (future final UAT only) for Volunteer Gender, Assignments, Volunteer Family, Resigned Volunteers and Volunteer Tenure. The original `commit-menu` intentionally leaves choices 4–8 disabled to prevent accidental person-data writes; approved report staging uses a **separate command**, not that older reference menu.
+
+Personal reports must be **minimized** and sent into a **separate owner-controlled restricted Google Sheets workbook**; hiding a tab in the original workbook does not restrict who can read it. The new Apps Script receiver requires `THAIPHC_RECEIVER_ENABLED=true`, `THAIPHC_WRITE_ENABLED=true`, **and** `THAIPHC_PERSON_DATA_WRITE_ENABLED=true` only for the narrowly authorized final session, plus `THAIPHC_REPORT_SPREADSHEET_ID` different from the reference Sheet. All three toggles stay **false** during development.
+
+The implementation includes bounded report source reads, privacy filtering/HMAC pseudonyms, 25-row signed staging, digest checks and logical complete-snapshot publication. Family has no verified stable relation-row key, so it uses versioned complete-snapshot replacement **only**, and contradictory source geography causes a safety HOLD pending owner reconciliation. A mocked CI pass does not prove a live V3 deployment or grant data-storage rights.
+
+**Canonical next-stage documentation:** [Feature 010 implementation](docs/feature-010-eight-api-ingestion.md) · [ONE final 8-API UAT runbook](docs/f010-one-final-uat.md) · [GitHub Issue #64](https://github.com/9GotStory/thaiphc-data-connector/issues/64).
+
 ## Final release candidate (one operator UAT, no interim live tests)
 
 The Product Owner directed **implementation first, one consolidated Final UAT, then project closeout**. See [Final release/UAT acceptance](docs/final-release-uat.md) for the single operator session, source-permission gate, existing V3 receiver update, one-shot `villages`/`health-services` first writes and independent acceptance of all three reference tabs. During development, keep `THAIPHC_RECEIVER_ENABLED=false` and `THAIPHC_WRITE_ENABLED=false`; do **not** rerun the previously accepted `subdistricts` First Write.

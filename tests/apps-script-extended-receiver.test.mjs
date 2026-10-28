@@ -97,6 +97,7 @@ function plan(api='assignments',count=27){
    f.column==='districtCode'?'5406':
    f.column==='subdistrictCode'?'540601':
    f.column==='villageCode'?'540601'+String(i+1).padStart(3,'0'):
+   f.column==='villageNo'?String(i+1):
    ['male','female'].includes(f.column)?6:
    f.column==='total'?12:'ACTIVE'
  ]));
@@ -196,5 +197,39 @@ test('F010 all five report topics stage/finalize to ONLY the private workbook, i
   assert.equal(current.data[1][3],2);
   assert.equal(h.original.size,1);
   assert.equal(h.original.get('ชีต1').getLastRow(),0);
+ }
+});
+
+test('F010 gender 0 male + 12 female is valid; unsuppressed nonzero count 1 remains denied',()=>{
+ const h=harness();setup(h);const p=plan('volunteer-gender',1);
+ const original=p.chunks[0].rows[0];
+ const valid={key:original.key,values:{...original.values,male:0,female:12,total:12}};
+ const plan0=planExtendedBatches({
+  mode:'IN_MEMORY_MINIMIZED_REPORT_NOT_SENT',
+  endpoint:'volunteer-gender',runId:'test-zero-gender-1',rowCount:1,
+  privacyState:'AGGREGATE_STORAGE_APPROVAL_REQUIRED',
+  destinationSchema:p.destinationFields,sourceIdentityStrategy:'VILLAGE_CODE',
+  rows:[valid],writeAuthorized:false,appsScriptPosts:0,sheetsWrites:0
+ });
+ assert.equal(h.post(batch(plan0,'report-start')).status,'REPORT_STARTED');
+ assert.equal(h.post(batch(plan0,'report-chunk',plan0.chunks[0])).status,'REPORT_CHUNK_STAGED');
+ assert.equal(h.post(batch(plan0,'report-finalize')).status,'REPORT_FINALIZED');
+ const tooSmall=structuredClone(batch(plan0,'report-chunk',plan0.chunks[0]));
+ tooSmall.rows[0].values.male=1;tooSmall.rows[0].values.female=11;
+ tooSmall.digest=createHash('sha256').update(JSON.stringify(tooSmall.rows)).digest('hex');
+ assert.equal(h.post(tooSmall).status,'REJECTED');
+});
+test('F010 private receiver blocks invalid province or village-subdistrict mismatch even with signed batch',()=>{
+ for(const invalid of [
+  values=>{values.provinceCode='53'},
+  values=>{values.villageCode='540602001'}
+ ]){
+  const h=harness();setup(h);const p=plan('volunteer-family',1);
+  assert.equal(h.post(batch(p,'report-start')).status,'REPORT_STARTED');
+  const forged=structuredClone(batch(p,'report-chunk',p.chunks[0]));
+  invalid(forged.rows[0].values);
+  forged.digest=createHash('sha256').update(JSON.stringify(forged.rows)).digest('hex');
+  assert.equal(h.post(forged).status,'REJECTED');
+  assert.equal(h.restricted.has('_ThaiPHCReportCurrent'),false);
  }
 });

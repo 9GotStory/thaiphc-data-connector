@@ -123,6 +123,42 @@ export async function readDestinationHmacFromTTY(io={}){
 
 // T009D: operator-approved READ-ONLY source readiness audit.
 // The phrase does not authorize sending source rows downstream or writing Sheets.
+// Feature 010: separate two-phase private-report source/transfer confirmations.
+// Neither prompt changes Script Properties, target identity or source rights.
+export async function confirmExtendedSourcePreparationFromTTY(io={},endpoint){
+ if(!['volunteer-gender','assignments','volunteer-family',
+   'resigned-volunteers','volunteer-tenure'].includes(endpoint))
+   throw Error('EXTENDED_SOURCE_SCOPE_REJECTED');
+ const phrase='PREPARE PRIVATE REPORT '+endpoint+' 5406';
+ const answer=await readHiddenLine({...io,
+  label:'Read a potentially sensitive ThaiPHC report for a PRIVATE reviewed Sheets sink. Type '+phrase+' (hidden): ',
+  maxChars:96,allowSpaces:true,timeoutMs:30000});
+ if(answer!==phrase)throw Error('EXTENDED_PREPARATION_NOT_CONFIRMED');
+ return phrase;
+}
+export async function confirmExtendedPrivateWriteFromTTY(io={},phrase){
+ if(typeof phrase!=='string'||!/^TRANSFER EXTENDED (?:volunteer-gender|assignments|volunteer-family|resigned-volunteers|volunteer-tenure) [0-9]{1,4} ROWS 5406$/.test(phrase))
+  throw Error('EXTENDED_WRITE_SCOPE_REJECTED');
+ const answer=await readHiddenLine({...io,
+  label:'Final UAT: signed PERSON/REPORT multi-chunk POST to separately restricted workbook. Type '+phrase+' (hidden): ',
+  maxChars:110,allowSpaces:true,timeoutMs:30000
+ });
+ if(answer!==phrase)throw Error('EXTENDED_WRITE_NOT_CONFIRMED');
+ return phrase;
+}
+
+// Feature 010: explicit read-only inspection of personal report APIs.
+// Never authorizes a person-level POST or source-row persistence.
+export async function confirmExtendedAuditFromTTY(io={}){
+ const phrase='AUDIT FIVE REPORTS READ ONLY 5406';
+ const answer=await readHiddenLine({...io,
+  label:'READ ONLY report inspection (may process person rows in memory). Type '+phrase+' (hidden): ',
+  maxChars:64,allowSpaces:true,timeoutMs:30000
+ });
+ if(answer!==phrase)throw Error('EXTENDED_AUDIT_NOT_CONFIRMED');
+ return phrase;
+}
+
 export async function confirmReferenceAuditFromTTY(io={}){
  const phrase='READ REFERENCE SNAPSHOT 5406';
  const answer=await readHiddenLine({...io,

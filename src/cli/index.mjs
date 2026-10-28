@@ -13,7 +13,7 @@ import { liveFetchHealthServices } from './live-health-services.mjs';
 import { liveFetchVolunteerGender } from './live-volunteer-gender.mjs';
 import { buildSyncPlan } from '../sync/preflight.mjs';
 import sheetManifest from '../../docs/sheets-schema.json' with {type:'json'};
-import {randomBytes} from 'node:crypto';
+import {randomBytes,createHmac} from 'node:crypto';
 import {syntheticReferenceRow} from '../sync/synthetic-reference-row.mjs';
 import {buildOfflineValidateEnvelope,buildOfflineCommitEnvelope} from '../sync/offline-validate-envelope.mjs';
 import {sendSyntheticValidate,sendReferenceValidate} from '../sync/manual-validate-transport.mjs';
@@ -26,12 +26,18 @@ import {confirmReferenceCommitFromTTY,selectReferenceCommitFromTTY,
 import {readStoredHmac,setupStoredHmac} from './windows-hmac-store.mjs';
 import {buildFinalUatReleasePlan} from '../release/final-uat-plan.mjs';
 import finalTargets from '../../config/thaiphc-targets.json' with {type:'json'};
+import {readExtendedReport,collectExtendedForPrivateStaging} from '../sync/extended-report-source.mjs';
+import {projectMinimizedExtendedSnapshot} from '../sync/extended-minimized-projection.mjs';
+import {planExtendedBatches} from '../sync/extended-batch-plan.mjs';
+import {sendExtendedReport,extendedCommitPhrase} from '../sync/extended-report-transport.mjs';
+import {confirmExtendedSourcePreparationFromTTY,confirmExtendedPrivateWriteFromTTY} from './live-tty.mjs';
+import {confirmExtendedAuditFromTTY} from './live-tty.mjs';
 
-const HELP='ThaiPHC Node.js 24 Manual Connector\nCommands: help | release-plan | sync-plan [--endpoint ID] | inspect [--endpoint ID] | validate [--endpoint ID] | dry-run [--endpoint ID] [--max-pages N] | auth-mock [--endpoint subdistricts] | live-fetch --endpoint subdistricts|villages|health-services|volunteer-gender --acknowledge-authorized-use | send-validate --synthetic --endpoint subdistricts|villages|health-services --acknowledge-synthetic-post | audit-source --endpoint subdistricts|villages|health-services --acknowledge-authorized-use | send-reference-validate --endpoint subdistricts|villages|health-services --acknowledge-reference-validate | send-reference-commit --endpoint subdistricts|villages|health-services --acknowledge-reference-commit | commit-menu | hmac-setup\nLive-fetch requires interactive confirmation + manually pasted authorized Bearer token; bounded read-only lookups/reports (health services max 10 pages, volunteer gender max 15 pages); aggregate-only output. No Google Sheets/App Script writes. sync-plan is manifest-only and never sends rows.\nSource audit makes only explicitly confirmed ThaiPHC read-only GET(s), keeps rows in memory and outputs counts/schema/completeness metadata only; it never sends rows to Apps Script or Sheets.\nsend-reference-validate is a separately approved opt-in real-row, validate-only HTTPS POST with exact snapshot count/schema gates. Receiver must be separately approved to enable; never use for commit.\nUse hmac-setup ONCE on Windows to store the existing Web App HMAC in CurrentUser DPAPI outside the repo; commit-menu shows all 8 API topics, but only the 3 reference datasets can reach a separately approved write. READ ONLY and PERSON DATA HOLD menu items always stop with zero network. Eligible datasets require menu selection, Y, and private ThaiPHC bearer. Never run a real commit without separate PO one-endpoint authorization and independent destination inventory. The Sheet ID and Web App URL are pinned in config. After COMMITTED independently read back Sheet; never auto-retry unknown outcomes.\nrelease-plan is an OFFLINE-ONLY readiness checklist, NOT a live test or permission to commit. It verifies pinned identifiers and three reference-data schema gates, shows outstanding final-UAT requirements, and produces ZERO network calls.\nDefault commands and auth-mock remain fully offline. send-validate is an explicit REAL HTTPS POST of one SYNTHETIC-only validate batch to existing Web App V3, gated by hidden TTY confirmation + privately entered destination HMAC key (never ThaiPHC bearer); use only after separate live UAT approval. No commit or Sheets writes. No --token, --output, --url, or multi-endpoint live calls.';
+const HELP='ThaiPHC Node.js 24 Manual Connector\nCommands: help | release-plan | sync-plan [--endpoint ID] | inspect [--endpoint ID] | validate [--endpoint ID] | dry-run [--endpoint ID] [--max-pages N] | auth-mock [--endpoint subdistricts] | live-fetch --endpoint subdistricts|villages|health-services|volunteer-gender --acknowledge-authorized-use | send-validate --synthetic --endpoint subdistricts|villages|health-services --acknowledge-synthetic-post | audit-source --endpoint subdistricts|villages|health-services --acknowledge-authorized-use | audit-extended --endpoint volunteer-gender|assignments|volunteer-family|resigned-volunteers|volunteer-tenure --acknowledge-authorized-use | private-report-commit --endpoint volunteer-gender|assignments|volunteer-family|resigned-volunteers|volunteer-tenure --acknowledge-private-transfer | send-reference-validate --endpoint subdistricts|villages|health-services --acknowledge-reference-validate | send-reference-commit --endpoint subdistricts|villages|health-services --acknowledge-reference-commit | commit-menu | hmac-setup\nLive-fetch requires interactive confirmation + manually pasted authorized Bearer token; bounded read-only lookups/reports (health services max 10 pages, volunteer gender max 15 pages); aggregate-only output. No Google Sheets/App Script writes. sync-plan is manifest-only and never sends rows.\nSource audit makes only explicitly confirmed ThaiPHC read-only GET(s), keeps rows in memory and outputs counts/schema/completeness metadata only; it never sends rows to Apps Script or Sheets.\naudit-extended is an opt-in READ-ONLY five-report source audit; person rows remain in memory, never printed or sent to Sheets.\nprivate-report-commit is a separately approved FINAL UAT route ONLY, and requires reviewed V3 ReportReceiver.gs, a different RESTRICTED Sheet, all 3 write switches, exact full-source/row-count private TTY confirmations, staged digests and independent Sheet readback. Never retry uncertain outcomes.\nsend-reference-validate is a separately approved opt-in real-row, validate-only HTTPS POST with exact snapshot count/schema gates. Receiver must be separately approved to enable; never use for commit.\nUse hmac-setup ONCE on Windows to store the existing Web App HMAC in CurrentUser DPAPI outside the repo; commit-menu shows all 8 API topics, but only the 3 reference datasets can reach a separately approved write. READ ONLY and PERSON DATA HOLD menu items always stop with zero network. Eligible datasets require menu selection, Y, and private ThaiPHC bearer. Never run a real commit without separate PO one-endpoint authorization and independent destination inventory. The Sheet ID and Web App URL are pinned in config. After COMMITTED independently read back Sheet; never auto-retry unknown outcomes.\nrelease-plan is an OFFLINE-ONLY readiness checklist, NOT a live test or permission to commit. It verifies pinned identifiers and three reference-data schema gates, shows outstanding final-UAT requirements, and produces ZERO network calls.\nDefault commands and auth-mock remain fully offline. send-validate is an explicit REAL HTTPS POST of one SYNTHETIC-only validate batch to existing Web App V3, gated by hidden TTY confirmation + privately entered destination HMAC key (never ThaiPHC bearer); use only after separate live UAT approval. No commit or Sheets writes. No --token, --output, --url, or multi-endpoint live calls.';
 function parseArgs(argv){
   const [command='help',...tail]=argv;
-  if(!['help','release-plan','inspect','validate','dry-run','auth-mock','live-fetch','sync-plan','send-validate','audit-source','send-reference-validate','send-reference-commit','commit-menu','hmac-setup'].includes(command))throw Error('UNSUPPORTED_COMMAND');
-  let endpoint='all',maxPages=10,acknowledged=false,synthetic=false,sendAcknowledged=false,referenceAcknowledged=false,commitAcknowledged=false;
+  if(!['help','release-plan','inspect','validate','dry-run','auth-mock','live-fetch','sync-plan','send-validate','audit-source','audit-extended','private-report-commit','send-reference-validate','send-reference-commit','commit-menu','hmac-setup'].includes(command))throw Error('UNSUPPORTED_COMMAND');
+  let endpoint='all',maxPages=10,acknowledged=false,synthetic=false,sendAcknowledged=false,referenceAcknowledged=false,commitAcknowledged=false,privateAcknowledged=false;
   for(let i=0;i<tail.length;i++){
     const arg=tail[i];
     if(arg==='--endpoint'){
@@ -52,6 +58,9 @@ function parseArgs(argv){
     }else if(arg==='--acknowledge-reference-commit'){
       if(commitAcknowledged)throw Error('DUPLICATE_COMMIT_ACK');
       commitAcknowledged=true;
+    }else if(arg==='--acknowledge-private-transfer'){
+      if(privateAcknowledged)throw Error('DUPLICATE_PRIVATE_TRANSFER_ACK');
+      privateAcknowledged=true;
     }else if(arg==='--max-pages'){
       if(i===tail.length-1)throw Error('MISSING_MAX_PAGES');
       const raw=tail[++i];
@@ -62,9 +71,10 @@ function parseArgs(argv){
   if(!Number.isSafeInteger(maxPages)||maxPages<1||maxPages>250)throw Error('INVALID_MAX_PAGES');
   if(endpoint!=='all'&&!Object.hasOwn(ENDPOINTS,endpoint))throw Error('UNKNOWN_ENDPOINT');
   if((command==='help'||command==='inspect'||command==='auth-mock'||command==='live-fetch'||command==='sync-plan')&&tail.some(x=>x==='--max-pages'))throw Error('UNSUPPORTED_FLAG');
-  if(acknowledged&&!['live-fetch','audit-source'].includes(command))throw Error('ACKNOWLEDGEMENT_ONLY_FOR_LIVE');
+  if(acknowledged&&!['live-fetch','audit-source','audit-extended'].includes(command))throw Error('ACKNOWLEDGEMENT_ONLY_FOR_LIVE');
   if(referenceAcknowledged&&command!=='send-reference-validate')throw Error('REFERENCE_ACK_ONLY_FOR_SEND');
   if(commitAcknowledged&&command!=='send-reference-commit')throw Error('COMMIT_ACK_ONLY_FOR_COMMIT');
+  if(privateAcknowledged&&command!=='private-report-commit')throw Error('PRIVATE_ACK_ONLY_FOR_PRIVATE_REPORT');
   if((synthetic||sendAcknowledged)&&command!=='send-validate')
     throw Error('SYNTHETIC_FLAGS_ONLY_FOR_SEND');
   if(command==='send-validate'){
@@ -86,6 +96,22 @@ function parseArgs(argv){
     if(!['subdistricts','villages','health-services'].includes(endpoint)||!acknowledged||
       tail.includes('--max-pages')||synthetic||sendAcknowledged)
       throw Error('REFERENCE_AUDIT_SCOPE_OR_ACK_REQUIRED');
+  }
+  if(command==='audit-extended'){
+    if(!['volunteer-gender','assignments','volunteer-family',
+      'resigned-volunteers','volunteer-tenure'].includes(endpoint)||!acknowledged||
+       tail.includes('--max-pages')||synthetic||sendAcknowledged||
+       referenceAcknowledged||commitAcknowledged)
+      throw Error('EXTENDED_AUDIT_SCOPE_OR_ACK_REQUIRED');
+  }
+  if(command==='private-report-commit'){
+    if(!['volunteer-gender','assignments','volunteer-family',
+      'resigned-volunteers','volunteer-tenure'].includes(endpoint)||
+      !privateAcknowledged||acknowledged||synthetic||sendAcknowledged||
+      referenceAcknowledged||commitAcknowledged||
+      tail.includes('--max-pages')||tail.includes('--output')||
+      tail.includes('--token'))
+      throw Error('PRIVATE_REPORT_SCOPE_OR_ACK_REQUIRED');
   }
   if(command==='send-reference-validate'){
     if(!['subdistricts','villages','health-services'].includes(endpoint)||
@@ -123,6 +149,60 @@ export async function main(argv=process.argv.slice(2),write=console.log,tty={}){
         write('HMAC_SETUP_FAILED: use Windows interactive terminal');
         return 2;
       }
+    }
+    if(parsed.command==='private-report-commit'){
+      const endpoint=parsed.endpoint;
+      // Refuse live ThaiPHC GET until the local protected HMAC exists.
+      let hmac;
+      try{
+        const load=tty.readStoredHmac??readStoredHmac;
+        hmac=load({...tty});
+        if(typeof hmac!=='string'||!/^[A-Za-z0-9+/]{43}=$/.test(hmac))
+          throw Error('HMAC_STORE_INVALID');
+      }catch{
+        write('HMAC_STORE_NOT_READY: use the existing protected Windows user store');
+        return 2;
+      }
+      await confirmExtendedSourcePreparationFromTTY(tty,endpoint);
+      const collected=await collectExtendedForPrivateStaging({
+        endpoint,manifest:sheetManifest,
+        confirm:async()=> 'AUDIT FIVE REPORTS READ ONLY 5406',
+        getToken:()=>readRealBearerFromTTY(tty),
+        fetchImpl:tty.fetchImpl??globalThis.fetch
+      });
+      const safe=collected?.safe??collected;
+      if(!Array.isArray(collected?.pages)||![
+        'AGGREGATE_STORAGE_APPROVAL_REQUIRED',
+        'SMALL_CELL_PRIVACY_REVIEW_REQUIRED',
+        'PERSON_DATA_STORAGE_APPROVAL_REQUIRED',
+        'UNVERIFIED_RELATION_KEY_WRITE_HOLD'
+      ].includes(safe?.status)){
+        write(JSON.stringify({mode:'MANUAL_EXTENDED_REPORT_STAGE',endpoint,
+          status:'SOURCE_NOT_READY',sourceStatus:safe?.status??'UNKNOWN',
+          sourceNetworkRequests:safe?.sourceNetworkRequests??0,
+          appsScriptPosts:0,sheetsWrites:0,accepted:false},null,2));
+        return 2;
+      }
+      // Domain separation: never use an external national ID/UUID as a sheet key.
+      const privacyKeyB64=createHmac('sha256',Buffer.from(hmac,'base64'))
+        .update('THAIPHC_F010_PSEUDONYM_DERIVE_5406','utf8')
+        .digest('base64');
+      const runId='private-'+randomBytes(12).toString('hex');
+      const minimized=projectMinimizedExtendedSnapshot({
+        endpoint,pages:collected.pages,manifest:sheetManifest,
+        privacyKeyB64,runId
+      });
+      const plan=planExtendedBatches(minimized);
+      const acknowledgement=await confirmExtendedPrivateWriteFromTTY(
+        tty,extendedCommitPhrase(plan));
+      const result=await sendExtendedReport({
+        plan,keyB64:hmac,acknowledgement,
+        fetchImpl:tty.fetchImpl??globalThis.fetch
+      });
+      write(JSON.stringify({...result,
+        sourceNetworkRequests:safe.sourceNetworkRequests},null,2));
+      // A successful report-finalized reply still needs separate target readback.
+      return 2;
     }
     if(parsed.command==='send-reference-commit'||parsed.command==='commit-menu'){
       // Operator separately confirms the live destination Script Properties
@@ -233,6 +313,21 @@ export async function main(argv=process.argv.slice(2),write=console.log,tty={}){
       });
       write(JSON.stringify(result,null,2));
       return result.status==='VALIDATED'?0:2;
+    }
+    if(parsed.command==='audit-extended'){
+      const result=await readExtendedReport({
+        endpoint:parsed.endpoint,
+        confirm:()=>confirmExtendedAuditFromTTY(tty),
+        getToken:()=>readRealBearerFromTTY(tty),
+        fetchImpl:tty.fetchImpl??globalThis.fetch,
+        manifest:sheetManifest
+      });
+      // Strictly safe summary: readExtendedReport never returns source rows.
+      write(JSON.stringify(result,null,2));
+      return result.status==='AGGREGATE_STORAGE_APPROVAL_REQUIRED'||
+        result.status==='PERSON_DATA_STORAGE_APPROVAL_REQUIRED'||
+        result.status==='UNVERIFIED_RELATION_KEY_WRITE_HOLD'||
+        result.status==='SMALL_CELL_PRIVACY_REVIEW_REQUIRED'?0:2;
     }
     if(parsed.command==='audit-source'){
       const snapshot=await collectReferenceSnapshot({

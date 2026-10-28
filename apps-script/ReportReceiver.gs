@@ -308,7 +308,11 @@ function tphRReportSheet_(ss,endpoint,runId){
  return ss.getSheetByName(tphRName_(endpoint,runId));
 }
 function tphRLoad_(sheet,b){
- if(!sheet||sheet.getLastRow()<2||sheet.getRange(2,1,1,1).getValue()!=='_source_key')tphRFail_();
+ if(!sheet||sheet.getLastRow()<2)tphRFail_();
+ const expected=['_source_key'].concat(tphRSchema_(b.endpoint).fields,['__canonical_json']);
+ if(sheet.getLastColumn()!==expected.length||
+    JSON.stringify(sheet.getRange(2,1,1,expected.length).getValues()[0])!==
+     JSON.stringify(expected))tphRFail_();
  const info=JSON.parse(sheet.getRange(1,1).getValue());
  if(info.manifestDigest!==b.manifestDigest||info.runId!==b.runId||
     info.endpoint!==b.endpoint||info.status!=='STAGING')tphRFail_();

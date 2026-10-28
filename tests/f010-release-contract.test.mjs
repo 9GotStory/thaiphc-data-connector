@@ -11,7 +11,7 @@ const manifest=readFileSync(new URL('../apps-script/appsscript.json',import.meta
 const updater=readFileSync(new URL('../scripts/update-f010-existing-v3-final.ps1',import.meta.url),'utf8');
 test('F010 existing-V3 updater pins ALL THREE exact reviewed files and approved prior preimage',()=>{
  assert.equal(blob(code),'140f32dc589439bf0015ce108095521015c0d1e3');
- assert.equal(blob(report),'84f6be44d35ce3c0025e8d0e65d9cab0286261a1');
+ assert.equal(blob(report),'58a43665d81d1c9bb79cadc9187a5b41e0f9ff5a');
  assert.equal(blob(manifest),'a8134a3237b2dce1f54ce16a943fbe3e232ce436');
  for(const pin of [
   "oldCodeBlob='f7d878389fe46cfde8619f75a1f9746f45b469a3'",

@@ -82,6 +82,7 @@ export function auditExtendedSnapshot(endpoint,pages,manifest,{smallCellThreshol
   if(error)return status(endpoint,error,{pagesChecked:i,reportedTotal:total});
   if(total===null)total=endpoint==='assignments'?page.pagination.total:page.total;
   for(const row of page.items){
+   rows++; // Count every observed row, including quarantined rows.
    if(!obj(row)){flag('INVALID_ROW');continue;}
    if(Object.keys(row).some(k=>!fields.has(k))){flag('UNEXPECTED_SOURCE_FIELD');continue;}
    if(row.provinceCode!=='54'||row.districtCode!=='5406'){
@@ -121,7 +122,6 @@ export function auditExtendedSnapshot(endpoint,pages,manifest,{smallCellThreshol
     else if([count,male,female].some(v=>v>0&&v<smallCellThreshold))
       smallCells++;
    }
-   rows++;
   }
  }
  if(total!==rows||pages.length!==Math.max(1,Math.ceil(total/PAGE_SIZE)))

@@ -43,7 +43,11 @@ export function planExtendedBatches(minimized){
        (v.length>32767||/[\u0000-\u001f\u007f]/.test(v)||
         /^\s*[=+\-@]/.test(v)))fail();
    }
-   return {key:r.key,values:r.values};
+   const canonical={key:r.key,values:r.values};
+   // Receiver persists the full canonical JSON as a verifier cell. Google
+   // Sheets cells are bounded at 50k chars; keep a strict 32k safety margin.
+   if(JSON.stringify(canonical).length>32767)fail();
+   return canonical;
   });
   const serialized=JSON.stringify(rows);
   if(Buffer.byteLength(serialized,'utf8')>CHUNK_UTF8_MAX)fail();

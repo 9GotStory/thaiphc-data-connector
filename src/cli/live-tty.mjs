@@ -123,6 +123,18 @@ export async function readDestinationHmacFromTTY(io={}){
 
 // T009D: operator-approved READ-ONLY source readiness audit.
 // The phrase does not authorize sending source rows downstream or writing Sheets.
+// Feature 010: explicit read-only inspection of personal report APIs.
+// Never authorizes a person-level POST or source-row persistence.
+export async function confirmExtendedAuditFromTTY(io={}){
+ const phrase='AUDIT FIVE REPORTS READ ONLY 5406';
+ const answer=await readHiddenLine({...io,
+  label:'READ ONLY report inspection (may process person rows in memory). Type '+phrase+' (hidden): ',
+  maxChars:64,allowSpaces:true,timeoutMs:30000
+ });
+ if(answer!==phrase)throw Error('EXTENDED_AUDIT_NOT_CONFIRMED');
+ return phrase;
+}
+
 export async function confirmReferenceAuditFromTTY(io={}){
  const phrase='READ REFERENCE SNAPSHOT 5406';
  const answer=await readHiddenLine({...io,

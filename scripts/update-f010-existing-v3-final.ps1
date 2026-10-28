@@ -50,7 +50,7 @@ if ($LASTEXITCODE -ne 0 -or ($dirty -join '').Trim().Length -ne 0){
 # Only this exact F010-reviewed code is allowed. Change pins only after review.
 $oldCodeBlob='f7d878389fe46cfde8619f75a1f9746f45b469a3'
 $newCodeBlob='140f32dc589439bf0015ce108095521015c0d1e3'
-$newReportBlob='e6cce45400d81d668202a247962af1d17644e66d'
+$newReportBlob='84f6be44d35ce3c0025e8d0e65d9cab0286261a1'
 $manifestBlob='a8134a3237b2dce1f54ce16a943fbe3e232ce436'
 if((Git-One -ArgsList @('hash-object','--',$code)) -cne $newCodeBlob -or
    (Git-One -ArgsList @('hash-object','--',$report)) -cne $newReportBlob -or

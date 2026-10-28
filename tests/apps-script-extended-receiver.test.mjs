@@ -4,6 +4,7 @@ import {createHmac,createHash,randomBytes} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import {planExtendedBatches} from '../src/sync/extended-batch-plan.mjs';
+const manifest=JSON.parse(readFileSync(new URL('../docs/sheets-schema.json',import.meta.url),'utf8'));
 
 const base=readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8');
 const extended=readFileSync(new URL('../apps-script/ReportReceiver.gs',import.meta.url),'utf8');
@@ -83,11 +84,18 @@ function setup(h,{person=true,dest=privateId}={}){
  if(person)h.props.set('THAIPHC_PERSON_DATA_WRITE_ENABLED','true');
 }
 function plan(api='assignments',count=27){
- const fields=api==='assignments'?['provinceCode','districtCode','isActive','status']:
-  api==='volunteer-family'?['provinceCode','districtCode','gender','status']:
-  ['provinceCode','districtCode','status'];
- const values=i=>Object.fromEntries(fields.map(f=>[f,f==='isActive'?true:
-  f==='provinceCode'?'54':f==='districtCode'?'5406':'ACTIVE']));
+ const fieldsSpec=manifest.datasets.find(d=>d.api===api).fields
+  .filter(f=>f.pii_policy==='ALLOW_ONLY_IF_DATASET_APPROVED');
+ const fields=fieldsSpec.map(f=>f.column);
+ const values=i=>Object.fromEntries(fieldsSpec.map(f=>[
+  f.column,f.observed_kind==='null_only'?null:
+   f.observed_kind==='boolean'?true:
+   f.observed_kind==='integer'?10:
+   f.column==='provinceCode'?'54':
+   f.column==='districtCode'?'5406':
+   f.column==='subdistrictCode'?'540601':
+   f.column==='villageCode'?'540601'+String(i+1).padStart(3,'0'):'ACTIVE'
+ ]));
  return planExtendedBatches({
   mode:'IN_MEMORY_MINIMIZED_REPORT_NOT_SENT',endpoint:api,
   runId:'test-private-run-1',rowCount:count,
@@ -165,7 +173,7 @@ test('F010 family run-scoped snapshot identity supported without person upsert',
 });
 test('F010 forged unallowlisted PII column denied before any Sheets write',()=>{
  const h=harness();setup(h);const p=plan('assignments',1);
- const b=batch(p,'report-start');b.destinationFields.push('citizenId');
+ const b=batch(p,'report-start');b.destinationFields=[...b.destinationFields,'citizenId'];
  assert.equal(h.post(b).status,'REJECTED');
  assert.equal(h.restricted.size,0);
 });

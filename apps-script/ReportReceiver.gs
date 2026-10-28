@@ -320,7 +320,7 @@ function tphRHandle_(b,props){
  if(b.mode==='report-start'){
   if(sheet)return tphRResponse_('REPORT_ALREADY_EXISTS_STOP',b);
   sheet=ss.insertSheet(tphRName_(b.endpoint,b.runId));
-  const columns=spec.fields.length+1;
+  const columns=spec.fields.length+2;
   if(sheet.getMaxColumns()<columns)
    sheet.insertColumnsAfter(sheet.getMaxColumns(),columns-sheet.getMaxColumns());
   const meta={endpoint:b.endpoint,runId:b.runId,manifestDigest:b.manifestDigest,
@@ -331,7 +331,7 @@ function tphRHandle_(b,props){
     chunkDigests:b.chunkDigests
    })};
   sheet.getRange(1,1).setValue(JSON.stringify(meta));
-  sheet.getRange(2,1,1,columns).setValues([['_source_key'].concat(spec.fields)]);
+  sheet.getRange(2,1,1,columns).setValues([['_source_key'].concat(spec.fields,['__canonical_json'])]);
   sheet.setFrozenRows(2);
   sheet.getRange(3,1,Math.max(1,sheet.getMaxRows()-2),1).setNumberFormat('@');
   sheet.hideSheet();
@@ -347,8 +347,8 @@ function tphRHandle_(b,props){
   // Exactly-once forward progress; replay/ambiguous outcomes require readback.
   if(sheet.getLastRow()!==b.rowOffset+2)
     return tphRResponse_('REPORT_CHUNK_ORDER_STOP',b);
-  const colCount=spec.fields.length+1;
-  const block=b.rows.map(r=>[r.key].concat(spec.fields.map(f=>r.values[f]===null?'':r.values[f])));
+  const colCount=spec.fields.length+2;
+  const block=b.rows.map(r=>[r.key].concat(spec.fields.map(f=>r.values[f]===null?'':r.values[f]),[JSON.stringify(r)]));
   if(sheet.getMaxRows()<sheet.getLastRow()+block.length)
     sheet.insertRowsAfter(sheet.getMaxRows(),sheet.getLastRow()+block.length-sheet.getMaxRows());
   sheet.getRange(b.rowOffset+3,1,b.rowCount,colCount).setValues(block);
@@ -359,7 +359,7 @@ function tphRHandle_(b,props){
  // reconstructed from the persisted snapshot (not from received requests).
  if(sheet.getLastRow()!==m.sourceRows+2)
   return tphRResponse_('REPORT_INCOMPLETE_STOP',b);
- const cols=spec.fields.length+1;
+ const cols=spec.fields.length+2;
  const staged=sheet.getRange(3,1,m.sourceRows,cols).getValues();
  const keys=new Set();
  for(let i=0;i<staged.length;i++){
@@ -369,14 +369,16 @@ function tphRHandle_(b,props){
  }
  for(let start=0,ord=0;start<staged.length;start+=25,ord++){
   const part=staged.slice(start,start+25).map(r=>{
-   const values={};
+   // Canonical JSON preserves NULL vs empty-string distinction. Independent
+   // per-column comparison ensures sheet rows match the signed source bytes.
+   const canonical=JSON.parse(r[cols-1]);
+   if(!tphRExact_(canonical,['key','values'])||canonical.key!==r[0]||
+      !tphRExact_(canonical.values,spec.fields))tphRFail_();
    for(let j=0;j<spec.fields.length;j++){
-    const field=spec.fields[j],value=r[j+1];
-    // Rehydrate empty cells as null ONLY when the original manifest/schema
-    // allows null; ambiguous empty strings would need a separate presence map.
-    values[field]=value===''?null:value;
+    const v=canonical.values[spec.fields[j]],expected=v===null?'':v;
+    if(r[j+1]!==expected)tphRFail_();
    }
-   return {key:r[0],values};
+   return canonical;
   });
   if(tphRHash_(JSON.stringify(part))!==m.chunkDigests[ord])
    return tphRResponse_('REPORT_STAGED_DIGEST_MISMATCH_STOP',b);
@@ -402,12 +404,14 @@ function tphRHandle_(b,props){
  }
  // Snapshot stays private. Publish pointer last, after digest verification.
  const pointer=[b.endpoint,b.runId,sheet.getName(),m.sourceRows,b.manifestDigest];
- current.getRange(index<0?current.getLastRow()+1:index,1,1,5).setValues([pointer]);
  sheet.getRange(1,1).setValue(JSON.stringify({
   endpoint:b.endpoint,runId:b.runId,manifestDigest:b.manifestDigest,
   status:'PUBLISHED',manifest:m
  }));
  sheet.showSheet();
+ SpreadsheetApp.flush();
+ // THE LAST PUBLICATION ACTION: active pointer; no incomplete run is current.
+ current.getRange(index<0?current.getLastRow()+1:index,1,1,5).setValues([pointer]);
  SpreadsheetApp.flush();
  return tphRResponse_('REPORT_FINALIZED',{...b,sheetsWrites:3,rowCount:m.sourceRows});
 }

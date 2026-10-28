@@ -9,13 +9,13 @@ const updater=readFileSync(new URL('../scripts/update-existing-web-app-final.ps1
 const gitBlob=text=>createHash('sha1').update('blob '+Buffer.byteLength(text,'utf8')+'\0')
  .update(text,'utf8').digest('hex');
 
-test('T009D final V3 updater pins the exact reviewed Code.gs and unchanged manifest',()=>{
+test('T009D legacy V3 updater remains pinned to former F009 source and rejects F010 receiver',()=>{
  const receiverBlob=gitBlob(receiver);
  const manifestBlob=gitBlob(manifest);
- assert.equal(receiverBlob,'f7d878389fe46cfde8619f75a1f9746f45b469a3');
+ assert.notEqual(receiverBlob,'f7d878389fe46cfde8619f75a1f9746f45b469a3'); // F010 must use a NEW guarded updater
  assert.equal(manifestBlob,'a8134a3237b2dce1f54ce16a943fbe3e232ce436');
  assert.match(updater,/\$oldCodeBlob = 'abc71275ab30dca1f57d1d0e33b8c2773452a194'/);
- assert.ok(updater.includes("$reviewedNewCodeBlob = '"+receiverBlob+"'"));
+ assert.ok(updater.includes("$reviewedNewCodeBlob = 'f7d878389fe46cfde8619f75a1f9746f45b469a3'"));
  assert.ok(updater.includes("$reviewedManifestBlob = '"+manifestBlob+"'"));
 });
 

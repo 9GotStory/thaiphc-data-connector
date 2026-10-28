@@ -345,6 +345,13 @@ function tphWrite_(b,spreadsheetId){
  let sheet=spreadsheet.getSheetByName(spec.tab);
  if(!sheet){
   sheet=spreadsheet.insertSheet(spec.tab);
+  // A newly inserted Google Sheet may have only 26 default columns.
+  // Villages requires 20 source + 8 metadata = 28; grow ONLY this newly
+  // created target tab before accessing any out-of-bounds header range.
+  // Never resize or mutate an existing unrelated/user-authored sheet.
+  const currentColumns=sheet.getMaxColumns();
+  if(currentColumns<headers.length)
+   sheet.insertColumnsAfter(currentColumns,headers.length-currentColumns);
   sheet.getRange(1,1,1,headers.length).setValues([headers]);
   sheet.setFrozenRows(1);
   const textColumns=[];

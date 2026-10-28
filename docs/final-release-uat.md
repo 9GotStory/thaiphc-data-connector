@@ -28,7 +28,7 @@ The 85/18 figures are **guards**, not claims about the current live source. The 
 
 ## 3. Final UAT — ONE coordinated operator session, not three intermediate pilot cycles
 
-**Do not run the following during development.** Initiate a single final session **only after** the release candidate is reviewed/merged at an exact immutable SHA and the Product Owner approves the bounded live window for the **two still-pending datasets**. The PO's instruction to finish the project is *not itself an approval to transmit real records*. A named authorized ThaiPHC account and valid source-to-destination transfer rights, lawful purpose and access/retention restrictions must already exist. Do not paste any Bearer/HMAC into GitHub or ChatGPT.
+**Do not run the following during development.** Initiate a single final session **only after** the release candidate is reviewed/merged at an exact immutable SHA and the Product Owner approves the bounded live window for **updating the existing Web App V3** and the **two still-pending datasets**. The PO's instruction to finish the project is *not itself an approval to transmit real records*. A named authorized ThaiPHC account and valid source-to-destination transfer rights, lawful purpose and access/retention restrictions must already exist. Do not paste any Bearer/HMAC into GitHub or ChatGPT.
 
 ### A. One-time entry gate (receiver and writer OFF)
 
@@ -36,7 +36,13 @@ The 85/18 figures are **guards**, not claims about the current live source. The 
 2. Run **once** `npm.cmd run cli -- release-plan`. Expected `FINAL_UAT_EXECUTION_NOT_AUTHORIZED` is a **correct safety status**. The command validates only the repository metadata; do not misinterpret it as a live test.
 3. Inspect the **original** Google Sheet's currently visible tabs and known field/header layout; verify historical `Subdistricts` acceptance (8 data rows, code/source-key uniqueness, district 5406, `VALID`, metadata and `ชีต1` survival), and independently confirm the `Villages` and `HealthServices` targets are absent or authorized empty/upsert-compatible receiver-managed tabs. Stop if any target contains nonreproducible, user-authored or unrelated data.
 4. In **the existing V3 Apps Script project**, verify that `THAIPHC_SPREADSHEET_ID` points to the pinned original Sheet ID, and that `THAIPHC_RECEIVER_ENABLED=false` and `THAIPHC_WRITE_ENABLED=false` at rest. Verify HMAC DPAPI availability in the same Windows account without exposing the key. Do not redeploy or create a new sheet.
-5. Record the exact PO-authorized two-dataset write scope: `villages` and `health-services`, district 5406, **at most one commit POST per dataset**, within this **single final UAT session**. Confirm data-owner extraction/transfer permission and acceptance of the unpaginated `villages` completeness limitation. If any check fails, STOP with both switches OFF.
+5. **Versioned V3 source update required for this release candidate:** the receiver now expands a newly created `Villages` tab from the default 26 columns to the required 28 before writing headers. This patch is in GitHub only until the owner's existing V3 is safely updated. During the **same final UAT session**, while both switches remain OFF, use the reviewed `scripts/update-existing-web-app-final.ps1` from the **exact approved release SHA** with Windows PowerShell's process-scoped `RemoteSigned` policy. It first checks a clean `main`, the exact reviewed source/manifest Git blobs, the pinned existing V3 deployment ID, and the remote **preimage**; backs up all pulled files **outside the repository**; and stops on any mismatch before PUSH. It stages ONLY `Code.gs` plus `appsscript.json`, requires explicit `OFF`/`PUSH`/`UPDATE` confirmations, updates ONLY the existing deployment ID, and keeps an operator backup. Do not run the first-install-only `deploy-existing-apps-script.ps1`, bypass a mismatch, deploy a new ID, mix in `dev-receiver.gs`, or enable either switch during the source update. If source push succeeded but deployment update failed, STOP and reconcile the remote state before any POST. This updater itself sends no ThaiPHC request or import POST.
+   
+   ```powershell
+   powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\\scripts\\update-existing-web-app-final.ps1 -RepoPath .
+   ```
+
+6. Record the exact PO-authorized two-dataset write scope: `villages` and `health-services`, district 5406, **at most one commit POST per dataset**, within this **single final UAT session**. Confirm data-owner extraction/transfer permission and acceptance of the unpaginated `villages` completeness limitation. If any check fails, STOP with both switches OFF.
 
 ### B. One consolidated execution window
 

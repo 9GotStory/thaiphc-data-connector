@@ -44,21 +44,22 @@ function validValue(value,kind){
  return false;
 }
 function checkPage(endpoint,page,index,total){
- if(!obj(page)||!Array.isArray(page.items)||!integer(page.total)||
-    page.total>MAX_TOTAL)return 'INVALID_PAGE_ENVELOPE';
+ if(!obj(page)||!Array.isArray(page.items))return 'INVALID_PAGE_ENVELOPE';
+ const actualTotal=endpoint==='assignments'?page.pagination?.total:page.total;
+ if(!integer(actualTotal)||actualTotal>MAX_TOTAL)return 'INVALID_PAGE_ENVELOPE';
  if(endpoint==='assignments'){
   const p=page.pagination;
   if(!Array.isArray(page.provinces)||!obj(p)||!integer(p.total)||
      !integer(p.page)||!integer(p.limit)||!integer(p.pages)||
-     p.total>MAX_TOTAL||p.total!==page.total||
+     p.total>MAX_TOTAL||
      p.page!==index+1||p.limit!==PAGE_SIZE||
      p.pages!==Math.ceil(p.total/PAGE_SIZE))
    return 'INVALID_ASSIGNMENTS_PAGINATION';
  }else if(page.success!==true||typeof page.message!=='string'||
     page.page!==index+1||page.pageSize!==PAGE_SIZE)
   return 'INVALID_REPORT_PAGINATION';
- if(total!==null&&page.total!==total)return 'SOURCE_TOTAL_CHANGED';
- if(page.items.length!==Math.min(PAGE_SIZE,Math.max(0,page.total-index*PAGE_SIZE)))
+ if(total!==null&&actualTotal!==total)return 'SOURCE_TOTAL_CHANGED';
+ if(page.items.length!==Math.min(PAGE_SIZE,Math.max(0,actualTotal-index*PAGE_SIZE)))
   return 'PAGE_COUNT_MISMATCH';
  return null;
 }
@@ -79,7 +80,7 @@ export function auditExtendedSnapshot(endpoint,pages,manifest,{smallCellThreshol
  for(const [i,page] of pages.entries()){
   const error=checkPage(endpoint,page,i,total);
   if(error)return status(endpoint,error,{pagesChecked:i,reportedTotal:total});
-  if(total===null)total=page.total;
+  if(total===null)total=endpoint==='assignments'?page.pagination.total:page.total;
   for(const row of page.items){
    if(!obj(row)){flag('INVALID_ROW');continue;}
    if(Object.keys(row).some(k=>!fields.has(k))){flag('UNEXPECTED_SOURCE_FIELD');continue;}

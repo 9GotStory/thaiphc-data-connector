@@ -111,7 +111,7 @@ async function responseBody(res){
   return JSON.parse(combined.toString('utf8'));
  }finally{try{rd.releaseLock()}catch{}}
 }
-async function onePost(wire,expected,plan,fetchImpl){
+async function onePost(wire,expected,plan,fetchImpl,stage){
  let requests=0;
  const signal=new AbortController();
  const timeout=setTimeout(()=>signal.abort(),POST_TIMEOUT);timeout.unref?.();
@@ -138,7 +138,7 @@ async function onePost(wire,expected,plan,fetchImpl){
      result.sheetsWrites<1||result.sheetsWrites>3)
    return {ok:false,requests};
   if(expected==='REPORT_CHUNK_STAGED'){
-   if(result.ordinal!==wire.__stageOrdinal)return {ok:false,requests};
+   if(result.ordinal!==stage)return {ok:false,requests};
   }
   if(expected==='REPORT_FINALIZED'&&result.rowCount!==plan.sourceRows)
    return {ok:false,requests};
@@ -165,13 +165,10 @@ export async function sendExtendedReport({
   const work=['start',...Array.from({length:plan.chunkCount},(_,i)=>i+1),'finalize'];
   for(const stage of work){
    const wire=buildExtendedReportWire(plan,stage,keyB64);
-   // Only a private closure field (not sent in JSON) tracks response ordinal.
-   if(typeof stage==='number')wire.__stageOrdinal=stage;
    const expected=stage==='start'?'REPORT_STARTED':
     stage==='finalize'?'REPORT_FINALIZED':'REPORT_CHUNK_STAGED';
-   const {__stageOrdinal,...networkWire}=wire;
    posts++;
-   const result=await onePost({...networkWire,__stageOrdinal},expected,plan,fetchImpl);
+   const result=await onePost(wire,expected,plan,fetchImpl,stage);
    requests+=result.requests;
    if(!result.ok)return short(endpoint,'STAGE_OUTCOME_UNKNOWN_STOP',posts,requests,{
     stage:stage==='finalize'?'finalize':stage==='start'?'start':'chunk',

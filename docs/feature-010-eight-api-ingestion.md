@@ -1,45 +1,50 @@
-# Feature 010 — 8-API ThaiPHC connector: remaining five report ingestion
+# Feature 010 — complete 8-topic ThaiPHC manual connector code candidate
 
 Issue: https://github.com/9GotStory/thaiphc-data-connector/issues/64
+Draft PR: https://github.com/9GotStory/thaiphc-data-connector/pull/65
 
-## Product Owner target
+## User-approved goal
 
-Support all **8** ThaiPHC topics in the existing Windows Node.js 24 CLI, through existing **Web App V3** into Google Sheets. Develop code and run CI with **synthetic-only** fixtures, then hold **one consolidated Final UAT** rather than repeated operator trials.
+Complete **implementation for all 8 API topics**, run only developer-side mocked/CI verification during construction, then **ONE operator Final UAT** to verify real ThaiPHC transfers, Apps Script Web App V3 and Google Sheets. Do not require intermediate user testing or move real people into Sheets before final data-owner approval and source/destination permissions are confirmed.
 
-**Current production evidence (2026-10-28):** reference datasets `Subdistricts` 8 rows, `Villages` 85, and `HealthServices` 18 all independently accepted in the original Sheet; both GAS flags operator-attested `false`. Never resend or modify those 111 rows to implement this feature. Current `main` carries a three-reference-only receiver; person-level `commit-menu` choices deliberately cannot write.
+## Existing accepted production baseline (must stay untouched)
 
-## Five report ingestion contracts (not ready for live Sheets writes)
+Original `ThaiPHC Data` workbook: `Subdistricts` 8, `Villages` 85 and `HealthServices` 18, total **111** data rows. User-attested both `THAIPHC_RECEIVER_ENABLED` and `THAIPHC_WRITE_ENABLED` FALSE after the accepted transfers. These three reference APIs and the original `ชีต1` have **no new source write route** under F010; do not re-run the three original first-writes.
 
-| API | Historical root total | Row grain/key | Personal data | Current remaining blocker |
-|---|---:|---|---|---|
-| `volunteer-gender` | 85 village rows | `provinceCode,districtCode,villageCode` | small-cell gender counts | confirm suppression strategy and destination visibility |
-| `assignments` | 1,571 | `id` candidate, not official key | name, ID, code | source-scoped read, privacy-preserving storage policy |
-| `volunteer-family` | 1,803 | **NO verified row key**; rows are relations | family/volunteer names, national ID, address | stable record identity/complete-snapshot replacement and geographic conflicts |
-| `resigned-volunteers` | 1,150 | `id` candidate | name, national ID, status | approved source fields/storage and restricted access |
-| `volunteer-tenure` | 1,571 | `id` candidate | name, national ID, volunteer code | approved field minimization and restricted access |
+## Engineering implementation in F010
 
-Counts are prior source observations only. Do not presume current data has exactly those totals. Per-report pagination comes from the original ThaiPHC API: `assignments` uses `pagination.total/pages/page/limit`, the other four use root `total/page/pageSize`. Complete current totals, unchanging pagination, unique identities, scope 54/5406, and exact field types must be validated **before** a single row is sent. No automatic retry/partial write cleanup.
+| Component | Files | Behavior |
+|---|---|---|
+| Five-report bounded reader | `src/sync/extended-report-source.mjs` | Opt-in HTTPS GET, explicit authorization, exact scope, bounded pages, raw person rows kept only within private in-memory staging caller |
+| Source audit | `src/sync/extended-report-audit.mjs` | Pagination completeness, district 5406, stable identity for 3 person reports, gender totals, source type/shape, small cells, Family relation/anomalies |
+| Minimized projection | `src/sync/extended-minimized-projection.mjs` | Excludes `RESTRICTED_DEFAULT_OMIT` fields, keyed domain-separated HMAC pseudonyms, gender complementary suppression, Family **run-scoped** (no upsert) identity |
+| Immutable chunk plan | `src/sync/extended-batch-plan.mjs` | Up to 2,500 rows; 25-row/125KB chunks and per-chunk/run SHA-256 digests; limits canonical JSON per Sheet cell |
+| Signed sender | `src/sync/extended-report-transport.mjs` | Existing V3 URL, HMAC for every start/chunk/finalize, allowlisted Google redirect, one attempt per stage, no automatic retry or acceptance without readback |
+| Private V3 receiver | `apps-script/Code.gs` and `apps-script/ReportReceiver.gs` | Existing reference protocol remains intact. New report modes require ALL THREE private/ingress/write switches; **different restricted workbook**, pre-publication digest verification, versioned tabs and current-pointer index |
+| CLI | `src/cli/index.mjs`, `src/cli/live-tty.mjs` | `audit-extended` READ ONLY, `private-report-commit` exact final-UAT confirmations; no token/HMAC argv, no raw person logs. Old `commit-menu` options 4–8 stay blocked to prevent accidental personal transfer |
+| Deployment | `scripts/update-f010-existing-v3-final.ps1` | One final owner-run source backup, exact Git preimage check, three-file allowlist, three OFF flags, update ONLY existing V3; never run from CI |
+| Testing | `tests/extended-*.test.mjs`, `tests/apps-script-extended-receiver.test.mjs`, `tests/f010-release-contract.test.mjs` | Synthetic person data, mocked HTTP/Sheets, E2E signed staging, scope/PII/privacy, digest mismatch, unauthorized/partial result stop and immutable SHA pins |
 
-The current `docs/sheets-schema.json` defines eight proposed tabs, but all five are still `DESIGN_ONLY_NO_WRITES`. Its `RESTRICTED_DEFAULT_OMIT` field policy prevents blindly copying names, national IDs, volunteer IDs, addresses and related direct identifiers into an ordinary Sheet. A working Bearer token confirms technical account access, not which individual columns should be retained or which Google accounts may view them.
+## Report datasets
 
-## Implemented in the first F010 engineering slice
+| Source | Historical count only | Target data policy | Publishing rule |
+|---|---:|---|---|
+| `volunteer-gender` | 85 village rows | Village aggregate only, suppress both male/female values if either is below 5; suppress total if below 5 | Valid complete snapshot; privacy review and private workbook |
+| `assignments` | 1,571 | Minimized status/geography; HMAC pseudonym, omit names/national IDs/volunteer IDs | Complete versioned snapshot; no partial publication |
+| `volunteer-family` | 1,803 | Minimized geography/relation status, no personal names, address or national IDs; **no verified source relation key** | New immutable complete snapshot only; never guessed-key upsert |
+| `resigned-volunteers` | 1,150 | Minimized status/retirement info, HMAC pseudonym; no direct identifiers | Complete versioned snapshot |
+| `volunteer-tenure` | 1,571 | Minimized duration/year/geography, HMAC pseudonym; no direct identifiers | Complete versioned snapshot |
 
-- `src/sync/extended-report-audit.mjs`: deterministic, **offline** page-completeness, declared-field/type, district, subdistrict, candidate key, small-cell and no-raw-person-output checks for the **five** extended APIs. Unsafe/missing relation key remains explicit `WRITE_HOLD`.
-- `src/sync/extended-report-source.mjs`: bounded, opt-in, HTTPS GET-only source reader. Up to 250 pages of size 10 per endpoint; no redirects, timeouts enforced, no retries, no external file output, no Apps Script call. All raw people/family rows remain in process memory, then only redacted counts and status codes can leave.
-- `npm.cmd run cli -- audit-extended --endpoint <one-of-five> --acknowledge-authorized-use`: new **read-only** terminal path with distinct hidden confirmation and Bearer prompt. It is **not** the final UAT sync and is **not** a permission to store personal rows. Product Owner requested **no manual operator tests during development**, so do not ask to run this command now.
-- `src/sync/extended-minimized-projection.mjs`: a **pure in-memory, never-sent** storage-shape prototype. It excludes all `RESTRICTED_DEFAULT_OMIT` source fields, pseudonymizes person keys with dedicated HMAC-SHA256 domain separation, suppresses both male and female counts for small cells to prevent complementary disclosure, and treats family keys as **run-scoped snapshot ordinals that MUST NOT be used for upsert**. The output is still a sensitive internal artifact requiring approved visibility; `writeAuthorized:false` is mandatory.
-- `src/sync/extended-batch-plan.mjs`: a stage-only **offline** deterministic chunk planner for one complete minimized snapshot. Caps chunks at 25 rows / 125KB, checks duplicate pseudonymous keys and safe scalar values, computes per-chunk and entire-run SHA-256 digests, and distinguishes Family's complete-snapshot replacement from ordinary staged runs. Synthetic 1,803-row coverage yields **73 chunks**. It contains **no live sender or GAS receiver**, no automatic retries, and `writeAuthorized:false`.
-- `tests/extended-report-*.test.mjs`, `tests/extended-minimized-projection.test.mjs`, and `tests/extended-batch-plan.test.mjs`: synthetic in-memory data, mocked HTTPS and fake TTY, negative tests for keys, pagination drift, malicious fields, secret-bearing fields and small-cell privacy; CI performs **zero live requests**.
+The historical counts are not live source authority. Source data may change. In particular the supplied Family source sample contains geographic mismatches and no unique relation key; the audit will **STOP** instead of silently deleting/fixing them. That is a genuine source-quality/approval gate at final UAT, not a reason to invent identity semantics.
 
-## Remaining F010 work before calling 8 API writes code-complete
+## Security, limitations and final UAT
 
-1. **Safe destination data models:** define the precise allowlisted, necessary fields for each of the four person reports (exclude direct identifiers by default); use restricted access, documented retention/deletion, and avoid persisting all observed PII just because a field exists in the source.
-2. **Family relation identity:** source schema has no row `id` and observed rows contain cross-district/stale village references. Do not manufacture a compound key from citizen IDs, names, village codes or page ordinal. Prefer a verified source-defined relation key; otherwise implement an explicitly approved, complete-snapshot, isolated staging-and-swap model with safe reconciliation and no upsert of ambiguous relations.
-3. **Volume/batching:** 1,150–1,803 person rows will not reliably fit a single original 700KB Apps Script envelope or execution. An offline bounded chunk/digest PLAN exists, but the signed, replay-safe, idempotent **chunk/staging/commit** receiver and sender still need implementation with run counts/digests and fail-closed unknown outcomes. No partial record sets visible as accepted. Preserve old V3 protocol unchanged for 3 reference datasets.
-4. **Restricted receiver:** implement separate allowlisted schemas and `THAIPHC_PERSON_DATA_WRITE_ENABLED` defense-in-depth; no PII available via logs, GET endpoints, public Sheet sharing or ordinary run reports; staging data retained only as approved. `VolunteerGender` requires small-cell policy before enabling village-grain materialization.
-5. **Integrate CLI commit workflow and regression:** exact entity-specific scopes, time/page/byte bounds, source-owner authority, signed transfer, readback and safe re-sync/rollback, mock end-to-end. CI should validate all eight flows without any real user data.
-6. **One final UAT / deploy:** separately authorize the new restricted data sink, inspect existing V3 preimage, back it up and update **same** Web App deployment safely; verify all 8 sets in a restricted destination, preserve 111 reference rows and original tabs, and set both flags false immediately afterward.
+- Use a **separate restricted Google Sheets workbook** for five report datasets; do not use the broadly shared original reference workbook as a person data sink. A hidden tab does not enforce read permission. `THAIPHC_REPORT_SPREADSHEET_ID` must be configured privately and must differ from `THAIPHC_SPREADSHEET_ID`.
+- New `THAIPHC_PERSON_DATA_WRITE_ENABLED` switch defaults **OFF**. The existing Receiver/Write flags must also be OFF except in the exact separately approved Final UAT window. GitHub CI has no OAuth, token, write keys or live destination use.
+- Snapshot stages in a restricted workbook are hidden until completed. Only the `_ThaiPHCReportCurrent` pointer identifies a verified complete snapshot. This is **not an ACID transaction**; a failed stage can remain hidden. Unknown responses require independent inspection, **never automatic retry**.
+- No automatic deletion: the owner decides retention, legal purpose, access and cleanup for superseded snapshot tabs. Do not assert that merely having a Bearer token proves retention approval.
+- Old legacy update script is intentionally pinned to earlier receiver blobs, and is **not suitable for F010**. The new F010 updater verifies all three reviewed file blobs; no new deployment ID is created.
+- Draft code and successful mock CI do **not** mean the updated V3 is live or all five reports have been persisted/accepted. Real Google access, private destination setup, data-owner controls and independent verification occur **once at final UAT**.
+- **[One final UAT runbook](f010-one-final-uat.md)** is the canonical procedure. If the Family source still includes incompatible geographic relations, UAT remains HOLD until that source/owner decision is resolved.
 
-### Important boundary
-
-The first engineering slice makes all five reports **auditable**, not yet **writable**. Neither a passing CI run nor a successful `audit-extended` status automatically permits person-data export/storage. Keep `commit-menu` items 4–8 unchanged as `READ_ONLY`/`PERSON_DATA_HOLD` until all listed implementation and review gates pass.
+**Release status:** code staged in Draft PR #65; do not merge/Deploy or change Script Properties without the separate release gate. Issue #64 closes only after the independent final eight-dataset acceptance.

@@ -13,9 +13,9 @@ const summary=(endpoint,status,requests=0)=>Object.freeze({
  sourceNetworkRequests:requests,appsScriptPosts:0,
  sheetsWrites:0,writeAuthorized:false,rawRowsReturned:false
 });
-export async function readExtendedReport({
+async function internalRead({
  endpoint,confirm,getToken,manifest,fetchImpl=globalThis.fetch
-}={}){
+}={},includeInternalPages=false){
  if(!EXTENDED_REPORT_ENDPOINTS.includes(endpoint))
   return summary(endpoint??null,'UNSUPPORTED_EXTENDED_ENDPOINT');
  if(typeof confirm!=='function'||typeof getToken!=='function'||!manifest||
@@ -63,9 +63,12 @@ export async function readExtendedReport({
     pages.push(body);
     if(page===limit){
      const audited=auditExtendedSnapshot(endpoint,pages,manifest);
-     return Object.freeze({...audited,sourceNetworkRequests:requests,
+     const safe=Object.freeze({...audited,sourceNetworkRequests:requests,
        mode:'EXTENDED_REPORT_SOURCE_READ_ONLY',appsScriptPosts:0,
        sheetsWrites:0,writeAuthorized:false,rawRowsReturned:false});
+     // This field is NEVER returned from the public read-only CLI. It exists
+     // solely for a separately confirmed, restricted signed staging path.
+     return includeInternalPages?Object.freeze({safe,pages}):safe;
     }
    }catch{
     return summary(endpoint,controller.signal.aborted?'REQUEST_TIMED_OUT':
@@ -76,4 +79,14 @@ export async function readExtendedReport({
  }catch{
   return summary(endpoint,'SOURCE_AUDIT_REJECTED',requests);
  }finally{token=undefined;}
+}
+
+// Public audit returns ONLY redacted aggregate metadata; never source records.
+export async function readExtendedReport(options){
+ return internalRead(options,false);
+}
+// Explicitly private future transfer path. Caller must never print the pages.
+// No write authorization, GAS request or persistence is performed here.
+export async function collectExtendedForPrivateStaging(options){
+ return internalRead(options,true);
 }

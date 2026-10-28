@@ -359,6 +359,11 @@ test('T009D Windows DPAPI wrapper accepts only validated key from child stdout a
  };
  assert.equal(readStoredHmac({platform:'win32',spawn}),keyB64);
  assert.equal(callArgs.exe,'powershell.exe');
+ assert.deepEqual(callArgs.argv.slice(0,5),[
+  '-NoProfile','-ExecutionPolicy','RemoteSigned','-NonInteractive','-File'
+ ]);
+ assert.equal(callArgs.argv.at(-1),'get');
+ assert.equal(callArgs.argv.some(x=>/^(Bypass|Unrestricted)$/.test(x)),false);
  assert.equal(callArgs.opts.stdio[0],'ignore');
  assert.equal(callArgs.opts.stdio[2],'ignore');
  assert.equal(callArgs.argv.includes(keyB64),false);
@@ -370,11 +375,20 @@ test('T009D Windows DPAPI wrapper accepts only validated key from child stdout a
   input:{isTTY:true},output:{isTTY:true},
   spawn:(exe,argv,opts)=>{
    sets++;assert.equal(exe,'powershell.exe');
+   assert.deepEqual(argv.slice(0,4),[
+    '-NoProfile','-ExecutionPolicy','RemoteSigned','-File'
+   ]);
+   assert.equal(argv.at(-1),'set');
+   assert.equal(argv.some(x=>/^(Bypass|Unrestricted)$/.test(x)),false);
    assert.equal(opts.stdio,'inherit');
    assert.equal(argv.includes(keyB64),false);
    return {status:0};
   }});
  assert.equal(result,true);assert.equal(sets,1);
+ assert.throws(()=>setupStoredHmac({
+  platform:'win32',input:{isTTY:true},output:{isTTY:true},
+  spawn:()=>({status:1})
+ }),/HMAC_STORE_SETUP_FAILED/);
  assert.throws(()=>setupStoredHmac({platform:'linux',input:{isTTY:true},output:{isTTY:true}}),/WINDOWS_ONLY/);
 });
 

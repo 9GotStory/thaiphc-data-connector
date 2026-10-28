@@ -280,17 +280,33 @@ function tphReportValidate_(b){
     else if(!['integer','boolean','string','string_or_null'].includes(kind))
       tphRFail_();
    }
-   if(row.values.districtCode!=='5406')tphRFail_();
+   if(row.values.provinceCode!=='54'||row.values.districtCode!=='5406')
+    tphRFail_();
+   if(typeof row.values.subdistrictCode!=='string'||
+      !/^54060[1-8]$/.test(row.values.subdistrictCode))
+    tphRFail_();
+   if(typeof row.values.villageCode==='string'){
+    if(!/^54060[1-8]\\d{3}$/.test(row.values.villageCode)||
+       row.values.villageCode.slice(0,6)!==row.values.subdistrictCode)
+      tphRFail_();
+    if(typeof row.values.villageNo==='string'&&
+       String(Number(row.values.villageNo))!==
+       String(Number(row.values.villageCode.slice(6))))tphRFail_();
+   }
    if(b.endpoint==='volunteer-gender'){
     if(row.key!==row.values.villageCode||
       !/^54060[1-8]\d{3}$/.test(row.key)||
       row.values.provinceCode!=='54')tphRFail_();
     const male=row.values.male,female=row.values.female,total=row.values.total;
     if(male===null||female===null){
-     if(male!==null||female!==null)tphRFail_();
+     if(male!==null||female!==null||
+        (total!==null&&(!Number.isSafeInteger(total)||total<5)))
+       tphRFail_();
     }else if(!Number.isSafeInteger(male)||!Number.isSafeInteger(female)||
-      male<5||female<5||!Number.isSafeInteger(total)||
-      male+female!==total)tphRFail_();
+      male<0||female<0||
+      [male,female].some(v=>v>0&&v<5)||
+      !Number.isSafeInteger(total)||male+female!==total)
+      tphRFail_();
    }else if(b.endpoint==='volunteer-family'){
     if(row.key!=='snapshot_'+b.runId+'_'+
        String(b.rowOffset+1+b.rows.indexOf(row)).padStart(5,'0'))tphRFail_();

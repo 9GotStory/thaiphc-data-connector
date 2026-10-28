@@ -270,9 +270,15 @@ function tphReportValidate_(b){
    seen.add(row.key);
    for(let i=0;i<spec.fields.length;i++){
     const field=spec.fields[i],v=row.values[field],kind=spec.kinds[i];
-    if(v!==null&&kind==='integer'&&!Number.isSafeInteger(v))tphRFail_();
-    else if(v!==null&&kind==='boolean'&&typeof v!=='boolean')tphRFail_();
-    else if(v!==null&&kind!=='integer'&&kind!=='boolean'&&!tphText_(v))tphRFail_();
+    const nullable=(b.endpoint==='volunteer-gender'&&
+      ['male','female','total'].includes(field))||
+      kind==='null_only'||kind==='string_or_null';
+    if(v===null){if(!nullable)tphRFail_();}
+    else if(kind==='integer'&&!Number.isSafeInteger(v))tphRFail_();
+    else if(kind==='boolean'&&typeof v!=='boolean')tphRFail_();
+    else if((kind==='string'||kind==='string_or_null')&&!tphText_(v))tphRFail_();
+    else if(!['integer','boolean','string','string_or_null'].includes(kind))
+      tphRFail_();
    }
    if(row.values.districtCode!=='5406')tphRFail_();
    if(b.endpoint==='volunteer-gender'){
@@ -333,7 +339,11 @@ function tphRHandle_(b,props){
   sheet.getRange(1,1).setValue(JSON.stringify(meta));
   sheet.getRange(2,1,1,columns).setValues([['_source_key'].concat(spec.fields,['__canonical_json'])]);
   sheet.setFrozenRows(2);
-  sheet.getRange(3,1,Math.max(1,sheet.getMaxRows()-2),1).setNumberFormat('@');
+  // Preserve province, district and village identifiers as plain text.
+  for(let c=1;c<=columns;c++){
+   if(c===1||c===columns||!['integer','boolean'].includes(spec.kinds[c-2]))
+    sheet.getRange(3,c,Math.max(1,sheet.getMaxRows()-2),1).setNumberFormat('@');
+  }
   sheet.hideSheet();
   SpreadsheetApp.flush();
   return tphRResponse_('REPORT_STARTED',{...b,sheetsWrites:2,rowCount:0});

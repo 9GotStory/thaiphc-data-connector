@@ -286,7 +286,7 @@ function tphReportValidate_(b){
       !/^54060[1-8]$/.test(row.values.subdistrictCode))
     tphRFail_();
    if(typeof row.values.villageCode==='string'){
-    if(!/^54060[1-8]\\d{3}$/.test(row.values.villageCode)||
+    if(!/^54060[1-8]\d{3}$/.test(row.values.villageCode)||
        row.values.villageCode.slice(0,6)!==row.values.subdistrictCode)
       tphRFail_();
     if(typeof row.values.villageNo==='string'&&

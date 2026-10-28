@@ -94,18 +94,22 @@ function plan(api='assignments',count=27){
    f.column==='provinceCode'?'54':
    f.column==='districtCode'?'5406':
    f.column==='subdistrictCode'?'540601':
-   f.column==='villageCode'?'540601'+String(i+1).padStart(3,'0'):'ACTIVE'
+   f.column==='villageCode'?'540601'+String(i+1).padStart(3,'0'):
+   ['male','female'].includes(f.column)?6:
+   f.column==='total'?12:'ACTIVE'
  ]));
  return planExtendedBatches({
   mode:'IN_MEMORY_MINIMIZED_REPORT_NOT_SENT',endpoint:api,
   runId:'test-private-run-1',rowCount:count,
   privacyState:api==='volunteer-family'?'UNVERIFIED_RELATION_KEY_WRITE_HOLD':
+   api==='volunteer-gender'?'AGGREGATE_STORAGE_APPROVAL_REQUIRED':
    'PERSON_DATA_STORAGE_APPROVAL_REQUIRED',
   sourceIdentityStrategy:api==='volunteer-family'?'RUN_SCOPED_SNAPSHOT_ORDINAL_NO_UPSERT':
-   'HMAC_SHA256_PERSON_ID',
+   api==='volunteer-gender'?'VILLAGE_CODE':'HMAC_SHA256_PERSON_ID',
   destinationSchema:fields,
   rows:Array.from({length:count},(_,i)=>({key:api==='volunteer-family'?
    'snapshot_test-private-run-1_'+String(i+1).padStart(5,'0'):
+   api==='volunteer-gender'?'540601'+String(i+1).padStart(3,'0'):
    'h1_'+String(i).padStart(64,'0'),values:values(i)})),
   writeAuthorized:false,appsScriptPosts:0,sheetsWrites:0
  });
@@ -176,4 +180,19 @@ test('F010 forged unallowlisted PII column denied before any Sheets write',()=>{
  const b=batch(p,'report-start');b.destinationFields=[...b.destinationFields,'citizenId'];
  assert.equal(h.post(b).status,'REJECTED');
  assert.equal(h.restricted.size,0);
+});
+
+test('F010 all five report topics stage/finalize to ONLY the private workbook, independently from 111 references',()=>{
+ for(const api of ['volunteer-gender','assignments','volunteer-family',
+  'resigned-volunteers','volunteer-tenure']){
+  const h=harness();setup(h);const p=plan(api,2);
+  assert.equal(h.post(batch(p,'report-start')).status,'REPORT_STARTED',api);
+  assert.equal(h.post(batch(p,'report-chunk',p.chunks[0])).status,'REPORT_CHUNK_STAGED',api);
+  assert.equal(h.post(batch(p,'report-finalize')).status,'REPORT_FINALIZED',api);
+  const current=h.restricted.get('_ThaiPHCReportCurrent');
+  assert.equal(current.data[1][0],api);
+  assert.equal(current.data[1][3],2);
+  assert.equal(h.original.size,1);
+  assert.equal(h.original.get('ชีต1').getLastRow(),0);
+ }
 });

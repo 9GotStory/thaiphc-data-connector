@@ -90,6 +90,8 @@ function plan(api='assignments',count=27){
  const values=i=>Object.fromEntries(fieldsSpec.map(f=>[
   f.column,f.observed_kind==='null_only'?null:
    f.observed_kind==='boolean'?true:
+   ['male','female'].includes(f.column)?6:
+   f.column==='total'?12:
    f.observed_kind==='integer'?10:
    f.column==='provinceCode'?'54':
    f.column==='districtCode'?'5406':

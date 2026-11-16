@@ -39,6 +39,7 @@ function sheet(name){
  return s;
 }
 function harness(){
+ const hooks={onLock:null};
  const props=new Map(),original=new Map([['ชีต1',sheet('ชีต1')]]),restricted=new Map(),cache=new Map();
  const config=(target,id)=>({getSheetByName:n=>target.get(n)??null,
   insertSheet:n=>{if(target.has(n))throw Error('DUPLICATE');const s=sheet(n);target.set(n,s);return s}});
@@ -47,7 +48,7 @@ function harness(){
   SpreadsheetApp:{openById:id=>id===privateId?config(restricted,id):
    id===originalId?config(original,id):(()=>{throw Error('BAD_SHEET_ID')})(),
    flush:()=>{}},
-  LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})},
+  LockService:{getScriptLock:()=>({tryLock:()=>{hooks.onLock?.();return true;},releaseLock:()=>{}})},
   CacheService:{getScriptCache:()=>({get:k=>cache.get(k)??null,
    put:(k,v)=>cache.set(k,v)})},
   Utilities:{
@@ -65,7 +66,7 @@ function harness(){
  };
  const context=vm.createContext(services);
  vm.runInContext(base+'\n'+extended,context,{filename:'receiver-with-reports.gs',timeout:3000});
- return {props,original,restricted,post:payload=>{
+ return {props,original,restricted,hooks,post:payload=>{
   const payloadB64=Buffer.from(JSON.stringify(payload),'utf8').toString('base64');
   const timestamp=Date.now(),nonce=randomBytes(18).toString('base64url');
   const signature=createHmac('sha256',Buffer.from(key,'base64'))
@@ -231,5 +232,27 @@ test('F010 private receiver blocks invalid province or village-subdistrict misma
   forged.digest=createHash('sha256').update(JSON.stringify(forged.rows)).digest('hex');
   assert.equal(h.post(forged).status,'REJECTED');
   assert.equal(h.restricted.has('_ThaiPHCReportCurrent'),false);
+ }
+});
+
+test('F010 queued reports recheck all three switches before any destination access',()=>{
+ for(const [name,status] of [
+  ['THAIPHC_RECEIVER_ENABLED','INGRESS_DISABLED'],
+  ['THAIPHC_WRITE_ENABLED','WRITE_DISABLED'],
+  ['THAIPHC_PERSON_DATA_WRITE_ENABLED','PERSON_DATA_WRITE_DISABLED']
+ ]){
+  const h=harness();setup(h);const p=plan('assignments',1);
+  h.hooks.onLock=()=>h.props.set(name,'false');
+  assert.equal(h.post(batch(p,'report-start')).status,status);
+  assert.equal(h.restricted.size,0);assert.equal(h.original.size,1);
+ }
+});
+test('F010 private imports require a valid original-workbook identity for destination separation',()=>{
+ for(const reference of [null,'INVALID']){
+  const h=harness();setup(h);const p=plan('assignments',1);
+  if(reference===null)h.props.delete('THAIPHC_SPREADSHEET_ID');
+  else h.props.set('THAIPHC_SPREADSHEET_ID',reference);
+  assert.equal(h.post(batch(p,'report-start')).status,'REPORT_DESTINATION_NOT_CONFIGURED');
+  assert.equal(h.restricted.size,0);
  }
 });

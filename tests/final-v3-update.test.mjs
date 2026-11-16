@@ -6,8 +6,11 @@ import {createHash} from 'node:crypto';
 const receiver=readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8');
 const manifest=readFileSync(new URL('../apps-script/appsscript.json',import.meta.url),'utf8');
 const updater=readFileSync(new URL('../scripts/update-existing-web-app-final.ps1',import.meta.url),'utf8');
-const gitBlob=text=>createHash('sha1').update('blob '+Buffer.byteLength(text,'utf8')+'\0')
- .update(text,'utf8').digest('hex');
+const gitBlob=text=>{
+ const normalized=text.replace(/\r\n/g,'\n');
+ return createHash('sha1').update('blob '+Buffer.byteLength(normalized,'utf8')+'\0')
+  .update(normalized,'utf8').digest('hex');
+};
 
 test('T009D legacy V3 updater remains pinned to former F009 source and rejects F010 receiver',()=>{
  const receiverBlob=gitBlob(receiver);

@@ -66,7 +66,7 @@ test('F010 complete private-report-commit CLI fake GET->HMAC staged POST->readba
    accepted:true,endpoint:'assignments',runId:msg.runId,
    sheetsWrites:msg.mode==='report-start'?2:msg.mode==='report-finalize'?3:1,
    ...(msg.mode==='report-chunk'?{ordinal:msg.ordinal}:{}),
-   ...(msg.mode==='report-finalize'?{rowCount:1}:{})
+   rowCount:msg.mode==='report-start'?0:msg.mode==='report-chunk'?msg.rowCount:1
   });
  };
  const tty={input,output,readStoredHmac:()=>key,fetchImpl:fakeFetch};

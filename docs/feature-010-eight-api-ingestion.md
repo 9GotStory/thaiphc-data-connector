@@ -47,4 +47,4 @@ The historical counts are not live source authority. Source data may change. In 
 - Draft code and successful mock CI do **not** mean the updated V3 is live or all five reports have been persisted/accepted. Real Google access, private destination setup, data-owner controls and independent verification occur **once at final UAT**.
 - **[One final UAT runbook](f010-one-final-uat.md)** is the canonical procedure. If the Family source still includes incompatible geographic relations, UAT remains HOLD until that source/owner decision is resolved.
 
-**Release status:** code staged in Draft PR #65; do not merge/Deploy or change Script Properties without the separate release gate. Issue #64 closes only after the independent final eight-dataset acceptance.
+**Release status:** PR #65 is merged in main at `e1ae9596b71cbe4fe95ab26666bc62cd2516e594`. The Node 26 release follow-up still requires reviewed CI and the separate live execution gate; do not deploy or change Script Properties during development. Issue #64 closes only after the independent final eight-dataset acceptance.

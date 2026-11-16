@@ -1,6 +1,6 @@
 # ThaiPHC Data Connector
 
-Private project for a **manual** ThaiPHC data pipeline using **Node.js 24 → Google Apps Script → Google Sheets**.
+Private project for a **manual** ThaiPHC data pipeline using **Node.js 26 → Google Apps Script → Google Sheets**.
 
 **Current verified status (2026-10-28):** The separately PO-authorized, **single** `subdistricts` First Write to the original ThaiPHC Data Google Sheet **succeeded and was independently read back**: 8 data rows plus 1 header in `Subdistricts`, 8 distinct `code` and `_source_key` values, `district_code=5406`, `_quality_status=VALID`, complete metadata, and unrelated original `ชีต1` intact/empty. The receiver reported `COMMITTED` / 8 inserted / one POST; acceptance was based on **separate destination readback**, not on that receipt alone. The operator explicitly attested that both Apps Script enable switches were returned to `false` afterward; current live Script Properties cannot be independently queried from this repository. The source `province_code` was `NULL` in all 8 rows, consistent with the observed schema (`null_only`). This acceptance applies **only to subdistricts** — it does **not** authorize a second attempt or other datasets.
 
@@ -8,7 +8,9 @@ Private project for a **manual** ThaiPHC data pipeline using **Node.js 24 → Go
 
 ## Feature 010 — eight API topics, one final UAT
 
-**Operator-approved goal:** complete five additional report pipelines in the existing Node 24 CLI and Web App V3, then run ONE final real operator UAT. **Do not run development-time live tests, create person-data Sheets or enable any writing switch.**
+**Runtime:** Node.js **26.x**, selected by `.node-version`, `package.json` and CI on Ubuntu/Windows. Earlier phase documents retain historical runtime evidence.
+
+**Operator-approved goal:** complete five additional report pipelines in the existing Node 26 CLI and Web App V3, then run ONE final real operator UAT. **Do not run development-time live tests, create person-data Sheets or enable any writing switch.**
 
 The existing original `ThaiPHC Data` Sheet has **111 independently accepted reference rows**: Subdistricts 8, Villages 85 and HealthServices 18. These remain unchanged. Feature 010 extends the same CLI with `audit-extended` (read-only) and `private-report-commit` (future final UAT only) for Volunteer Gender, Assignments, Volunteer Family, Resigned Volunteers and Volunteer Tenure. The original `commit-menu` intentionally leaves choices 4–8 disabled to prevent accidental person-data writes; approved report staging uses a **separate command**, not that older reference menu.
 
@@ -61,7 +63,7 @@ Its expected status is `FINAL_UAT_EXECUTION_NOT_AUTHORIZED`. An offline plan nev
 ## Local development
 
 ```sh
-node --version      # Node.js 24 or later
+node --version      # Node.js 26.x
 npm test            # offline tests; no network requests
 npm run cli -- inspect
 npm run cli -- dry-run --endpoint villages

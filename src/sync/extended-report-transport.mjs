@@ -3,10 +3,12 @@
 // No automatic retry or rollback, even after a timeout/unknown receipt.
 import {createHmac,randomBytes,createHash} from 'node:crypto';
 import targets from '../../config/thaiphc-targets.json' with {type:'json'};
+import {isSafeGoogleContentRedirect as safeRedirect} from './synthetic-http-validate.mjs';
 
 const VERSION='THAIPHC_SYNC_V1',CHUNK_VERSION='THAIPHC_REPORT_STAGE_V1';
 const ENDPOINTS=new Set(['volunteer-gender','assignments','volunteer-family','resigned-volunteers','volunteer-tenure']);
 const POST_TIMEOUT=30000,MAX_RESPONSE=8192;
+const ATTEMPTED=new WeakSet();
 const TARGET='https://script.google.com/macros/s/'+targets.deploymentId+'/exec';
 const sha=x=>createHash('sha256').update(x,'utf8').digest('hex');
 const plain=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
@@ -84,14 +86,6 @@ export function buildExtendedReportWire(plan,stage,keyB64){
  }else error();
  return sign(payload,keyB64);
 }
-function safeRedirect(uri){
- if(typeof uri!=='string'||uri.length>4096)return false;
- try{
-  const url=new URL(uri);
-  return url.protocol==='https:'&&url.hostname==='script.googleusercontent.com'&&
-   url.username===''&&url.password===''&&url.hash===''&&url.pathname==='/macros/echo';
- }catch{return false;}
-}
 async function responseBody(res){
  const h=res?.headers?.get?.('content-type')??'';
  if(!/^application\/json(?:\s*;|$)/i.test(h))error();
@@ -108,8 +102,12 @@ async function responseBody(res){
    parts.push(value);
   }
   const combined=Buffer.concat(parts.map(x=>Buffer.from(x)));
-  return JSON.parse(combined.toString('utf8'));
- }finally{try{rd.releaseLock()}catch{}}
+  try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(combined));}
+  finally{combined.fill(0);}
+ }finally{
+  try{await rd.cancel()}catch{}
+  try{rd.releaseLock()}catch{}
+ }
 }
 async function onePost(wire,expected,plan,fetchImpl,stage){
  let requests=0;
@@ -132,14 +130,18 @@ async function onePost(wire,expected,plan,fetchImpl,stage){
   }
   if(res?.status!==200)return {ok:false,requests};
   const result=await responseBody(res);
-  if(!plain(result)||result.protocol!==VERSION||result.status!==expected||
+  const fields=['protocol','status','accepted','endpoint','runId','sheetsWrites','rowCount'];
+  if(expected==='REPORT_CHUNK_STAGED')fields.push('ordinal');
+  if(!plain(result)||Object.keys(result).length!==fields.length||
+     fields.some(k=>!Object.hasOwn(result,k))||result.protocol!==VERSION||result.status!==expected||
      result.accepted!==true||result.endpoint!==plan.endpoint||
      result.runId!==plan.runId||!Number.isSafeInteger(result.sheetsWrites)||
-     result.sheetsWrites<1||result.sheetsWrites>3)
+     result.sheetsWrites!==(expected==='REPORT_STARTED'?2:expected==='REPORT_CHUNK_STAGED'?1:3))
    return {ok:false,requests};
   if(expected==='REPORT_CHUNK_STAGED'){
-   if(result.ordinal!==stage)return {ok:false,requests};
+   if(result.ordinal!==stage||result.rowCount!==plan.chunks[stage-1].rowCount)return {ok:false,requests};
   }
+  if(expected==='REPORT_STARTED'&&result.rowCount!==0)return {ok:false,requests};
   if(expected==='REPORT_FINALIZED'&&result.rowCount!==plan.sourceRows)
    return {ok:false,requests};
   return {ok:true,requests};
@@ -156,17 +158,19 @@ export const extendedCommitPhrase=p=>
 export async function sendExtendedReport({
  plan,keyB64,acknowledgement,fetchImpl=globalThis.fetch
 }={}){
- let endpoint=plan?.endpoint??null,posts=0,requests=0;
+ let endpoint=ENDPOINTS.has(plan?.endpoint)?plan.endpoint:null,posts=0,requests=0;
  try{
   ensurePlan(plan);
   if(acknowledgement!==extendedCommitPhrase(plan))
    return short(endpoint,'CONFIRMATION_REQUIRED');
   if(typeof fetchImpl!=='function')return short(endpoint,'TRANSPORT_UNAVAILABLE');
+  if(ATTEMPTED.has(plan))return short(endpoint,'TRANSFER_ALREADY_ATTEMPTED');
   const work=['start',...Array.from({length:plan.chunkCount},(_,i)=>i+1),'finalize'];
   for(const stage of work){
    const wire=buildExtendedReportWire(plan,stage,keyB64);
    const expected=stage==='start'?'REPORT_STARTED':
     stage==='finalize'?'REPORT_FINALIZED':'REPORT_CHUNK_STAGED';
+   if(posts===0)ATTEMPTED.add(plan);
    posts++;
    const result=await onePost(wire,expected,plan,fetchImpl,stage);
    requests+=result.requests;
@@ -182,6 +186,6 @@ export async function sendExtendedReport({
    recoveryStrategy:'INDEPENDENT_PRIVATE_SHEET_READBACK_REQUIRED'
   });
  }catch{
-  return short(endpoint,'TRANSFER_INPUT_REJECTED',posts,requests);
+  return short(endpoint,posts?'STAGE_OUTCOME_UNKNOWN_STOP':'TRANSFER_INPUT_REJECTED',posts,requests);
  }
 }

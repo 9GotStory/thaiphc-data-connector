@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "ThaiPHC offline-first manual connector",
-  "engines": { "node": ">=24" },
+  "engines": { "node": ">=26 <27" },
   "bin": { "thaiphc": "./src/cli/index.mjs" },
   "scripts": {
     "test": "node --test",

@@ -2,16 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-const blob=x=>createHash('sha1')
- .update('blob '+Buffer.byteLength(x,'utf8')+'\0')
- .update(x,'utf8').digest('hex');
+const blob=x=>{
+ const text=x.replace(/\r\n/g,'\n');
+ return createHash('sha1').update('blob '+Buffer.byteLength(text,'utf8')+'\0')
+  .update(text,'utf8').digest('hex');
+};
 const code=readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8');
 const report=readFileSync(new URL('../apps-script/ReportReceiver.gs',import.meta.url),'utf8');
 const manifest=readFileSync(new URL('../apps-script/appsscript.json',import.meta.url),'utf8');
 const updater=readFileSync(new URL('../scripts/update-f010-existing-v3-final.ps1',import.meta.url),'utf8');
 test('F010 existing-V3 updater pins ALL THREE exact reviewed files and approved prior preimage',()=>{
- assert.equal(blob(code),'140f32dc589439bf0015ce108095521015c0d1e3');
- assert.equal(blob(report),'28a8feb7ec35e4f7704549d47f17e2d7ea7531f1');
+ assert.equal(blob(code),'e542d585d4d4840836c9f1114ac350081ebe5952');
+ assert.equal(blob(report),'72e362054cd838ebe52ac3a4e593233ca69fab6f');
  assert.equal(blob(manifest),'a8134a3237b2dce1f54ce16a943fbe3e232ce436');
  for(const pin of [
   "oldCodeBlob='f7d878389fe46cfde8619f75a1f9746f45b469a3'",
@@ -41,4 +43,12 @@ test('F010 receiver refuses reference-workbook destination and honors independen
  assert.ok(report.includes("tphRHash_(JSON.stringify(part))!==m.chunkDigests[ord]"));
  assert.ok(report.includes("THE LAST PUBLICATION ACTION"));
  assert.doesNotMatch(report,/\b(?:doPost|doGet)\s*\(/);
+});
+
+test('F010 reviewed blob pins tolerate CRLF only and still reject changed source',()=>{
+ for(const text of [code,report,manifest]){
+  const lf=text.replace(/\r\n/g,'\n');
+  assert.equal(blob(lf),blob(lf.replace(/\n/g,'\r\n')));
+  assert.notEqual(blob(lf+'// changed\n'),blob(lf));
+ }
 });

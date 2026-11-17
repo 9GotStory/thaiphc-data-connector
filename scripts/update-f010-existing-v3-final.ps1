@@ -50,7 +50,7 @@ if ($LASTEXITCODE -ne 0 -or ($dirty -join '').Trim().Length -ne 0){
 # Only this exact F010-reviewed code is allowed. Change pins only after review.
 $oldCodeBlob='f7d878389fe46cfde8619f75a1f9746f45b469a3'
 $newCodeBlob='e542d585d4d4840836c9f1114ac350081ebe5952'
-$newReportBlob='72e362054cd838ebe52ac3a4e593233ca69fab6f'
+$newReportBlob='16915ad2164a3dc9d78f5820a1b042c2150cc663'
 $manifestBlob='a8134a3237b2dce1f54ce16a943fbe3e232ce436'
 if((Git-One -ArgsList @('hash-object','--',$code)) -cne $newCodeBlob -or
    (Git-One -ArgsList @('hash-object','--',$report)) -cne $newReportBlob -or
@@ -69,7 +69,10 @@ Write-Host 'Review the existing Web App V3 deployment ID and original data targe
 Write-Host 'THAIPHC_RECEIVER_ENABLED=false'
 Write-Host 'THAIPHC_WRITE_ENABLED=false'
 Write-Host 'THAIPHC_PERSON_DATA_WRITE_ENABLED=false (or absent)'
-Write-Host 'A separate RESTRICTED destination Sheet is required for person reports.'
+Write-Host 'Reports require a RESTRICTED destination Sheet.'
+Write-Host 'Default: separate workbook. Same workbook: owner-only sharing verified,'
+Write-Host 'plus THAIPHC_SAME_WORKBOOK_APPROVAL=OWNER_ONLY_5406_APPROVED.'
+Write-Host 'This updater does not set approval, destination IDs, or write switches.'
 $off=Read-Host 'After privately verifying all THREE flags OFF, type OFF'
 if($off -cne 'OFF'){throw 'Cancelled before network mutation.'}
 $stamp=(Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+[guid]::NewGuid().ToString('N').Substring(0,8)

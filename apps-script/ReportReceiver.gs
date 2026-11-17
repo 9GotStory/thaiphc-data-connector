@@ -2,8 +2,8 @@
  * F010 private-report receiver. Must be co-deployed in the SAME reviewed Apps
  * Script V3 as Code.gs. No doPost/doGet defined here.
  * Requires THAIPHC_PERSON_DATA_WRITE_ENABLED, RECEIVER_ENABLED, WRITE_ENABLED,
- * and dedicated THAIPHC_REPORT_SPREADSHEET_ID (MUST be a different, privately
- * shared workbook from the existing reference-data target).
+ * and THAIPHC_REPORT_SPREADSHEET_ID. A different restricted workbook is the
+ * default. Reusing the reference workbook requires explicit owner-only approval.
  * Published report data is versioned; only _ThaiPHCReportCurrent resolves the
  * current complete snapshot. Unfinished sheets are hidden, NOT access control.
  */
@@ -341,7 +341,9 @@ function tphRHandle_(b,props){
  const reference=props.getProperty('THAIPHC_SPREADSHEET_ID');
  if(typeof dest!=='string'||!/^[A-Za-z0-9_-]{25,120}$/.test(dest)||
     typeof reference!=='string'||!/^[A-Za-z0-9_-]{25,120}$/.test(reference)||
-    dest===reference) return tphRResponse_('REPORT_DESTINATION_NOT_CONFIGURED',b);
+    (dest===reference&&props.getProperty('THAIPHC_SAME_WORKBOOK_APPROVAL')!==
+      'OWNER_ONLY_5406_APPROVED'))
+  return tphRResponse_('REPORT_DESTINATION_NOT_CONFIGURED',b);
  const ss=SpreadsheetApp.openById(dest),spec=tphRSchema_(b.endpoint);
  let sheet=tphRReportSheet_(ss,b.endpoint,b.runId);
  if(b.mode==='report-start'){

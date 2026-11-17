@@ -21,6 +21,13 @@ test('F010 existing-V3 updater pins ALL THREE exact reviewed files and approved 
   "newReportBlob='"+blob(report)+"'",
   "manifestBlob='"+blob(manifest)+"'"
  ])assert.ok(updater.includes(pin),pin);
+ assert.ok(updater.includes("observedCodeBlob='abc71275ab30dca1f57d1d0e33b8c2773452a194'"));
+ assert.ok(updater.includes("observedManifestBlob='e686fbcd6e758a24247f41ec3dac455abfe30ffc'"));
+ assert.ok(updater.includes("[ValidateSet('F009_REVIEWED','EXISTING_V3_20261117')]"));
+ assert.ok(updater.includes('-cne $expectedRemoteCodeBlob'));
+ assert.ok(updater.includes('-cne $expectedRemoteManifestBlob'));
+ assert.doesNotMatch(updater,/Copy-Item\s+-LiteralPath\s+\$manifest\s+-Destination\s+\$remoteManifest/);
+ assert.ok(updater.includes('Staged source or preserved manifest differs from reviewed pins. STOP.'));
 });
 test('F010 updater is fail-closed, 3-OFF, backup-first and existing-deployment-only',()=>{
  for(const text of [

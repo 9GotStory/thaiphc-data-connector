@@ -2,7 +2,11 @@
 # Do NOT run during development. Never creates a new project/deployment/Sheet.
 # No ThaiPHC API call, no person-data request and no Script Property mutation.
 [CmdletBinding()]
-param([string]$RepoPath='.')
+param(
+ [string]$RepoPath='.',
+ [ValidateSet('F009_REVIEWED','EXISTING_V3_20261117')]
+ [string]$RemoteBaseline='F009_REVIEWED'
+)
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 function Invoke-Clasp {
@@ -52,6 +56,16 @@ $oldCodeBlob='f7d878389fe46cfde8619f75a1f9746f45b469a3'
 $newCodeBlob='e542d585d4d4840836c9f1114ac350081ebe5952'
 $newReportBlob='16915ad2164a3dc9d78f5820a1b042c2150cc663'
 $manifestBlob='a8134a3237b2dce1f54ce16a943fbe3e232ce436'
+# Independently inspected existing project on 2026-11-17. This exact pair has
+# the older receiver and the existing V3 webapp settings; never drop those.
+$observedCodeBlob='abc71275ab30dca1f57d1d0e33b8c2773452a194'
+$observedManifestBlob='e686fbcd6e758a24247f41ec3dac455abfe30ffc'
+$expectedRemoteCodeBlob=if($RemoteBaseline -ceq 'EXISTING_V3_20261117'){
+ $observedCodeBlob
+}else{$oldCodeBlob}
+$expectedRemoteManifestBlob=if($RemoteBaseline -ceq 'EXISTING_V3_20261117'){
+ $observedManifestBlob
+}else{$manifestBlob}
 if((Git-One -ArgsList @('hash-object','--',$code)) -cne $newCodeBlob -or
    (Git-One -ArgsList @('hash-object','--',$report)) -cne $newReportBlob -or
    (Git-One -ArgsList @('hash-object','--',$manifest)) -cne $manifestBlob){
@@ -73,6 +87,8 @@ Write-Host 'Reports require a RESTRICTED destination Sheet.'
 Write-Host 'Default: separate workbook. Same workbook: owner-only sharing verified,'
 Write-Host 'plus THAIPHC_SAME_WORKBOOK_APPROVAL=OWNER_ONLY_5406_APPROVED.'
 Write-Host 'This updater does not set approval, destination IDs, or write switches.'
+Write-Host ('Exact remote baseline: '+$RemoteBaseline)
+Write-Host 'The existing reviewed Web App manifest settings are preserved.'
 $off=Read-Host 'After privately verifying all THREE flags OFF, type OFF'
 if($off -cne 'OFF'){throw 'Cancelled before network mutation.'}
 $stamp=(Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+[guid]::NewGuid().ToString('N').Substring(0,8)
@@ -110,8 +126,8 @@ try {
  $codeName=if($names -ccontains 'Code.gs'){'Code.gs'}else{'Code.js'}
  $remoteCode=Join-Path $stage $codeName
  $remoteManifest=Join-Path $stage 'appsscript.json'
- if((Git-One -ArgsList @('hash-object','--',$remoteCode)) -cne $oldCodeBlob -or
-    (Git-One -ArgsList @('hash-object','--',$remoteManifest)) -cne $manifestBlob){
+ if((Git-One -ArgsList @('hash-object','--',$remoteCode)) -cne $expectedRemoteCodeBlob -or
+    (Git-One -ArgsList @('hash-object','--',$remoteManifest)) -cne $expectedRemoteManifestBlob){
   throw 'Remote V3 source is NOT the expected preimage. STOP; reconcile.'
  }
  if($codeName -cne 'Code.gs'){
@@ -119,7 +135,13 @@ try {
  }
  Copy-Item -LiteralPath $code -Destination (Join-Path $stage 'Code.gs') -Force
  Copy-Item -LiteralPath $report -Destination (Join-Path $stage 'ReportReceiver.gs') -Force
- Copy-Item -LiteralPath $manifest -Destination $remoteManifest -Force
+ # Both allowed baselines pin an exact manifest. Keep its original bytes so
+ # executeAs/access are not silently reset during the versioned V3 update.
+ if((Git-One -ArgsList @('hash-object','--',(Join-Path $stage 'Code.gs'))) -cne $newCodeBlob -or
+    (Git-One -ArgsList @('hash-object','--',(Join-Path $stage 'ReportReceiver.gs'))) -cne $newReportBlob -or
+    (Git-One -ArgsList @('hash-object','--',$remoteManifest)) -cne $expectedRemoteManifestBlob){
+  throw 'Staged source or preserved manifest differs from reviewed pins. STOP.'
+ }
  $names=@(Get-ChildItem -LiteralPath $stage -Recurse -File -Force |
   Where-Object { $_.Name -cne '.clasp.json' } |
   ForEach-Object { $_.FullName.Substring($stage.Length).TrimStart([char]'\',[char]'/') })

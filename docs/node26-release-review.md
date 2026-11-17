@@ -65,11 +65,19 @@ records or describe the whole project as accepted when that remains unresolved.
 | Code.gs | `e542d585d4d4840836c9f1114ac350081ebe5952` |
 | ReportReceiver.gs | `16915ad2164a3dc9d78f5820a1b042c2150cc663` |
 | appsscript.json | `a8134a3237b2dce1f54ce16a943fbe3e232ce436` |
-| Existing deployed Code.gs preimage | `f7d878389fe46cfde8619f75a1f9746f45b469a3` |
+| Original F009-reviewed Code.gs preimage | `f7d878389fe46cfde8619f75a1f9746f45b469a3` |
+| Observed existing-V3 Code.js preimage (2026-11-17) | `abc71275ab30dca1f57d1d0e33b8c2773452a194` |
+| Observed existing-V3 manifest preimage (2026-11-17) | `e686fbcd6e758a24247f41ec3dac455abfe30ffc` |
 
 Use only the F010 three-file guarded updater during the approved final session.
 The older updater intentionally rejects this receiver. An unexpected remote
 preimage is a STOP condition; the review does not claim the candidate is live.
+The observed V3 needs `-RemoteBaseline EXISTING_V3_20261117`, which accepts only
+the exact observed Code/manifest pair. Both modes preserve the verified remote
+manifest bytes, including existing V3 `executeAs`/`access`; no arbitrary hash
+override or deployment access change is provided. The earlier read-only pull
+was backed up before any source push; its mismatch with the original F009
+assumption was investigated, not ignored.
 
 ## Acceptance record to complete once
 

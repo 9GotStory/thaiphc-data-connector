@@ -12,6 +12,8 @@ The existing-workbook follow-up permits matching destination IDs only when `THAI
 
 For this owner decision, the separate-workbook-only entry boxes below are superseded by the owner-only reuse procedure in the canonical runbook. The current ReportReceiver blob is `16915ad2164a3dc9d78f5820a1b042c2150cc663`; the older pin below belongs to the initial PR #66 evidence. Retention interval and cleanup owner still need an explicit record before importing; no automatic expiry is implemented.
 
+Read-only clasp inspection found the pinned existing V3 deployment and pulled exactly Code.js plus appsscript.json. These had blobs `abc71275ab30dca1f57d1d0e33b8c2773452a194` / `e686fbcd6e758a24247f41ec3dac455abfe30ffc`, not the earlier assumed F009 pair. Source writes were stopped, the exact bytes were backed up outside the repo, and the difference was reviewed: older reference receiver plus existing `webapp.executeAs=USER_DEPLOYING` / `access=ANYONE_ANONYMOUS` settings, with the same two OAuth scopes and exception logging NONE. The dedicated `EXISTING_V3_20261117` migration now accepts only that exact pair and preserves the verified remote manifest bytes. Authentication/HMAC checks and deployment ID remain unchanged; no deployment was performed by the inspection.
+
 ## Initial checked engineering evidence (2026-11-16)
 
 GitHub snapshot checked at **2026-11-16 04:22 UTC / 11:22 Asia/Bangkok**. Recheck before any future release decision; these facts are tied to the candidate below.

@@ -1,10 +1,10 @@
-// T009D final release candidate: a deterministic, OFFLINE-ONLY planning gate.
+// F010 final release candidate: a deterministic, OFFLINE-ONLY planning gate.
 // This module never reads credentials, calls ThaiPHC, or communicates with GAS/Sheets.
 // A plan is NOT authorization for a live read or write.
 const REFERENCE = Object.freeze([
   Object.freeze({api:'subdistricts',tab:'Subdistricts',observedRows:8,phase:'PREVIOUSLY_ACCEPTED_RECHECK_ONLY',sourceTotal:'UNPAGINATED_NO_AUTHORITATIVE_TOTAL',key:'code'}),
-  Object.freeze({api:'villages',tab:'Villages',observedRows:85,phase:'FINAL_UAT_FIRST_WRITE_PENDING',sourceTotal:'UNPAGINATED_NO_AUTHORITATIVE_TOTAL',key:'code'}),
-  Object.freeze({api:'health-services',tab:'HealthServices',observedRows:18,phase:'FINAL_UAT_FIRST_WRITE_PENDING',sourceTotal:'PAGINATED_TOTAL_REQUIRED',key:'health_service_code'})
+  Object.freeze({api:'villages',tab:'Villages',observedRows:85,phase:'PREVIOUSLY_ACCEPTED_RECHECK_ONLY',sourceTotal:'UNPAGINATED_NO_AUTHORITATIVE_TOTAL',key:'code'}),
+  Object.freeze({api:'health-services',tab:'HealthServices',observedRows:18,phase:'PREVIOUSLY_ACCEPTED_RECHECK_ONLY',sourceTotal:'PAGINATED_TOTAL_REQUIRED',key:'health_service_code'})
 ]);
 const PERSON = Object.freeze(['assignments','volunteer-family','resigned-volunteers','volunteer-tenure']);
 const METADATA = Object.freeze([
@@ -49,21 +49,30 @@ export function buildFinalUatReleasePlan(manifest,targets){
     sourceOfTruth:'PINNED_REPOSITORY_MANIFEST_ONLY',
     targetConfiguration:'PINNED_IDENTIFIERS_PRESENT_NOT_LIVE_VERIFIED',
     // These counts are historical guards, not current source API totals.
-    referenceDatasets:REFERENCE.map(d=>Object.freeze({...d,countsAreHistorical:true,liveReadback:'NOT_CHECKED_BY_PLAN'})),
-    restrictedDatasets:Object.freeze([
-      Object.freeze({api:'volunteer-gender',status:'READ_ONLY_NO_SHEET_WRITE'}),
-      ...PERSON.map(api=>Object.freeze({api,status:'PERSON_DATA_HOLD'}))
-    ]),
+    referenceDatasets:Object.freeze(REFERENCE.map(d=>Object.freeze({...d,countsAreHistorical:true,liveReadback:'NOT_CHECKED_BY_PLAN'}))),
+    restrictedDatasets:Object.freeze(['volunteer-gender',...PERSON].map(api=>Object.freeze({
+      api,status:'PRIVATE_SNAPSHOT_APPROVAL_REQUIRED',
+      command:'private-report-commit',snapshotMode:'COMPLETE_VERSIONED_SNAPSHOT',
+      sourceGeographyReconciliationRequired:api==='volunteer-family',
+      liveReadback:'NOT_CHECKED_BY_PLAN'
+    }))),
     finalWindow:Object.freeze({
       independentlyApproveSourceRights:true,
       explicitProductOwnerWriteAuthorizationRequired:true,
       verifyLiveScriptPropertiesAndTarget:true,
       verifyDestinationBeforeEachAttempt:true,
-      oneAppsScriptPostMaximumPerApprovedDataset:true,
+      separateRestrictedReportWorkbookRequired:true,
+      accessAndRetentionApprovalRequired:true,
+      oneInvocationPerApprovedReport:true,
+      onePostAttemptPerSignedStage:true,
       neverRetryUnknownOutcome:true,
       independentSheetsReadbackRequired:true,
-      disableReceiverAndWriteAfterEveryAttempt:true,
-      verifyPreviouslyAcceptedSubdistrictsWithoutResending:true
+      requiredSwitches:Object.freeze([
+        'THAIPHC_RECEIVER_ENABLED','THAIPHC_WRITE_ENABLED',
+        'THAIPHC_PERSON_DATA_WRITE_ENABLED'
+      ]),
+      allThreeSwitchesOffBeforeUpdateAndAfterEveryAttempt:true,
+      verifyAllThreeAcceptedReferencesWithoutResending:true
     }),
     sourceNetworkRequests:0,appsScriptPosts:0,sheetsWrites:0,
     liveVerificationPerformed:false,writeAuthorized:false

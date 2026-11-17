@@ -1,5 +1,7 @@
 # Feature 010 — ONE final operator UAT for ALL EIGHT ThaiPHC APIs
 
+Preparation only: use the [PR #66 preparation packet](f010-final-uat-preparation.md) to review engineering evidence, pending entry gates and the blank acceptance record. No live session has been performed by that preparation.
+
 Tracking: [Issue #64](https://github.com/9GotStory/thaiphc-data-connector/issues/64), [PR #65](https://github.com/9GotStory/thaiphc-data-connector/pull/65). The [Node 26 release review](node26-release-review.md) records the current candidate checks. This procedure is a **future final acceptance session**, not an instruction to execute during development. No real person records, token values, signatures or raw payloads belong in GitHub/ChatGPT.
 
 ## Deliverables and unchanged production baseline

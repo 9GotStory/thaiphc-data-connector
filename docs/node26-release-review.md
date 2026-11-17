@@ -1,5 +1,7 @@
 # Node 26 release review and final-UAT checklist
 
+The [PR #66 preparation packet](f010-final-uat-preparation.md) records the dated PR/CI check, Windows verification and pending operator evidence for this candidate.
+
 ## Reviewed baseline
 
 This release follow-up is based on merged Feature 010 main
@@ -18,6 +20,9 @@ live deployment, owner approval and independent final readback.
 
 - Node **26.x** is the required major in package engines and `.node-version`.
   GitHub Actions tests this same major on Ubuntu and Windows.
+- The offline `release-plan` matches F010: re-read all three accepted reference
+  datasets without resending, five approval-gated private snapshots, all three
+  OFF switches, and one POST attempt per signed stage. It grants no live authority.
 - Reviewed receiver blob tests normalize CRLF/LF only. Their immutable source
   content pins and the preimage guard remain enforced.
 - The staged sender shares the existing strict Google ContentService redirect

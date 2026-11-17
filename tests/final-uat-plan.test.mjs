@@ -8,7 +8,7 @@ const manifest=JSON.parse(readFileSync(new URL('../docs/sheets-schema.json',impo
 const targets=JSON.parse(readFileSync(new URL('../config/thaiphc-targets.json',import.meta.url),'utf8'));
 const clone=x=>structuredClone(x);
 
-test('T009D final release plan validates the pinned three-reference contract without implying new write approval',()=>{
+test('F010 final release plan requires re-read only for all 111 accepted reference rows without new write approval',()=>{
  const plan=buildFinalUatReleasePlan(manifest,targets);
  assert.equal(plan.mode,'FINAL_UAT_RELEASE_PLAN_OFFLINE');
  assert.equal(plan.status,'FINAL_UAT_EXECUTION_NOT_AUTHORIZED');
@@ -22,7 +22,7 @@ test('T009D final release plan validates the pinned three-reference contract wit
  ]);
  assert.deepEqual(plan.referenceDatasets.map(x=>x.observedRows),[8,85,18]);
  assert.deepEqual(plan.referenceDatasets.map(x=>x.phase),[
-  'PREVIOUSLY_ACCEPTED_RECHECK_ONLY','FINAL_UAT_FIRST_WRITE_PENDING','FINAL_UAT_FIRST_WRITE_PENDING'
+  'PREVIOUSLY_ACCEPTED_RECHECK_ONLY','PREVIOUSLY_ACCEPTED_RECHECK_ONLY','PREVIOUSLY_ACCEPTED_RECHECK_ONLY'
  ]);
  assert.ok(plan.referenceDatasets.every(x=>x.countsAreHistorical===true));
  assert.equal(plan.referenceDatasets[1].sourceTotal,'UNPAGINATED_NO_AUTHORITATIVE_TOTAL');
@@ -31,16 +31,29 @@ test('T009D final release plan validates the pinned three-reference contract wit
   'volunteer-gender','assignments','volunteer-family',
   'resigned-volunteers','volunteer-tenure'
  ]);
- assert.ok(plan.restrictedDatasets.slice(1).every(x=>x.status==='PERSON_DATA_HOLD'));
+ assert.ok(plan.restrictedDatasets.every(x=>x.status==='PRIVATE_SNAPSHOT_APPROVAL_REQUIRED'));
+ assert.ok(plan.restrictedDatasets.every(x=>x.command==='private-report-commit'));
+ assert.ok(plan.restrictedDatasets.every(x=>x.snapshotMode==='COMPLETE_VERSIONED_SNAPSHOT'));
+ assert.deepEqual(plan.restrictedDatasets.filter(x=>x.sourceGeographyReconciliationRequired).map(x=>x.api),['volunteer-family']);
  assert.equal(plan.finalWindow.independentSheetsReadbackRequired,true);
- assert.equal(plan.finalWindow.disableReceiverAndWriteAfterEveryAttempt,true);
+ assert.equal(plan.finalWindow.allThreeSwitchesOffBeforeUpdateAndAfterEveryAttempt,true);
+ assert.deepEqual(plan.finalWindow.requiredSwitches,[
+  'THAIPHC_RECEIVER_ENABLED','THAIPHC_WRITE_ENABLED','THAIPHC_PERSON_DATA_WRITE_ENABLED'
+ ]);
+ assert.equal(plan.finalWindow.verifyAllThreeAcceptedReferencesWithoutResending,true);
+ assert.equal(plan.finalWindow.separateRestrictedReportWorkbookRequired,true);
+ assert.equal(plan.finalWindow.accessAndRetentionApprovalRequired,true);
+ assert.equal(plan.finalWindow.oneInvocationPerApprovedReport,true);
+ assert.equal(plan.finalWindow.onePostAttemptPerSignedStage,true);
+ assert.equal(plan.finalWindow.neverRetryUnknownOutcome,true);
+ assert.equal('oneAppsScriptPostMaximumPerApprovedDataset' in plan.finalWindow,false);
  assert.equal(plan.finalWindow.explicitProductOwnerWriteAuthorizationRequired,true);
  assert.doesNotMatch(JSON.stringify(plan),new RegExp(targets.spreadsheetId));
  assert.doesNotMatch(JSON.stringify(plan),new RegExp(targets.deploymentId));
  assert.equal(Object.isFrozen(plan),true);
 });
 
-test('T009D release plan is fail closed for wrong target, duplicate/relabelled datasets, missing metadata and access expansion',()=>{
+test('F010 release plan is fail closed for wrong target, duplicate/relabelled datasets, missing metadata and access expansion',()=>{
  const bad=[
   {m:manifest,t:{...targets,spreadsheetId:'bad'}},
   {m:manifest,t:{...targets,deploymentId:'https://evil.invalid'}},
@@ -54,7 +67,7 @@ test('T009D release plan is fail closed for wrong target, duplicate/relabelled d
  for(const {m,t} of bad)assert.throws(()=>buildFinalUatReleasePlan(clone(m),clone(t)),/FINAL_RELEASE_CONTRACT_INVALID/);
 });
 
-test('T009D release-plan CLI is zero-network and never loads secrets, even on malformed input',async()=>{
+test('F010 release-plan CLI is zero-network and never loads secrets, even on malformed input',async()=>{
  let calls=0,hmac=0,logs=[];
  const tty={
   fetchImpl:async()=>{calls++;throw Error('NETWORK_MUST_NOT_START')},
@@ -63,7 +76,11 @@ test('T009D release-plan CLI is zero-network and never loads secrets, even on ma
   getToken:()=>{hmac++;throw Error('SECRET_MUST_NOT_BE_READ')}
  };
  assert.equal(await main(['release-plan'],s=>logs.push(s),tty),0);
- assert.equal(JSON.parse(logs[0]).status,'FINAL_UAT_EXECUTION_NOT_AUTHORIZED');
+ const plan=JSON.parse(logs[0]);
+ assert.equal(plan.status,'FINAL_UAT_EXECUTION_NOT_AUTHORIZED');
+ assert.ok(plan.referenceDatasets.every(x=>x.phase==='PREVIOUSLY_ACCEPTED_RECHECK_ONLY'));
+ assert.equal(plan.restrictedDatasets.length,5);
+ assert.equal(plan.finalWindow.onePostAttemptPerSignedStage,true);
  assert.equal(calls,0);assert.equal(hmac,0);
  for(const args of [
   ['release-plan','--endpoint','villages'],

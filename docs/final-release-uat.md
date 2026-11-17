@@ -1,5 +1,7 @@
 # ThaiPHC Data Connector — Consolidated Release Candidate and ONE Final UAT
 
+> **Historical T009D procedure, superseded for F010.** All three reference first writes (8/85/18 rows) have since been accepted. Do not execute the first-write commands or older updater below. Use the [F010 runbook](f010-one-final-uat.md) and [PR #66 preparation packet](f010-final-uat-preparation.md) for the current eight-dataset scope. Retained below as historical evidence only.
+
 Tracking: [Issue #53](https://github.com/9GotStory/thaiphc-data-connector/issues/53).
 Product Owner decision on 2026-10-28: **finish implementation, perform one final operator UAT session, then close out**. Do **not** repeatedly ask the operator to run each endpoint audit, npm test, or commit during implementation.
 

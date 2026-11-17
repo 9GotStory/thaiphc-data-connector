@@ -9,6 +9,8 @@ const VERSION='THAIPHC_SYNC_V1',CHUNK_VERSION='THAIPHC_REPORT_STAGE_V1';
 const ENDPOINTS=new Set(['volunteer-gender','assignments','volunteer-family','resigned-volunteers','volunteer-tenure']);
 const POST_TIMEOUT=30000,MAX_RESPONSE=8192;
 const ATTEMPTED=new WeakSet();
+const REJECTIONS=new Set(['INGRESS_DISABLED','WRITE_DISABLED','PERSON_DATA_WRITE_DISABLED',
+ 'INVALID_ENVELOPE','NOT_CONFIGURED','AUTH_FAILED','LOCK_BUSY','REPLAY_REJECTED','REJECTED','METHOD_DISABLED']);
 const TARGET='https://script.google.com/macros/s/'+targets.deploymentId+'/exec';
 const sha=x=>createHash('sha256').update(x,'utf8').digest('hex');
 const plain=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
@@ -109,6 +111,21 @@ async function responseBody(res){
   try{rd.releaseLock()}catch{}
  }
 }
+function rejectionStatus(result,plan,stage){
+ if(!plain(result)||result.protocol!==VERSION||result.accepted!==false||result.sheetsWrites!==0)
+  return null;
+ const fields=['protocol','status','accepted','sheetsWrites'];
+ if(result.status==='REPORT_DESTINATION_NOT_CONFIGURED'){
+  fields.push('endpoint','runId');
+  if(result.endpoint!==plan.endpoint||result.runId!==plan.runId)return null;
+  if(Number.isSafeInteger(stage)){
+   fields.push('ordinal','rowCount');
+   if(result.ordinal!==stage||result.rowCount!==plan.chunks[stage-1].rowCount)return null;
+  }
+ }else if(!REJECTIONS.has(result.status))return null;
+ return Object.keys(result).length===fields.length&&fields.every(k=>Object.hasOwn(result,k))?
+  result.status:null;
+}
 async function onePost(wire,expected,plan,fetchImpl,stage){
  let requests=0;
  const signal=new AbortController();
@@ -130,6 +147,8 @@ async function onePost(wire,expected,plan,fetchImpl,stage){
   }
   if(res?.status!==200)return {ok:false,requests};
   const result=await responseBody(res);
+  const receiverStatus=rejectionStatus(result,plan,stage);
+  if(receiverStatus)return {ok:false,requests,receiverStatus};
   const fields=['protocol','status','accepted','endpoint','runId','sheetsWrites','rowCount'];
   if(expected==='REPORT_CHUNK_STAGED')fields.push('ordinal');
   if(!plain(result)||Object.keys(result).length!==fields.length||
@@ -177,6 +196,7 @@ export async function sendExtendedReport({
    if(!result.ok)return short(endpoint,'STAGE_OUTCOME_UNKNOWN_STOP',posts,requests,{
     stage:stage==='finalize'?'finalize':stage==='start'?'start':'chunk',
     ...(typeof stage==='number'?{ordinal:stage}:{}),
+    ...(result.receiverStatus?{receiverStatus:result.receiverStatus}:{}),
     recoveryStrategy:'READBACK_AND_RECONCILE_NO_AUTOMATIC_RETRY'
    });
   }

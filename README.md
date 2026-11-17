@@ -28,6 +28,8 @@ Only `scripts/update-f010-existing-v3-final.ps1` supports the reviewed F010 thre
 
 Run `npm.cmd run cli -- release-plan` to view the offline F010 checklist: all 111 reference rows are re-read only, five reports require approved private complete snapshots, and each signed stage allows one POST attempt. The plan lists all three OFF switches and independent readback/access/retention gates. Expected status remains `FINAL_UAT_EXECUTION_NOT_AUTHORIZED`; planning output never grants transfer permission or checks live state.
 
+For a failed stage, see [receiver rejection diagnostics](docs/f010-receiver-rejection-diagnostics.md). An allowlisted `receiverStatus` explains configuration/switch/authentication rejections while preserving STOP, no-retry and independent-readback requirements.
+
 ## Source API coverage
 8 documented endpoints, in [docs/api-inventory.md](docs/api-inventory.md), with observed field schemas under [docs/schemas/](docs/schemas/).
 

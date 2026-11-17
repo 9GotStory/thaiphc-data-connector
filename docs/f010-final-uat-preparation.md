@@ -2,7 +2,17 @@
 
 Prepared on **2026-11-16**, with the F010 planner follow-up on **2026-11-17**, using Node **26.13.1** on Windows. Scope: GitHub inspection, local synthetic checks and release-plan/documentation changes for Draft PR #66, then prepare one future operator session. **No merge, deploy, source-data request, real-data transfer, workbook creation, DPAPI access or Script Property change was performed.**
 
-Current decision: **FINAL_UAT_HOLD — preparation complete; live execution not authorized.** This is a pre-session hold, not a failed live UAT. The canonical procedure remains [one final eight-API UAT](f010-one-final-uat.md), with the [Node 26 release review](node26-release-review.md).
+Current decision: **FINAL_UAT_HOLD — operational prerequisites/readback pending.** On 2026-11-17 the owner authorized proceeding with all operations and explicitly selected the existing Google Sheet. The initial no-live-operations evidence below is historical; authorization does not establish completed deployment, credential entry, retention or acceptance. This is a pre-session hold, not a failed live UAT. The canonical procedure remains [one final eight-API UAT](f010-one-final-uat.md), with the [Node 26 release review](node26-release-review.md).
+
+## Existing-workbook owner decision (2026-11-17)
+
+PR #66 merged as `d14d38dfadb2744a1af7ecf1b7e4e5ded6108f3f`. The owner then requested the existing workbook and authorized proceeding. A direct Drive metadata inspection found `shared:false` and a single owner permission. Sheets metadata showed only `ชีต1`, `HealthServices`, `Villages` and `Subdistricts`; this checks tab inventory, not populated row counts or fresh reference acceptance.
+
+The existing-workbook follow-up permits matching destination IDs only when `THAIPHC_SAME_WORKBOOK_APPROVAL` exactly equals `OWNER_ONLY_5406_APPROVED`. Separate restricted workbooks remain the default. Sharing must be independently verified owner-only before each report; the receiver does not query Drive sharing or add OAuth scopes. All three existing write switches and signed staging/readback gates remain required. Synthetic regression verifies all five reports preserve 111 reference rows and `ชีต1`, rejects absent/inexact approval and stops if approval is revoked while waiting for the lock.
+
+For this owner decision, the separate-workbook-only entry boxes below are superseded by the owner-only reuse procedure in the canonical runbook. The current ReportReceiver blob is `16915ad2164a3dc9d78f5820a1b042c2150cc663`; the older pin below belongs to the initial PR #66 evidence. Retention interval and cleanup owner still need an explicit record before importing; no automatic expiry is implemented.
+
+Read-only clasp inspection found the pinned existing V3 deployment and pulled exactly Code.js plus appsscript.json. These had blobs `abc71275ab30dca1f57d1d0e33b8c2773452a194` / `e686fbcd6e758a24247f41ec3dac455abfe30ffc`, not the earlier assumed F009 pair. Source writes were stopped, the exact bytes were backed up outside the repo, and the difference was reviewed: older reference receiver plus existing `webapp.executeAs=USER_DEPLOYING` / `access=ANYONE_ANONYMOUS` settings, with the same two OAuth scopes and exception logging NONE. The dedicated `EXISTING_V3_20261117` migration now accepts only that exact pair and preserves the verified remote manifest bytes. Authentication/HMAC checks and deployment ID remain unchanged; no deployment was performed by the inspection.
 
 ## Initial checked engineering evidence (2026-11-16)
 

@@ -256,3 +256,44 @@ test('F010 private imports require a valid original-workbook identity for destin
   assert.equal(h.restricted.size,0);
  }
 });
+
+test('F010 same-workbook imports reject missing or inexact approval without changing existing tabs',()=>{
+ for(const approval of [null,'true','false','OWNER_ONLY_5406_APPROVED ',true]){
+  const h=harness();setup(h,{dest:originalId});
+  if(approval!==null)h.props.set('THAIPHC_SAME_WORKBOOK_APPROVAL',approval);
+  const p=plan('assignments',1);
+  assert.equal(h.post(batch(p,'report-start')).status,'REPORT_DESTINATION_NOT_CONFIGURED');
+  assert.equal(h.original.size,1);assert.equal(h.restricted.size,0);
+ }
+});
+
+test('F010 explicit owner-only approval stages all five reports in the original workbook and preserves 111 reference rows',()=>{
+ for(const api of ['volunteer-gender','assignments','volunteer-family','resigned-volunteers','volunteer-tenure']){
+  const h=harness();setup(h,{dest:originalId});
+  h.props.set('THAIPHC_SAME_WORKBOOK_APPROVAL','OWNER_ONLY_5406_APPROVED');
+  for(const [tab,count] of [['Subdistricts',8],['Villages',85],['HealthServices',18]]){
+   const reference=sheet(tab);
+   reference.data.push(['SYNTHETIC_KEY','SYNTHETIC_VALUE']);
+   for(let i=0;i<count;i++)reference.data.push(['ref_'+i,'UNCHANGED']);
+   h.original.set(tab,reference);
+  }
+  const before=JSON.stringify([...h.original].map(([name,s])=>[name,s.data]));
+  const p=plan(api,2);
+  assert.equal(h.post(batch(p,'report-start')).status,'REPORT_STARTED',api);
+  assert.equal(h.post(batch(p,'report-chunk',p.chunks[0])).status,'REPORT_CHUNK_STAGED',api);
+  assert.equal(h.post(batch(p,'report-finalize')).status,'REPORT_FINALIZED',api);
+  assert.equal(h.original.get('_ThaiPHCReportCurrent').data[1][0],api);
+  assert.equal(h.original.get('_ThaiPHCReportCurrent').data[1][3],2);
+  assert.equal(JSON.stringify([...h.original].slice(0,4).map(([name,s])=>[name,s.data])),before);
+  assert.equal(h.restricted.size,0);
+ }
+});
+
+test('F010 revoked same-workbook approval is rechecked after the lock before any report write',()=>{
+ const h=harness();setup(h,{dest:originalId});
+ h.props.set('THAIPHC_SAME_WORKBOOK_APPROVAL','OWNER_ONLY_5406_APPROVED');
+ h.hooks.onLock=()=>h.props.delete('THAIPHC_SAME_WORKBOOK_APPROVAL');
+ const p=plan('assignments',1);
+ assert.equal(h.post(batch(p,'report-start')).status,'REPORT_DESTINATION_NOT_CONFIGURED');
+ assert.equal(h.original.size,1);assert.equal(h.restricted.size,0);
+});

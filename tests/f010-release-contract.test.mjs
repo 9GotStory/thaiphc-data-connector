@@ -13,7 +13,7 @@ const manifest=readFileSync(new URL('../apps-script/appsscript.json',import.meta
 const updater=readFileSync(new URL('../scripts/update-f010-existing-v3-final.ps1',import.meta.url),'utf8');
 test('F010 existing-V3 updater pins ALL THREE exact reviewed files and approved prior preimage',()=>{
  assert.equal(blob(code),'e542d585d4d4840836c9f1114ac350081ebe5952');
- assert.equal(blob(report),'72e362054cd838ebe52ac3a4e593233ca69fab6f');
+ assert.equal(blob(report),'16915ad2164a3dc9d78f5820a1b042c2150cc663');
  assert.equal(blob(manifest),'a8134a3237b2dce1f54ce16a943fbe3e232ce436');
  for(const pin of [
   "oldCodeBlob='f7d878389fe46cfde8619f75a1f9746f45b469a3'",
@@ -21,6 +21,13 @@ test('F010 existing-V3 updater pins ALL THREE exact reviewed files and approved 
   "newReportBlob='"+blob(report)+"'",
   "manifestBlob='"+blob(manifest)+"'"
  ])assert.ok(updater.includes(pin),pin);
+ assert.ok(updater.includes("observedCodeBlob='abc71275ab30dca1f57d1d0e33b8c2773452a194'"));
+ assert.ok(updater.includes("observedManifestBlob='e686fbcd6e758a24247f41ec3dac455abfe30ffc'"));
+ assert.ok(updater.includes("[ValidateSet('F009_REVIEWED','EXISTING_V3_20261117')]"));
+ assert.ok(updater.includes('-cne $expectedRemoteCodeBlob'));
+ assert.ok(updater.includes('-cne $expectedRemoteManifestBlob'));
+ assert.doesNotMatch(updater,/Copy-Item\s+-LiteralPath\s+\$manifest\s+-Destination\s+\$remoteManifest/);
+ assert.ok(updater.includes('Staged source or preserved manifest differs from reviewed pins. STOP.'));
 });
 test('F010 updater is fail-closed, 3-OFF, backup-first and existing-deployment-only',()=>{
  for(const text of [
@@ -36,9 +43,11 @@ test('F010 updater is fail-closed, 3-OFF, backup-first and existing-deployment-o
  assert.doesNotMatch(updater,/\bcreate-deployment\b|New-Deployment|Invoke-RestMethod|Invoke-WebRequest/);
  assert.doesNotMatch(updater,/AKfycbw6FbaK1XM2AEVt0vokP2Ssz|14yQGRu3EOFVae_IgD/);
 });
-test('F010 receiver refuses reference-workbook destination and honors independent private person switch',()=>{
+test('F010 receiver requires exact owner-only approval for the reference-workbook destination and honors the private person switch',()=>{
  assert.ok(code.includes("props.getProperty('THAIPHC_PERSON_DATA_WRITE_ENABLED')!=='true'"));
  assert.ok(report.includes("dest===reference"));
+ assert.ok(report.includes("THAIPHC_SAME_WORKBOOK_APPROVAL"));
+ assert.ok(report.includes("'OWNER_ONLY_5406_APPROVED'"));
  assert.ok(report.includes("TPH_REPORT_CURRENT='_ThaiPHCReportCurrent'"));
  assert.ok(report.includes("tphRHash_(JSON.stringify(part))!==m.chunkDigests[ord]"));
  assert.ok(report.includes("THE LAST PUBLICATION ACTION"));

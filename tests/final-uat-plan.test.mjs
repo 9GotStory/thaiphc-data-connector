@@ -41,7 +41,9 @@ test('F010 final release plan requires re-read only for all 111 accepted referen
   'THAIPHC_RECEIVER_ENABLED','THAIPHC_WRITE_ENABLED','THAIPHC_PERSON_DATA_WRITE_ENABLED'
  ]);
  assert.equal(plan.finalWindow.verifyAllThreeAcceptedReferencesWithoutResending,true);
- assert.equal(plan.finalWindow.separateRestrictedReportWorkbookRequired,true);
+ assert.equal(plan.finalWindow.restrictedReportWorkbookRequired,true);
+ assert.equal(plan.finalWindow.separateReportWorkbookByDefault,true);
+ assert.equal(plan.finalWindow.sameWorkbookRequiresExplicitOwnerOnlyApproval,true);
  assert.equal(plan.finalWindow.accessAndRetentionApprovalRequired,true);
  assert.equal(plan.finalWindow.oneInvocationPerApprovedReport,true);
  assert.equal(plan.finalWindow.onePostAttemptPerSignedStage,true);

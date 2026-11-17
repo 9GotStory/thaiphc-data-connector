@@ -226,6 +226,12 @@ function doPost(e){
    return tphResponse_('PERSON_DATA_WRITE_DISABLED',{});
   lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))return tphResponse_('LOCK_BUSY',{});
+  // Recheck the operator window after waiting for another request's lock.
+  if(props.getProperty('THAIPHC_RECEIVER_ENABLED')!=='true')return tphResponse_('INGRESS_DISABLED',{});
+  if((validated.mode==='commit'||isReport)&&props.getProperty('THAIPHC_WRITE_ENABLED')!=='true')
+   return tphResponse_('WRITE_DISABLED',{});
+  if(isReport&&props.getProperty('THAIPHC_PERSON_DATA_WRITE_ENABLED')!=='true')
+   return tphResponse_('PERSON_DATA_WRITE_DISABLED',{});
   // Short-lived replay guard; not a durable request ledger. Keyed upsert provides
   // idempotency for identical source snapshots, but old-data rollback needs controls.
   const cache=CacheService.getScriptCache();

@@ -1,7 +1,7 @@
 # Architecture — proposed (not implemented)
 
 ```text
-ThaiPHC API  -- authorized GET + short-lived bearer --> Node.js 24 Manual CLI
+ThaiPHC API  -- authorized GET + short-lived bearer --> Node.js 26 Manual CLI
            -- validation/pagination/redaction --> local transient payload
            -- authenticated POST --> isolated Google Apps Script Web App
            -- validation/upsert --> controlled Google Sheets

@@ -44,7 +44,8 @@ function fixture(p,{badAt=0,unknownAt=0}={}){
    sheetsWrites:status==='REPORT_STARTED'?2:
     status==='REPORT_FINALIZED'?3:1,
    ...(body.mode==='report-chunk'?{ordinal:body.ordinal}:{}),
-   ...(body.mode==='report-finalize'?{rowCount:p.sourceRows}:{})
+   rowCount:body.mode==='report-finalize'?p.sourceRows:
+    body.mode==='report-start'?0:p.chunks[body.ordinal-1].rowCount
   }),{status:200,headers:{'content-type':'application/json'}});
  };
  return {fetchImpl,sent,get posts(){return posts},get gets(){return gets}};
@@ -98,4 +99,78 @@ test('F010 report signatures are unique per stage, data never persisted by offli
  assert.equal(JSON.parse(Buffer.from(start.payloadB64,'base64')).sourceRows,1);
  assert.equal(p.appsScriptPosts,0);
  assert.equal(p.sheetsWrites,0);
+});
+
+test('F010 safe ContentService redirect is GET-only; nondefault ports cannot receive a stage',async()=>{
+ const p=plan(1),f=fixture(p),seen=[];
+ const location='https://script.googleusercontent.com/macros/echo?user_content_key=SYNTHETIC';
+ let receipt;
+ const result=await sendExtendedReport({
+  plan:p,keyB64:key,acknowledgement:extendedCommitPhrase(p),
+  fetchImpl:async(url,options)=>{
+   seen.push([url,options.method]);
+   if(options.method==='POST'){
+    receipt=await f.fetchImpl(url,options);
+    return new Response(null,{status:302,headers:{location}});
+   }
+   assert.equal(url,location);assert.equal(options.body,undefined);
+   assert.equal(options.headers.Authorization,undefined);
+   return receipt;
+  }
+ });
+ assert.equal(result.status,'REPORT_FINALIZED_READBACK_REQUIRED');
+ assert.equal(seen.filter(x=>x[1]==='POST').length,3);
+ assert.equal(seen.filter(x=>x[1]==='GET').length,3);
+ const blocked=plan(1);let calls=0;
+ const denied=await sendExtendedReport({
+  plan:blocked,keyB64:key,acknowledgement:extendedCommitPhrase(blocked),
+  fetchImpl:async()=>{calls++;return new Response(null,{status:302,
+   headers:{location:'https://script.googleusercontent.com:8443/macros/echo?user_content_key=SYNTHETIC'}});
+  }
+ });
+ assert.equal(denied.status,'STAGE_OUTCOME_UNKNOWN_STOP');assert.equal(calls,1);
+});
+test('F010 exact stage receipts reject extra fields, wrong write counts and wrong chunk row counts',async()=>{
+ for(const failure of ['extra','writes','chunk-rows']){
+  const p=plan(),f=fixture(p);
+  const result=await sendExtendedReport({
+   plan:p,keyB64:key,acknowledgement:extendedCommitPhrase(p),
+   fetchImpl:async(url,options)=>{
+    const receipt=await(await f.fetchImpl(url,options)).json();
+    if(failure==='extra')receipt.extra='PRIVATE_NOT_FOR_OUTPUT';
+    if(failure==='writes')receipt.sheetsWrites=1;
+    if(failure==='chunk-rows'&&receipt.status==='REPORT_CHUNK_STAGED')receipt.rowCount=999;
+    return new Response(JSON.stringify(receipt),{headers:{'content-type':'application/json'}});
+   }
+  });
+  assert.equal(result.status,'STAGE_OUTCOME_UNKNOWN_STOP');
+  assert.equal(f.posts,failure==='chunk-rows'?2:1);
+  assert.equal(f.sent.includes('report-finalize'),false);
+  assert.doesNotMatch(JSON.stringify(result),/PRIVATE_NOT_FOR_OUTPUT/);
+ }
+});
+test('F010 failed stage plans cannot be submitted a second time',async()=>{
+ const p=plan(),f=fixture(p,{unknownAt:1});
+ const first=await sendExtendedReport({plan:p,keyB64:key,
+  acknowledgement:extendedCommitPhrase(p),fetchImpl:f.fetchImpl});
+ assert.equal(first.status,'STAGE_OUTCOME_UNKNOWN_STOP');assert.equal(f.posts,1);
+ const second=await sendExtendedReport({plan:p,keyB64:key,
+  acknowledgement:extendedCommitPhrase(p),fetchImpl:f.fetchImpl});
+ assert.equal(second.status,'TRANSFER_ALREADY_ATTEMPTED');
+ assert.equal(second.appsScriptPosts,0);assert.equal(f.posts,1);
+});
+test('F010 chunk plans own immutable copies of row data and manifest arrays',()=>{
+ const row={key:'h1_'+'a'.repeat(64),values:{districtCode:'5406',status:'ACTIVE'}};
+ const fields=['districtCode','status'];
+ const p=planExtendedBatches({
+  mode:'IN_MEMORY_MINIMIZED_REPORT_NOT_SENT',endpoint:'assignments',runId:'immutable-plan-1',
+  rowCount:1,privacyState:'PERSON_DATA_STORAGE_APPROVAL_REQUIRED',
+  destinationSchema:fields,sourceIdentityStrategy:'HMAC_SHA256_PERSON_ID',rows:[row],
+  writeAuthorized:false,appsScriptPosts:0,sheetsWrites:0
+ });
+ row.values.status='MUTATED';fields.push('citizenId');
+ assert.equal(p.chunks[0].rows[0].values.status,'ACTIVE');
+ assert.deepEqual(p.runFingerprint.destinationFields,['districtCode','status']);
+ assert.throws(()=>{p.chunks[0].rows[0].key='OTHER';},TypeError);
+ assert.throws(()=>{p.runFingerprint.chunkDigests[0]='0'.repeat(64);},TypeError);
 });

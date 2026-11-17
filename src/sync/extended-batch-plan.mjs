@@ -43,7 +43,7 @@ export function planExtendedBatches(minimized){
        (v.length>32767||/[\u0000-\u001f\u007f]/.test(v)||
         /^\s*[=+\-@]/.test(v)))fail();
    }
-   const canonical={key:r.key,values:r.values};
+   const canonical=Object.freeze({key:r.key,values:Object.freeze({...r.values})});
    // Receiver persists the full canonical JSON as a verifier cell. Google
    // Sheets cells are bounded at 50k chars; keep a strict 32k safety margin.
    if(JSON.stringify(canonical).length>32767)fail();
@@ -61,8 +61,8 @@ export function planExtendedBatches(minimized){
   version:VERSION,endpoint:minimized.endpoint,runId:minimized.runId,
   sourceIdentityStrategy:minimized.sourceIdentityStrategy,
   sourceRows:minimized.rowCount,chunkCount:chunks.length,
-  destinationFields:minimized.destinationSchema,
-  chunkDigests:chunks.map(c=>c.digest)
+  destinationFields:Object.freeze([...minimized.destinationSchema]),
+  chunkDigests:Object.freeze(chunks.map(c=>c.digest))
  };
  const digest=sha(JSON.stringify(manifest));
  return Object.freeze({

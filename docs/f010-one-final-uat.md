@@ -1,11 +1,13 @@
 # Feature 010 — ONE final operator UAT for ALL EIGHT ThaiPHC APIs
 
-Tracking: [Issue #64](https://github.com/9GotStory/thaiphc-data-connector/issues/64), [PR #65](https://github.com/9GotStory/thaiphc-data-connector/pull/65). This procedure is a **future final acceptance session**, not an instruction to execute during development. No real person records, token values, signatures or raw payloads belong in GitHub/ChatGPT.
+Preparation only: use the [PR #66 preparation packet](f010-final-uat-preparation.md) to review engineering evidence, pending entry gates and the blank acceptance record. No live session has been performed by that preparation.
+
+Tracking: [Issue #64](https://github.com/9GotStory/thaiphc-data-connector/issues/64), [PR #65](https://github.com/9GotStory/thaiphc-data-connector/pull/65). The [Node 26 release review](node26-release-review.md) records the current candidate checks. This procedure is a **future final acceptance session**, not an instruction to execute during development. No real person records, token values, signatures or raw payloads belong in GitHub/ChatGPT.
 
 ## Deliverables and unchanged production baseline
 
 - The existing `ThaiPHC Data` workbook with accepted reference tabs **Subdistricts (8)**, **Villages (85)** and **HealthServices (18)** is **untouched** by Feature 010. Never commit these again as part of final UAT. Existing `ชีต1` must survive.
-- The existing Windows Node.js 24 CLI and **existing Web App V3 deployment** are reused. Never target Library V2 or create a new Web App deployment.
+- The existing Windows Node.js 26 CLI and **existing Web App V3 deployment** are reused. Never target Library V2 or create a new Web App deployment.
 - Five report topics are separately entered through `private-report-commit --endpoint <endpoint> --acknowledge-private-transfer`. `commit-menu` remains intentionally restricted to the three previously accepted reference-write routes; menu choices 4–8 still do not automatically permit person storage.
 - User privacy: the five report datasets go to a **SECOND, PRIVATE Google Sheets workbook**. This is necessary because tab-level protection/hiding does **NOT** restrict who can read a tab inside a publicly/shared workbook. No names, full national IDs, addresses, volunteer identity codes or raw persons are sent: `RESTRICTED_DEFAULT_OMIT` manifest fields are removed, person identity is a keyed pseudonym and gender small cells are suppressed. Even minimized rows may still be personal data when linked; keep the second workbook restricted.
 - The receiver stores each run in a **new immutable versioned snapshot tab** plus a final `_ThaiPHCReportCurrent` index. Chunks are staged and only a verified complete run receives the current pointer. This is a **logical publication gate**, not an ACID database transaction; partial hidden sheets can exist after failure and must be reconciled manually.
@@ -13,8 +15,8 @@ Tracking: [Issue #64](https://github.com/9GotStory/thaiphc-data-connector/issues
 
 ## Before the ONE final UAT starts
 
-1. Review and merge exact F010 source SHA with passing GitHub Actions CI. Operator updates the Windows checkout to that exact `main`, clean working tree, Node.js 24. Run local `npm.cmd test` once; no interim endpoint-specific operator tests.
-2. Establish and inspect a **separate, restricted** owner-controlled Google Sheets workbook for report data. Verify that only authorized staff can access it, link sharing is not broad/public and there are no unexpected existing report/run tabs. Keep its ID private in the Apps Script Script Property `THAIPHC_REPORT_SPREADSHEET_ID`; verify it is **different** from the original `THAIPHC_SPREADSHEET_ID`. The CLI never accepts a user-supplied destination ID.
+1. Review and merge exact F010 source SHA with passing GitHub Actions CI. Operator updates the Windows checkout to that exact `main`, clean working tree, Node.js 26. Run local `npm.cmd test` once; no interim endpoint-specific operator tests.
+2. Establish and inspect a **separate, restricted** owner-controlled Google Sheets workbook for report data. Keep an empty visible default tab so a new staging tab can be hidden. Verify that only authorized staff can access it, link sharing is not broad/public and there are no unexpected existing report/run tabs. Keep its ID private in the Apps Script Script Property `THAIPHC_REPORT_SPREADSHEET_ID`; verify it is **different** from the original `THAIPHC_SPREADSHEET_ID`. The CLI never accepts a user-supplied destination ID.
 3. Confirm technical access/official purpose for district 5406 and approve the specific report categories and minimized fields. The existing personal ThaiPHC Bearer is **not** proof of every retention/sharing permission. Explicitly review the small-cell threshold of 5 and restricted-field omission. Family rows have no stable relation key: accept only **complete-snapshot replacement**, never upsert from guessed identity. Any detected cross-district/cross-subdistrict family records must be resolved or explicitly stop; do not repair/drop them silently.
 4. Ensure **all three flags are false or absent** in the *existing* V3 project's Script Properties:
    `THAIPHC_RECEIVER_ENABLED=false`, `THAIPHC_WRITE_ENABLED=false`, `THAIPHC_PERSON_DATA_WRITE_ENABLED=false`.

@@ -340,6 +340,7 @@ function tphRHandle_(b,props){
  const dest=props.getProperty('THAIPHC_REPORT_SPREADSHEET_ID');
  const reference=props.getProperty('THAIPHC_SPREADSHEET_ID');
  if(typeof dest!=='string'||!/^[A-Za-z0-9_-]{25,120}$/.test(dest)||
+    typeof reference!=='string'||!/^[A-Za-z0-9_-]{25,120}$/.test(reference)||
     dest===reference) return tphRResponse_('REPORT_DESTINATION_NOT_CONFIGURED',b);
  const ss=SpreadsheetApp.openById(dest),spec=tphRSchema_(b.endpoint);
  let sheet=tphRReportSheet_(ss,b.endpoint,b.runId);

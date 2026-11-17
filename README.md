@@ -1,14 +1,16 @@
 # ThaiPHC Data Connector
 
-Private project for a **manual** ThaiPHC data pipeline using **Node.js 24 → Google Apps Script → Google Sheets**.
+Private project for a **manual** ThaiPHC data pipeline using **Node.js 26 → Google Apps Script → Google Sheets**.
 
-**Current verified status (2026-10-28):** The separately PO-authorized, **single** `subdistricts` First Write to the original ThaiPHC Data Google Sheet **succeeded and was independently read back**: 8 data rows plus 1 header in `Subdistricts`, 8 distinct `code` and `_source_key` values, `district_code=5406`, `_quality_status=VALID`, complete metadata, and unrelated original `ชีต1` intact/empty. The receiver reported `COMMITTED` / 8 inserted / one POST; acceptance was based on **separate destination readback**, not on that receipt alone. The operator explicitly attested that both Apps Script enable switches were returned to `false` afterward; current live Script Properties cannot be independently queried from this repository. The source `province_code` was `NULL` in all 8 rows, consistent with the observed schema (`null_only`). This acceptance applies **only to subdistricts** — it does **not** authorize a second attempt or other datasets.
+**Recorded acceptance baseline:** The operator independently accepted **111 reference rows**: Subdistricts 8, Villages 85 and HealthServices 18, as recorded in [Issue #64](https://github.com/9GotStory/thaiphc-data-connector/issues/64). Final UAT re-reads these three tabs and preserves `ชีต1`; **never repeat any of their first writes**. This is historical acceptance, not a fresh live check of data or Script Properties.
 
-**CLI / security:** PRs #59–#61 were merged. On Windows, the one-time DPAPI CurrentUser store was verified by the operator (`HMAC_READ_OK`). `commit-menu` shows all 8 documented APIs: 3 reference datasets are **COMMIT GATED** individually, `volunteer-gender` is **READ ONLY / NO COMMIT**, and 4 person-level datasets are **PERSON DATA HOLD**. Public one-character choices and `Y` are echoed; private Bearer/HMAC values are not. The target remains pinned, HMAC signature required, no auto-retry or auto-deletion, and each actual write still requires a **fresh, endpoint-specific PO authorization** and independent readback. The next candidate is **`villages` (85 previously observed rows)**; its live count/completeness and current destination inventory are not yet accepted. Keep Issue #53 OPEN.
+**CLI / security:** The existing Windows DPAPI CurrentUser HMAC store is reused during an approved final session. `commit-menu` still gates reference writes and blocks report choices 4–8. Five-report F010 staging uses `private-report-commit` with separate approval and independent readback. No automatic retry or deletion is permitted. Keep Issue #64 open until Final UAT and separate PO closeout.
 
 ## Feature 010 — eight API topics, one final UAT
 
-**Operator-approved goal:** complete five additional report pipelines in the existing Node 24 CLI and Web App V3, then run ONE final real operator UAT. **Do not run development-time live tests, create person-data Sheets or enable any writing switch.**
+**Runtime:** Node.js **26.x**, selected by `.node-version`, `package.json` and CI on Ubuntu/Windows. Earlier phase documents retain historical runtime evidence.
+
+**Operator-approved goal:** complete five additional report pipelines in the existing Node 26 CLI and Web App V3, then run ONE final real operator UAT. **Do not run development-time live tests, create person-data Sheets or enable any writing switch.**
 
 The existing original `ThaiPHC Data` Sheet has **111 independently accepted reference rows**: Subdistricts 8, Villages 85 and HealthServices 18. These remain unchanged. Feature 010 extends the same CLI with `audit-extended` (read-only) and `private-report-commit` (future final UAT only) for Volunteer Gender, Assignments, Volunteer Family, Resigned Volunteers and Volunteer Tenure. The original `commit-menu` intentionally leaves choices 4–8 disabled to prevent accidental person-data writes; approved report staging uses a **separate command**, not that older reference menu.
 
@@ -18,19 +20,13 @@ The implementation includes bounded report source reads, privacy filtering/HMAC 
 
 **Canonical next-stage documentation:** [Feature 010 implementation](docs/feature-010-eight-api-ingestion.md) · [ONE final 8-API UAT runbook](docs/f010-one-final-uat.md) · [GitHub Issue #64](https://github.com/9GotStory/thaiphc-data-connector/issues/64).
 
-## Final release candidate (one operator UAT, no interim live tests)
+## Final UAT preparation
 
-The Product Owner directed **implementation first, one consolidated Final UAT, then project closeout**. See [Final release/UAT acceptance](docs/final-release-uat.md) for the single operator session, source-permission gate, existing V3 receiver update, one-shot `villages`/`health-services` first writes and independent acceptance of all three reference tabs. During development, keep `THAIPHC_RECEIVER_ENABLED=false` and `THAIPHC_WRITE_ENABLED=false`; do **not** rerun the previously accepted `subdistricts` First Write.
+The [PR #66 preparation packet](docs/f010-final-uat-preparation.md) records the checked candidate SHA, Node 26 CI/local evidence, remaining entry gates and an empty redacted acceptance record. Follow the [F010 single final-UAT runbook](docs/f010-one-final-uat.md) for the future authorized session. Keep all three switches OFF during preparation.
 
-A source-only fix for the new `Villages` tab's **28 columns** is present in `apps-script/Code.gs`. **It is not live merely because code is merged**: the exact reviewed V3 deployment must be safely updated **once during approved Final UAT**, using the backup-and-preimage-guarded `scripts/update-existing-web-app-final.ps1`. The previous `scripts/deploy-existing-apps-script.ps1` is a first-install-only tool and deliberately rejects the already installed receiver; do not try to bypass it. Neither script may run from CI.
+Only `scripts/update-f010-existing-v3-final.ps1` supports the reviewed F010 three-file receiver. It requires an approved clean `main`, a matching remote preimage and operator confirmations in that final session. The earlier updater and [T009D runbook](docs/final-release-uat.md) are historical and must not be used for F010.
 
-To view the developer-side final release checklist **without any network or secret access**:
-
-```powershell
-npm.cmd run cli -- release-plan
-```
-
-Its expected status is `FINAL_UAT_EXECUTION_NOT_AUTHORIZED`. An offline plan never grants data transfer rights or proves live readiness. `villages` (historical 85, no source total) and `health-services` (historical 18, paginated total) still require one **fresh, explicit final-UAT authorization** and source-owner permission; `volunteer-gender` and all person-level datasets remain nonwritable.
+Run `npm.cmd run cli -- release-plan` to view the offline F010 checklist: all 111 reference rows are re-read only, five reports require approved private complete snapshots, and each signed stage allows one POST attempt. The plan lists all three OFF switches and independent readback/access/retention gates. Expected status remains `FINAL_UAT_EXECUTION_NOT_AUTHORIZED`; planning output never grants transfer permission or checks live state.
 
 ## Source API coverage
 8 documented endpoints, in [docs/api-inventory.md](docs/api-inventory.md), with observed field schemas under [docs/schemas/](docs/schemas/).
@@ -40,7 +36,7 @@ Its expected status is `FINAL_UAT_EXECUTION_NOT_AUTHORIZED`. An offline plan nev
 - `docs/api-inventory.md` — overview and known limitations
 - `docs/architecture.md` — proposed flow, boundaries and next phases
 - `docs/schema-review.md` and `docs/field-matrix.md` — T002 sample-level data-quality review
-- `docs/sheet-schema.md` and `docs/sheets-schema.json` — T003 observed schema proposal; only the separately approved `Subdistricts` tab has been materialized
+- `docs/sheet-schema.md` and `docs/sheets-schema.json` — T003 observed schema proposal; three reference tabs have historical independent acceptance (8/85/18)
 - `docs/cli-offline.md` — T004 Phase A offline simulator usage
 - `docs/live-access-gate.md` — T004B authorization/privacy decision (**HOLD**)
 - `src/cli/` — offline-first CLI; bounded, manually confirmed read-only requests for four non-person endpoints
@@ -51,7 +47,7 @@ Its expected status is `FINAL_UAT_EXECUTION_NOT_AUTHORIZED`. An offline plan nev
 - `src/sync/reference-snapshot.mjs` — opt-in bounded read-only collector that can return three reference datasets in memory (no CLI raw-row output; never auto-sends; transfer approval still required)
 - `docs/t009d-source-destination-readiness.md` — historical destination inventory (previously only blank `ชีต1`), source-readiness baseline; re-inspect destination before writing
 - `docs/t009d-real-reference-validate-recovery.md` — T009D historical validate-only transport evidence; current first-write recovery policy is the manual commit gate document
-- `src/sync/manual-commit-transport.mjs` / `docs/t009d-manual-commit-first-write-gate.md` — manually gated one-shot reference sender, DPAPI HMAC, pinned target and mandatory readback; only `subdistricts` 8-row First Write accepted
+- `src/sync/manual-commit-transport.mjs` / `docs/t009d-manual-commit-first-write-gate.md` — historical manually gated reference sender, DPAPI HMAC, pinned target and mandatory readback; never repeat the three accepted first writes
 - `tests/` — synthetic offline/schema/live-transport-injection tests, no real API calls in CI
 - `apps-script/Code.gs` — T010 guarded receiver source; `apps-script/dev-receiver.gs` is a separate deny-by-default mock **and must not be deployed together**
 - `config/thaiphc-targets.json` — existing Script ID, active Web App V3 Deployment ID and Spreadsheet ID (identifiers only, no credentials); the older Library V2 is not the active HTTP target
@@ -61,7 +57,7 @@ Its expected status is `FINAL_UAT_EXECUTION_NOT_AUTHORIZED`. An offline plan nev
 ## Local development
 
 ```sh
-node --version      # Node.js 24 or later
+node --version      # Node.js 26.x
 npm test            # offline tests; no network requests
 npm run cli -- inspect
 npm run cli -- dry-run --endpoint villages
@@ -70,11 +66,10 @@ npm run cli -- sync-plan # T009A manifest only; status HOLD, no network or write
 # npm run cli -- audit-source --endpoint villages --acknowledge-authorized-use
 # DO NOT RUN until separate owner approval for real row transfer and controlled Receiver activation:
 # npm run cli -- send-reference-validate --endpoint villages --acknowledge-reference-validate
-# No second or additional real Sheets COMMIT is authorized; every endpoint needs independent approval and destination inspection:
+# Final UAT uses the F010 runbook and five separately approved reports; never resend the accepted references:
 # First-time Windows setup only (with Receiver/Write OFF):
 # npm.cmd run cli -- hmac-setup
-# Only after fresh, exact-version, one-endpoint PO approval for a NEW dataset, use the numbered menu:
-# npm.cmd run cli -- commit-menu
+# Report staging uses private-report-commit during the single approved final session.
 ```
 
 No live API credentials are needed for tests, dry-runs or `sync-plan`. All real read-only fetches require an explicit TTY acknowledgement and an appropriately authorized token.

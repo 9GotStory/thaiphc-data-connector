@@ -1,11 +1,13 @@
 # ThaiPHC Data Connector — Consolidated Release Candidate and ONE Final UAT
 
+> **Historical T009D procedure, superseded for F010.** All three reference first writes (8/85/18 rows) have since been accepted. Do not execute the first-write commands or older updater below. Use the [F010 runbook](f010-one-final-uat.md) and [PR #66 preparation packet](f010-final-uat-preparation.md) for the current eight-dataset scope. Retained below as historical evidence only.
+
 Tracking: [Issue #53](https://github.com/9GotStory/thaiphc-data-connector/issues/53).
 Product Owner decision on 2026-10-28: **finish implementation, perform one final operator UAT session, then close out**. Do **not** repeatedly ask the operator to run each endpoint audit, npm test, or commit during implementation.
 
 ## 1. What "complete" means
 
-The release deliverable is one **manual Windows Node.js 24 reference sync** using the **existing** pinned Web App V3 and original owner-controlled Google Sheet:
+The release deliverable is one **manual Windows Node.js 26 reference sync** using the **existing** pinned Web App V3 and original owner-controlled Google Sheet:
 
 | Dataset | Expected at release gate | Release status |
 |---|---|---|
@@ -19,7 +21,7 @@ The 85/18 figures are **guards**, not claims about the current live source. The 
 
 ## 2. Completed implementation and safeguards (verify exact release SHA in CI)
 
-- Node 24 CLI routes only approved reference endpoints into a manual sender. `commit-menu` is a numbered eight-topic inventory; menu choices 4–8 cannot reach a write path.
+- Node 26 CLI routes only approved reference endpoints into a manual sender. `commit-menu` is a numbered eight-topic inventory; menu choices 4–8 cannot reach a write path.
 - Windows HMAC is encrypted once with DPAPI CurrentUser; only a private per-run ThaiPHC Bearer input is required for subsequent approved commits. A correct HMAC signature is mandatory for the pinned destination.
 - One selected dataset per commit. Strict reference source validation, scope 54/5406, unique keys, bounded fetches, exact signed payload and strict receiver acknowledgment. No automatic retry, no automatic deletion, no background schedule or person-level commit.
 - The receiver can be nontransactional. A `COMMITTED` response and CLI exit code 2 (`COMMIT_REPORTED_READBACK_REQUIRED`) **are not final acceptance**: an independent original Sheet readback is required. Unknown/partial results require STOP and reconciliation, **never blind retry**.
@@ -32,7 +34,7 @@ The 85/18 figures are **guards**, not claims about the current live source. The 
 
 ### A. One-time entry gate (receiver and writer OFF)
 
-1. On Windows confirm exact released HEAD, clean git working tree and Node 24. Run `npm.cmd test` **once**, at the final release; inspect the result alongside GitHub CI. Do not perform repeated per-PR operator tests.
+1. On Windows confirm exact released HEAD, clean git working tree and Node 26. Run `npm.cmd test` **once**, at the final release; inspect the result alongside GitHub CI. Do not perform repeated per-PR operator tests.
 2. Run **once** `npm.cmd run cli -- release-plan`. Expected `FINAL_UAT_EXECUTION_NOT_AUTHORIZED` is a **correct safety status**. The command validates only the repository metadata; do not misinterpret it as a live test.
 3. Inspect the **original** Google Sheet's currently visible tabs and known field/header layout; verify historical `Subdistricts` acceptance (8 data rows, code/source-key uniqueness, district 5406, `VALID`, metadata and `ชีต1` survival), and independently confirm the `Villages` and `HealthServices` targets are absent or authorized empty/upsert-compatible receiver-managed tabs. Stop if any target contains nonreproducible, user-authored or unrelated data.
 4. In **the existing V3 Apps Script project**, verify that `THAIPHC_SPREADSHEET_ID` points to the pinned original Sheet ID, and that `THAIPHC_RECEIVER_ENABLED=false` and `THAIPHC_WRITE_ENABLED=false` at rest. Verify HMAC DPAPI availability in the same Windows account without exposing the key. Do not redeploy or create a new sheet.
@@ -58,7 +60,7 @@ Do **not** rerun menu option 1 (`subdistricts`) in UAT. Only re-read its previou
 
 ### C. Single acceptance record and safe closeout
 
-Conclude with one final, redacted receipt containing only: release SHA; Node 24/Windows and final test count/status; exact approved datasets; operator-attested Receiver/Write OFF; source-completeness limitation accepted; receiver replies/POST counts; and independently read-back counts, unique keys, metadata, scope and tab-survival per target. Do not publish individual source records, national IDs, names, Bearer, Web App HMAC, signatures or complete payloads.
+Conclude with one final, redacted receipt containing only: release SHA; Node 26/Windows and final test count/status; exact approved datasets; operator-attested Receiver/Write OFF; source-completeness limitation accepted; receiver replies/POST counts; and independently read-back counts, unique keys, metadata, scope and tab-survival per target. Do not publish individual source records, national IDs, names, Bearer, Web App HMAC, signatures or complete payloads.
 
 **PASS:** All three reference tabs reconcile, all security switches OFF, required provider authorization exists, and no residual unknown or partial write. Close Issue #53 only then.
 

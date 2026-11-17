@@ -1,4 +1,4 @@
-name: Node.js 24 offline checks
+name: Node.js 26 offline checks
 
 on:
   pull_request:
@@ -9,15 +9,19 @@ permissions:
 
 jobs:
   schema-smoke:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 5
     steps:
       - name: Checkout proposed changes
         uses: actions/checkout@v4
-      - name: Set up Node.js 24
+      - name: Set up Node.js 26
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '26'
       - name: Verify runtime
         run: node --version
       - name: Run offline schema tests

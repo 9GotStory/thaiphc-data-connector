@@ -174,3 +174,54 @@ test('F010 chunk plans own immutable copies of row data and manifest arrays',()=
  assert.throws(()=>{p.chunks[0].rows[0].key='OTHER';},TypeError);
  assert.throws(()=>{p.runFingerprint.chunkDigests[0]='0'.repeat(64);},TypeError);
 });
+
+test('F010 exact destination and switch rejections expose only safe codes and still stop without retry',async()=>{
+ for(const status of ['REPORT_DESTINATION_NOT_CONFIGURED','INGRESS_DISABLED','WRITE_DISABLED','PERSON_DATA_WRITE_DISABLED','AUTH_FAILED']){
+  const p=plan(1);let calls=0;
+  const result=await sendExtendedReport({plan:p,keyB64:key,acknowledgement:extendedCommitPhrase(p),
+   fetchImpl:async()=>{calls++;return new Response(JSON.stringify({
+    protocol:'THAIPHC_SYNC_V1',status,accepted:false,sheetsWrites:0,
+    ...(status==='REPORT_DESTINATION_NOT_CONFIGURED'?{endpoint:p.endpoint,runId:p.runId}:{})
+   }),{headers:{'content-type':'application/json'}});}
+  });
+  assert.equal(result.status,'STAGE_OUTCOME_UNKNOWN_STOP');assert.equal(result.receiverStatus,status);
+  assert.equal(result.accepted,false);assert.equal(calls,1);assert.equal(result.stage,'start');
+  assert.equal((await sendExtendedReport({plan:p,keyB64:key,acknowledgement:extendedCommitPhrase(p),
+   fetchImpl:async()=>{calls++;throw Error('MUST_NOT_RETRY')}})).status,'TRANSFER_ALREADY_ATTEMPTED');
+  assert.equal(calls,1);
+ }
+});
+
+test('F010 untrusted rejection fields, identities and statuses are never echoed as diagnostics',async()=>{
+ for(const mutate of [
+  r=>{r.privateValue='PRIVATE_NOT_FOR_OUTPUT'},r=>{r.endpoint='PRIVATE_ENDPOINT'},
+  r=>{r.runId='PRIVATE_RUN'},r=>{r.accepted='false'},r=>{r.sheetsWrites=1},
+  r=>{r.status='PRIVATE_STATUS'},r=>{r.rowCount=0}
+ ]){
+  const p=plan(1);
+  const result=await sendExtendedReport({plan:p,keyB64:key,acknowledgement:extendedCommitPhrase(p),
+   fetchImpl:async()=>{
+    const r={protocol:'THAIPHC_SYNC_V1',status:'REPORT_DESTINATION_NOT_CONFIGURED',
+     accepted:false,sheetsWrites:0,endpoint:p.endpoint,runId:p.runId};mutate(r);
+    return new Response(JSON.stringify(r),{headers:{'content-type':'application/json'}});
+   }});
+  assert.equal(result.status,'STAGE_OUTCOME_UNKNOWN_STOP');assert.equal(result.receiverStatus,undefined);
+  assert.doesNotMatch(JSON.stringify(result),/PRIVATE_/);
+ }
+});
+
+test('F010 a destination rejection after staging starts retains reconciliation and never finalizes',async()=>{
+ const p=plan(),f=fixture(p);
+ const result=await sendExtendedReport({plan:p,keyB64:key,acknowledgement:extendedCommitPhrase(p),
+  fetchImpl:async(url,options)=>{
+   if(f.posts===0)return f.fetchImpl(url,options);
+   const b=JSON.parse(Buffer.from(JSON.parse(options.body).payloadB64,'base64').toString('utf8'));
+   return new Response(JSON.stringify({protocol:'THAIPHC_SYNC_V1',status:'REPORT_DESTINATION_NOT_CONFIGURED',
+    accepted:false,sheetsWrites:0,endpoint:p.endpoint,runId:p.runId,ordinal:b.ordinal,rowCount:b.rowCount}),
+    {headers:{'content-type':'application/json'}});
+  }});
+ assert.equal(result.status,'STAGE_OUTCOME_UNKNOWN_STOP');assert.equal(result.receiverStatus,'REPORT_DESTINATION_NOT_CONFIGURED');
+ assert.equal(result.stage,'chunk');assert.equal(result.ordinal,1);assert.equal(result.appsScriptPosts,2);
+ assert.equal(result.recoveryStrategy,'READBACK_AND_RECONCILE_NO_AUTOMATIC_RETRY');
+ assert.deepEqual(f.sent,['report-start']);
+});

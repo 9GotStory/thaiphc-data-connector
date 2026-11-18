@@ -13,7 +13,7 @@ const manifest=readFileSync(new URL('../apps-script/appsscript.json',import.meta
 const updater=readFileSync(new URL('../scripts/update-f010-existing-v3-final.ps1',import.meta.url),'utf8');
 test('F010 existing-V3 updater pins ALL THREE exact reviewed files and approved prior preimage',()=>{
  assert.equal(blob(code),'e542d585d4d4840836c9f1114ac350081ebe5952');
- assert.equal(blob(report),'16915ad2164a3dc9d78f5820a1b042c2150cc663');
+ assert.equal(blob(report),'1ae3b44d4c676242e43886324a6757c01e87b981');
  assert.equal(blob(manifest),'a8134a3237b2dce1f54ce16a943fbe3e232ce436');
  for(const pin of [
   "oldCodeBlob='f7d878389fe46cfde8619f75a1f9746f45b469a3'",
@@ -23,7 +23,11 @@ test('F010 existing-V3 updater pins ALL THREE exact reviewed files and approved 
  ])assert.ok(updater.includes(pin),pin);
  assert.ok(updater.includes("observedCodeBlob='abc71275ab30dca1f57d1d0e33b8c2773452a194'"));
  assert.ok(updater.includes("observedManifestBlob='e686fbcd6e758a24247f41ec3dac455abfe30ffc'"));
- assert.ok(updater.includes("[ValidateSet('F009_REVIEWED','EXISTING_V3_20261117')]"));
+ assert.ok(updater.includes("[ValidateSet('F009_REVIEWED','EXISTING_V3_20261117','F010_V4_20261117')]"));
+ assert.ok(updater.includes("observedReportBlob='16915ad2164a3dc9d78f5820a1b042c2150cc663'"));
+ assert.ok(updater.includes('-cne $observedReportBlob'));
+ assert.ok(updater.includes('$expectedFileCount=if($isReportBaseline){3}else{2}'));
+ assert.ok(updater.includes('Remote V4 report source is NOT the exact nullable-name predecessor. STOP.'));
  assert.ok(updater.includes('-cne $expectedRemoteCodeBlob'));
  assert.ok(updater.includes('-cne $expectedRemoteManifestBlob'));
  assert.doesNotMatch(updater,/Copy-Item\s+-LiteralPath\s+\$manifest\s+-Destination\s+\$remoteManifest/);

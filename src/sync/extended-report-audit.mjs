@@ -74,7 +74,7 @@ export function auditExtendedSnapshot(endpoint,pages,manifest,{smallCellThreshol
     smallCellThreshold>20)throw Error('EXTENDED_AUDIT_ARGUMENT_INVALID');
  const fields=new Map(d.fields.map(f=>[f.source_field,f]));
  const restricted=d.fields.filter(f=>f.pii_policy==='RESTRICTED_DEFAULT_OMIT').map(f=>f.source_field);
- const seen=new Set(),issues=Object.create(null);
+ const seen=new Set(),issues=Object.create(null),typeIssues=new Map();
  let total=null,rows=0,smallCells=0,geographyIssues=0,restrictedFieldInstances=0;
  const flag=x=>{issues[x]=(issues[x]??0)+1;};
  for(const [i,page] of pages.entries()){
@@ -101,7 +101,16 @@ export function auditExtendedSnapshot(endpoint,pages,manifest,{smallCellThreshol
    }
    for(const f of d.fields){
     if(!has(row,f.source_field))continue; // absent stays distinct from null
-    if(!validValue(row[f.source_field],f.observed_kind))flag('SOURCE_TYPE_CHANGED');
+    if(!validValue(row[f.source_field],f.observed_kind)){
+     flag('SOURCE_TYPE_CHANGED');
+     const value=row[f.source_field];
+     const observedType=value===null?'null':Array.isArray(value)?'array':typeof value;
+     const key=f.source_field+'\u0000'+observedType;
+     if(!typeIssues.has(key))typeIssues.set(key,{
+      field:f.source_field,expectedKind:f.observed_kind,observedType,count:0
+     });
+     typeIssues.get(key).count++;
+    }
     if(f.pii_policy==='RESTRICTED_DEFAULT_OMIT'&&
        row[f.source_field]!==null)restrictedFieldInstances++;
    }
@@ -137,7 +146,7 @@ export function auditExtendedSnapshot(endpoint,pages,manifest,{smallCellThreshol
  };
  const problems=Object.keys(issues);
  if(problems.length)return status(endpoint,'SCHEMA_OR_SCOPE_REVIEW_REQUIRED',
-  {...stats,issueCounts:issues});
+  {...stats,issueCounts:issues,sourceTypeIssues:[...typeIssues.values()]});
  if(endpoint==='volunteer-family')
   return status(endpoint,'UNVERIFIED_RELATION_KEY_WRITE_HOLD',stats);
  if(endpoint==='volunteer-gender')

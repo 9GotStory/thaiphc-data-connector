@@ -87,6 +87,58 @@ test('F010 family cannot be upserted without stable relation-row key; inconsiste
  assert.equal(check('volunteer-family',wrong).status,'SCHEMA_OR_SCOPE_REVIEW_REQUIRED');
  assert.equal(check('volunteer-family',wrong).geographyIssues,1);
 });
+
+test('F010 source type diagnostics count allowlisted fields and types without exposing values',()=>{
+ const ps=pages('assignments',11);
+ ps[0].items[0].isActive='SECRET_SOURCE_VALUE';
+ ps[0].items[1].isActive='ANOTHER_PRIVATE_VALUE';
+ ps[1].items[0].prefixNameEn=null;
+ const out=check('assignments',ps);
+ assert.equal(out.status,'SCHEMA_OR_SCOPE_REVIEW_REQUIRED');
+ assert.equal(out.issueCounts.SOURCE_TYPE_CHANGED,3);
+ assert.deepEqual(out.sourceTypeIssues,[
+  {field:'isActive',expectedKind:'boolean',observedType:'string',count:2},
+  {field:'prefixNameEn',expectedKind:'string',observedType:'null',count:1}
+ ]);
+ assert.equal(out.writeAuthorized,false);
+ assert.equal(out.appsScriptPosts,0);
+ assert.equal(out.sheetsWrites,0);
+ assert.doesNotMatch(JSON.stringify(out),/SECRET_SOURCE|ANOTHER_PRIVATE|FAKE_RECORD_/);
+});
+
+test('F010 assignments accepts the observed full-snapshot mix of 64 string and 1507 null village names',()=>{
+ const ps=pages('assignments',1571);
+ let i=0;
+ for(const page of ps)for(const r of page.items)r.villageName=i++<64?'SYNTHETIC_VILLAGE':null;
+ const out=check('assignments',ps);
+ assert.equal(out.status,'PERSON_DATA_STORAGE_APPROVAL_REQUIRED');
+ assert.equal(out.pagesChecked,158);assert.equal(out.rowsChecked,1571);
+ assert.equal(out.geographyIssues,0);assert.equal(out.stableIdentityVerified,true);
+ assert.equal(out.writeAuthorized,false);assert.equal(out.appsScriptPosts,0);
+ assert.doesNotMatch(JSON.stringify(out),/SYNTHETIC_VILLAGE|FAKE_RECORD_/);
+});
+
+test('F010 assignments nullable village names still reject other types and unsafe text',()=>{
+ for(const value of [3,true,{},[], '=SYNTHETIC_FORMULA', 'bad\ntext']){
+  const ps=pages('assignments',1);ps[0].items[0].villageName=value;
+  const out=check('assignments',ps);
+  assert.equal(out.status,'SCHEMA_OR_SCOPE_REVIEW_REQUIRED');
+  assert.equal(out.issueCounts.SOURCE_TYPE_CHANGED,1);
+  assert.equal(out.sourceTypeIssues[0].field,'villageName');
+  assert.equal(out.sourceTypeIssues[0].expectedKind,'string_or_null');
+  assert.equal(out.appsScriptPosts,0);assert.equal(out.sheetsWrites,0);
+ }
+});
+
+test('F010 unknown source field names remain private in enhanced diagnostics',()=>{
+ const ps=pages('assignments',1);
+ ps[0].items[0]['SECRET_PERSON_AS_FIELD_NAME']='SECRET_PERSON_AS_VALUE';
+ const out=check('assignments',ps);
+ assert.equal(out.status,'SCHEMA_OR_SCOPE_REVIEW_REQUIRED');
+ assert.equal(out.issueCounts.UNEXPECTED_SOURCE_FIELD,1);
+ assert.deepEqual(out.sourceTypeIssues,[]);
+ assert.doesNotMatch(JSON.stringify(out),/SECRET_PERSON/);
+});
 test('F010 gender report flags small cells and preserves aggregate privacy gate',()=>{
  const noCell=check('volunteer-gender',pages('volunteer-gender',1));
  assert.equal(noCell.status,'AGGREGATE_STORAGE_APPROVAL_REQUIRED');

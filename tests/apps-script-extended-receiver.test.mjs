@@ -84,12 +84,13 @@ function setup(h,{person=true,dest=privateId}={}){
  h.props.set('THAIPHC_REPORT_SPREADSHEET_ID',dest);
  if(person)h.props.set('THAIPHC_PERSON_DATA_WRITE_ENABLED','true');
 }
-function plan(api='assignments',count=27){
+function plan(api='assignments',count=27,villageNames=null){
  const fieldsSpec=manifest.datasets.find(d=>d.api===api).fields
   .filter(f=>f.pii_policy==='ALLOW_ONLY_IF_DATASET_APPROVED');
  const fields=fieldsSpec.map(f=>f.column);
  const values=i=>Object.fromEntries(fieldsSpec.map(f=>[
-  f.column,f.observed_kind==='null_only'?null:
+  f.column,f.column==='villageName'&&villageNames?villageNames[i]:
+   f.observed_kind==='null_only'?null:
    f.observed_kind==='boolean'?true:
    ['male','female'].includes(f.column)?6:
    f.column==='total'?12:
@@ -163,6 +164,32 @@ test('F010 staging 27 rows cannot publish before every signed chunk is present',
  assert.equal(temp.hidden,false);
  assert.equal(h.original.size,1);assert.equal(h.original.get('ชีต1').getLastRow(),0);
 });
+test('F010 assignments publishes mixed null and string village names without changing reference tabs',()=>{
+ const h=harness();setup(h,{dest:originalId});
+ h.props.set('THAIPHC_SAME_WORKBOOK_APPROVAL','OWNER_ONLY_5406_APPROVED');
+ const p=plan('assignments',2,[null,'SYNTHETIC_VILLAGE']);
+ assert.equal(h.post(batch(p,'report-start')).status,'REPORT_STARTED');
+ assert.equal(h.post(batch(p,'report-chunk',p.chunks[0])).status,'REPORT_CHUNK_STAGED');
+ assert.equal(h.post(batch(p,'report-finalize')).status,'REPORT_FINALIZED');
+ const tab=[...h.original.values()].find(s=>s.name.startsWith('RAssign_'));
+ const col=p.destinationFields.indexOf('villageName')+1;
+ assert.equal(tab.data[2][col],'');
+ assert.equal(tab.data[3][col],'SYNTHETIC_VILLAGE');
+ assert.equal(JSON.parse(tab.data[2].at(-1)).values.villageName,null);
+ assert.equal(h.original.get('_ThaiPHCReportCurrent').data[1][4],p.manifestDigest);
+ assert.equal(h.original.get('ชีต1').getLastRow(),0);
+ assert.equal(h.restricted.size,0);
+});
+
+test('F010 assignments nullable village name receiver still rejects numeric and boolean values',()=>{
+ for(const value of [7,true]){
+  const h=harness();setup(h);const p=plan('assignments',1,[value]);
+  assert.equal(h.post(batch(p,'report-start')).status,'REPORT_STARTED');
+  assert.equal(h.post(batch(p,'report-chunk',p.chunks[0])).status,'REJECTED');
+  assert.equal(h.restricted.has('_ThaiPHCReportCurrent'),false);
+ }
+});
+
 test('F010 tampering one staged cell prevents digest-validated publication',()=>{
  const h=harness();setup(h);const p=plan('assignments',2);
  h.post(batch(p,'report-start'));

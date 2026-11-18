@@ -68,7 +68,7 @@ const THAIPHC_REPORT_SCHEMAS = {
       "string",
       "string",
       "string",
-      "null_only",
+      "string_or_null",
       "boolean",
       "string",
       "string",

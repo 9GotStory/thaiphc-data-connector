@@ -30,6 +30,8 @@ Run `npm.cmd run cli -- release-plan` to view the offline F010 checklist: all 11
 
 For a failed stage, see [receiver rejection diagnostics](docs/f010-receiver-rejection-diagnostics.md). An allowlisted `receiverStatus` explains configuration/switch/authentication rejections while preserving STOP, no-retry and independent-readback requirements.
 
+The [Assignments nullable village-name correction](docs/f010-assignments-nullable-village-name.md) aligns the source and receiver with the operator's full audit: `villageName` may be safe text or null. Updating an already deployed three-file V4 requires the exact `F010_V4_20261117` updater baseline before another report import.
+
 ## Source API coverage
 8 documented endpoints, in [docs/api-inventory.md](docs/api-inventory.md), with observed field schemas under [docs/schemas/](docs/schemas/).
 

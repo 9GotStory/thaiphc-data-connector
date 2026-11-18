@@ -60,6 +60,17 @@ test('F010 person pseudonyms are deterministic HMAC identities, not raw UUID or 
  const c=make('resigned-volunteers');
  assert.notEqual(a.rows[0].key,c.rows[0].key); // domain separation by endpoint
 });
+
+test('F010 assignments projection preserves null and text village names while omitting person identifiers',()=>{
+ const ps=pages('assignments',2);
+ ps[0].items[0].villageName=null;
+ ps[0].items[1].villageName='SYNTHETIC_VILLAGE';
+ const out=make('assignments',{pages:ps});
+ assert.equal(out.rows[0].values.villageName,null);
+ assert.equal(out.rows[1].values.villageName,'SYNTHETIC_VILLAGE');
+ assert.match(out.rows[0].key,/^h1_[a-f0-9]{64}$/);
+ assert.doesNotMatch(JSON.stringify(out),/SECRET_UUID|SECRET_CITIZEN|SECRET_FIRSTNAME/);
+});
 test('F010 family never invents a permanent unique relationship key',()=>{
  const a=make('volunteer-family'),b=make('volunteer-family',{runId:'feature010-run-2'});
  assert.equal(a.sourceIdentityStrategy,'RUN_SCOPED_SNAPSHOT_ORDINAL_NO_UPSERT');

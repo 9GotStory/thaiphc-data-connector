@@ -4,6 +4,19 @@
 > **ขอบเขต:** บันทึกเฉพาะ Endpoint, Query Parameters, โครงสร้าง Response และชนิดข้อมูลที่สังเกต **ไม่ใช่เอกสารสัญญา API อย่างเป็นทางการ**  
 > **การคุ้มครองข้อมูล:** ต้นฉบับมีชื่อ-นามสกุลและเลขประจำตัวประชาชนจริง เอกสารนี้ **ไม่คัดลอกค่าระบุตัวบุคคล** ตัวอย่างด้านล่างใช้ข้อความแทนเท่านั้น
 
+### Full-audit correction — 2026-11-18
+
+The operator supplied the redacted aggregate result of a read-only audit of all
+158 pages / 1,571 rows. It reported no geography issues or duplicate candidate
+keys. The only type issue was `villageName`: 64 values were strings, while the
+first-page observation had treated this field as null-only. The other 1,507
+values were null. The source manifest and private receiver now accept only
+safe text or null for this one field, preserving both forms. The eight existing
+restricted source fields remain omitted, and source validation, HMAC pseudonyms,
+write switches, staging digests and independent readback remain required.
+No raw response or person value was retained as evidence. This observation does
+not claim that the corrected receiver is deployed or that Assignments is imported.
+
 ## 1. HTTP Endpoint และ Authentication
 
 | รายการ | ค่า |
@@ -82,7 +95,7 @@
 | `subdistrictCode` | string | `"540603"` | รหัสตำบล 6 หลัก เป็นข้อความ |
 | `subdistrictNameTh` | string | `"ห้วยหม้าย"` | ชื่อตำบล |
 | `villageNo` | string | `"7"`, `"16"` | เลขหมู่ **เป็น string** แม้เป็นค่าตัวเลข |
-| `villageName` | null (10/10) | `null` | ยังไม่ทราบชนิดเมื่อไม่เป็น `null` |
+| `villageName` | string \| null | `null` / `[SYNTHETIC_VILLAGE]` | หน้าแรกเดิม null 10/10; full audit 2026-11-18 พบ string 64 และ null 1507 |
 | `isActive` | boolean | `true` | พบ `true` ทั้ง 10 ตัวอย่าง; ยังไม่ยืนยันว่ามี `false` หรือไม่ |
 | `status` | string | `"ใช้งาน"` | พบค่าเดียวในตัวอย่าง |
 | `osmStatus` | string | `""` | เป็น empty string ไม่ใช่ `null`; พบค่าเดียวในตัวอย่าง |

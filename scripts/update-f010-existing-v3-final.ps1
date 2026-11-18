@@ -4,7 +4,7 @@
 [CmdletBinding()]
 param(
  [string]$RepoPath='.',
- [ValidateSet('F009_REVIEWED','EXISTING_V3_20261117')]
+ [ValidateSet('F009_REVIEWED','EXISTING_V3_20261117','F010_V4_20261117')]
  [string]$RemoteBaseline='F009_REVIEWED'
 )
 Set-StrictMode -Version Latest
@@ -54,16 +54,22 @@ if ($LASTEXITCODE -ne 0 -or ($dirty -join '').Trim().Length -ne 0){
 # Only this exact F010-reviewed code is allowed. Change pins only after review.
 $oldCodeBlob='f7d878389fe46cfde8619f75a1f9746f45b469a3'
 $newCodeBlob='e542d585d4d4840836c9f1114ac350081ebe5952'
-$newReportBlob='16915ad2164a3dc9d78f5820a1b042c2150cc663'
+$newReportBlob='1ae3b44d4c676242e43886324a6757c01e87b981'
 $manifestBlob='a8134a3237b2dce1f54ce16a943fbe3e232ce436'
 # Independently inspected existing project on 2026-11-17. This exact pair has
 # the older receiver and the existing V3 webapp settings; never drop those.
 $observedCodeBlob='abc71275ab30dca1f57d1d0e33b8c2773452a194'
 $observedManifestBlob='e686fbcd6e758a24247f41ec3dac455abfe30ffc'
-$expectedRemoteCodeBlob=if($RemoteBaseline -ceq 'EXISTING_V3_20261117'){
+# Previously verified three-file V4; active deployment version rechecked 2026-11-18.
+# Its report schema is the exact null-only predecessor of the nullable-name fix.
+$observedReportBlob='16915ad2164a3dc9d78f5820a1b042c2150cc663'
+$isReportBaseline=$RemoteBaseline -ceq 'F010_V4_20261117'
+$expectedRemoteCodeBlob=if($isReportBaseline){
+ $newCodeBlob
+}elseif($RemoteBaseline -ceq 'EXISTING_V3_20261117'){
  $observedCodeBlob
 }else{$oldCodeBlob}
-$expectedRemoteManifestBlob=if($RemoteBaseline -ceq 'EXISTING_V3_20261117'){
+$expectedRemoteManifestBlob=if($isReportBaseline -or $RemoteBaseline -ceq 'EXISTING_V3_20261117'){
  $observedManifestBlob
 }else{$manifestBlob}
 if((Git-One -ArgsList @('hash-object','--',$code)) -cne $newCodeBlob -or
@@ -118,9 +124,13 @@ try {
  $names=@($pulled | ForEach-Object {
   $_.FullName.Substring($stage.Length).TrimStart([char]'\',[char]'/')
  })
- if($names.Count -ne 2 -or
+ $expectedFileCount=if($isReportBaseline){3}else{2}
+ $reportName=if($names -ccontains 'ReportReceiver.gs'){'ReportReceiver.gs'}
+  elseif($names -ccontains 'ReportReceiver.js'){'ReportReceiver.js'}else{$null}
+ if($names.Count -ne $expectedFileCount -or
     -not($names -ccontains 'appsscript.json') -or
-    (-not($names -ccontains 'Code.gs') -and -not($names -ccontains 'Code.js'))){
+    (-not($names -ccontains 'Code.gs') -and -not($names -ccontains 'Code.js')) -or
+    ($isReportBaseline -and $null -eq $reportName)){
   throw 'Pulled remote project contains unexpected sources. No push.'
  }
  $codeName=if($names -ccontains 'Code.gs'){'Code.gs'}else{'Code.js'}
@@ -130,12 +140,19 @@ try {
     (Git-One -ArgsList @('hash-object','--',$remoteManifest)) -cne $expectedRemoteManifestBlob){
   throw 'Remote V3 source is NOT the expected preimage. STOP; reconcile.'
  }
+ if($isReportBaseline -and
+    (Git-One -ArgsList @('hash-object','--',(Join-Path $stage $reportName))) -cne $observedReportBlob){
+  throw 'Remote V4 report source is NOT the exact nullable-name predecessor. STOP.'
+ }
  if($codeName -cne 'Code.gs'){
   Remove-Item -LiteralPath $remoteCode -Force -ErrorAction Stop
  }
+ if($isReportBaseline -and $reportName -cne 'ReportReceiver.gs'){
+  Remove-Item -LiteralPath (Join-Path $stage $reportName) -Force -ErrorAction Stop
+ }
  Copy-Item -LiteralPath $code -Destination (Join-Path $stage 'Code.gs') -Force
  Copy-Item -LiteralPath $report -Destination (Join-Path $stage 'ReportReceiver.gs') -Force
- # Both allowed baselines pin an exact manifest. Keep its original bytes so
+ # Every allowed baseline pins an exact manifest. Keep its original bytes so
  # executeAs/access are not silently reset during the versioned V3 update.
  if((Git-One -ArgsList @('hash-object','--',(Join-Path $stage 'Code.gs'))) -cne $newCodeBlob -or
     (Git-One -ArgsList @('hash-object','--',(Join-Path $stage 'ReportReceiver.gs'))) -cne $newReportBlob -or

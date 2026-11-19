@@ -4,7 +4,7 @@
 [CmdletBinding()]
 param(
  [string]$RepoPath='.',
- [ValidateSet('F009_REVIEWED','EXISTING_V3_20261117','F010_V4_20261117','F010_V5_20261119')]
+ [ValidateSet('F009_REVIEWED','EXISTING_V3_20261117','F010_V4_20261117','F010_V5_20261119','F010_V6_20261119')]
  [string]$RemoteBaseline='F009_REVIEWED'
 )
 Set-StrictMode -Version Latest
@@ -54,17 +54,19 @@ if ($LASTEXITCODE -ne 0 -or ($dirty -join '').Trim().Length -ne 0){
 # Only this exact F010-reviewed code is allowed. Change pins only after review.
 $oldCodeBlob='f7d878389fe46cfde8619f75a1f9746f45b469a3'
 $newCodeBlob='e542d585d4d4840836c9f1114ac350081ebe5952'
-$newReportBlob='550cc3852decbfdb5bd5115498c20ab65863d47c'
+$newReportBlob='bf7003fb1628b336188b2eebde3668c5d8d92f77'
 $manifestBlob='a8134a3237b2dce1f54ce16a943fbe3e232ce436'
 # Independently inspected existing project on 2026-11-17. This exact pair has
 # the older receiver and the existing V3 webapp settings; never drop those.
 $observedCodeBlob='abc71275ab30dca1f57d1d0e33b8c2773452a194'
 $observedManifestBlob='e686fbcd6e758a24247f41ec3dac455abfe30ffc'
 # Verified report sources from the previous deployments.
-$observedReportBlob=if($RemoteBaseline -ceq 'F010_V5_20261119'){
- '1ae3b44d4c676242e43886324a6757c01e87b981'
-}else{'16915ad2164a3dc9d78f5820a1b042c2150cc663'}
-$isReportBaseline=$RemoteBaseline -cin @('F010_V4_20261117','F010_V5_20261119')
+$observedReportBlob=switch -CaseSensitive ($RemoteBaseline){
+ 'F010_V4_20261117' {'16915ad2164a3dc9d78f5820a1b042c2150cc663'}
+ 'F010_V5_20261119' {'1ae3b44d4c676242e43886324a6757c01e87b981'}
+ 'F010_V6_20261119' {'550cc3852decbfdb5bd5115498c20ab65863d47c'}
+}
+$isReportBaseline=$null -ne $observedReportBlob
 $expectedRemoteCodeBlob=if($isReportBaseline){
  $newCodeBlob
 }elseif($RemoteBaseline -ceq 'EXISTING_V3_20261117'){

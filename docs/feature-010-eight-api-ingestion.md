@@ -35,7 +35,7 @@ Original `ThaiPHC Data` workbook: `Subdistricts` 8, `Villages` 85 and `HealthSer
 | `resigned-volunteers` | 1,150 | Minimized status/retirement info, HMAC pseudonym; no direct identifiers | Complete versioned snapshot |
 | `volunteer-tenure` | 1,571 | Minimized duration/year/geography, HMAC pseudonym; no direct identifiers | Complete versioned snapshot |
 
-The historical counts are not live source authority. Source data may change. In particular the supplied Family source sample contains geographic mismatches and no unique relation key; the audit will **STOP** instead of silently deleting/fixing them. That is a genuine source-quality/approval gate at final UAT, not a reason to invent identity semantics.
+The historical counts are not live source authority. For Family and Resigned Volunteers, the audit validates each row's province and district and counts discrepancies among the source locality fields. The complete snapshots retain the original locality values. Family still has no verified unique relation key.
 
 ## Security, limitations and final UAT
 
@@ -45,6 +45,6 @@ The historical counts are not live source authority. Source data may change. In 
 - No automatic deletion: the owner decides retention, legal purpose, access and cleanup for superseded snapshot tabs. Do not assert that merely having a Bearer token proves retention approval.
 - Old legacy update script is intentionally pinned to earlier receiver blobs, and is **not suitable for F010**. The new F010 updater verifies all three reviewed file blobs; no new deployment ID is created.
 - Draft code and successful mock CI do **not** mean the updated V3 is live or all five reports have been persisted/accepted. Real Google access, private destination setup, data-owner controls and independent verification occur **once at final UAT**.
-- **[One final UAT runbook](f010-one-final-uat.md)** is the canonical procedure. If the Family source still includes incompatible geographic relations, UAT remains HOLD until that source/owner decision is resolved.
+- **[One final UAT runbook](f010-one-final-uat.md)** is the canonical procedure for scope checks, importing complete snapshots and independent readback.
 
 **Release status:** PR #65 is merged in main at `e1ae9596b71cbe4fe95ab26666bc62cd2516e594`. The Node 26 release follow-up still requires reviewed CI and the separate live execution gate; do not deploy or change Script Properties during development. Issue #64 closes only after the independent final eight-dataset acceptance.

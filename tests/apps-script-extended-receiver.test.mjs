@@ -280,18 +280,38 @@ test('F010 gender 0 male + 12 female is valid; unsuppressed nonzero count 1 rema
  tooSmall.digest=createHash('sha256').update(JSON.stringify(tooSmall.rows)).digest('hex');
  assert.equal(h.post(tooSmall).status,'REJECTED');
 });
-test('F010 private receiver blocks invalid province or village-subdistrict mismatch even with signed batch',()=>{
- for(const invalid of [
-  values=>{values.provinceCode='53'},
-  values=>{values.villageCode='540602001'}
+test('F010 receiver enforces province and district and retains tenure village validation',()=>{
+ for(const [endpoint,invalid] of [
+  ['volunteer-family',values=>{values.provinceCode='53'}],
+  ['resigned-volunteers',values=>{values.districtCode='5403'}],
+  ['volunteer-tenure',values=>{values.villageCode='540602001'}]
  ]){
-  const h=harness();setup(h);const p=plan('volunteer-family',1);
+  const h=harness();setup(h);const p=plan(endpoint,1);
   assert.equal(h.post(batch(p,'report-start')).status,'REPORT_STARTED');
   const forged=structuredClone(batch(p,'report-chunk',p.chunks[0]));
   invalid(forged.rows[0].values);
   forged.digest=createHash('sha256').update(JSON.stringify(forged.rows)).digest('hex');
   assert.equal(h.post(forged).status,'REJECTED');
   assert.equal(h.restricted.has('_ThaiPHCReportCurrent'),false);
+ }
+});
+
+test('F010 family and resigned snapshots carry source locality values through signed publication',()=>{
+ const locality=[
+  {subdistrictCode:'540210',villageCode:'540603006',villageNo:'6'},
+  {subdistrictCode:'540601',villageCode:'540303004',villageNo:'10'}
+ ];
+ for(const endpoint of ['volunteer-family','resigned-volunteers']){
+  const h=harness();setup(h);const p=plan(endpoint,2,null,locality);
+  assert.equal(h.post(batch(p,'report-start')).status,'REPORT_STARTED');
+  assert.equal(h.post(batch(p,'report-chunk',p.chunks[0])).status,'REPORT_CHUNK_STAGED');
+  assert.equal(h.post(batch(p,'report-finalize')).status,'REPORT_FINALIZED');
+  const snapshot=h.restricted.get(h.restricted.get('_ThaiPHCReportCurrent').data[1][2]);
+  for(const [i,fields] of locality.entries()){
+   for(const [field,value] of Object.entries(fields)){
+    assert.equal(snapshot.data[i+2][p.destinationFields.indexOf(field)+1],value);
+   }
+  }
  }
 });
 

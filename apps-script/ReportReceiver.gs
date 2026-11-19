@@ -283,16 +283,20 @@ function tphReportValidate_(b){
    }
    if(row.values.provinceCode!=='54'||row.values.districtCode!=='5406')
     tphRFail_();
-   if(typeof row.values.subdistrictCode!=='string'||
-      !/^54060[1-8]$/.test(row.values.subdistrictCode))
-    tphRFail_();
-   if(typeof row.values.villageCode==='string'){
-    if(!/^54060[1-8]\d{3}$/.test(row.values.villageCode)||
-       row.values.villageCode.slice(0,6)!==row.values.subdistrictCode)
+   // Retain the locality fields supplied for these district-scoped reports.
+   const preserveSourceLocality=b.endpoint==='volunteer-family'||b.endpoint==='resigned-volunteers';
+   if(!preserveSourceLocality){
+    if(typeof row.values.subdistrictCode!=='string'||
+       !/^54060[1-8]$/.test(row.values.subdistrictCode))
       tphRFail_();
-    if(typeof row.values.villageNo==='string'&&
-       String(Number(row.values.villageNo))!==
-       String(Number(row.values.villageCode.slice(6))))tphRFail_();
+    if(typeof row.values.villageCode==='string'){
+     if(!/^54060[1-8]\d{3}$/.test(row.values.villageCode)||
+        row.values.villageCode.slice(0,6)!==row.values.subdistrictCode)
+       tphRFail_();
+     if(typeof row.values.villageNo==='string'&&
+        String(Number(row.values.villageNo))!==
+        String(Number(row.values.villageCode.slice(6))))tphRFail_();
+    }
    }
    if(b.endpoint==='volunteer-gender'){
     if(row.key!==row.values.villageCode||

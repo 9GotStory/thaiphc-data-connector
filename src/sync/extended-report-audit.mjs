@@ -4,8 +4,8 @@
 const ENDPOINTS=Object.freeze({
  'volunteer-gender':{class:'AGGREGATE',key:['provinceCode','districtCode','villageCode'],tab:'VolunteerGender',gate:'ELIGIBLE_AFTER_PRIVACY_REVIEW'},
  assignments:{class:'PERSON',key:['id'],tab:'Assignments',gate:'PERSON_DATA_APPROVAL_REQUIRED'},
- 'volunteer-family':{class:'PERSON_RELATION',key:[],tab:'VolunteerFamily',gate:'PERSON_DATA_APPROVAL_REQUIRED'},
- 'resigned-volunteers':{class:'PERSON',key:['id'],tab:'ResignedVolunteers',gate:'PERSON_DATA_APPROVAL_REQUIRED'},
+ 'volunteer-family':{class:'PERSON_RELATION',key:[],tab:'VolunteerFamily',gate:'PERSON_DATA_APPROVAL_REQUIRED',preserveSourceLocality:true},
+ 'resigned-volunteers':{class:'PERSON',key:['id'],tab:'ResignedVolunteers',gate:'PERSON_DATA_APPROVAL_REQUIRED',preserveSourceLocality:true},
  'volunteer-tenure':{class:'PERSON',key:['id'],tab:'VolunteerTenure',gate:'PERSON_DATA_APPROVAL_REQUIRED'}
 });
 const PAGE_SIZE=10,MAX_PAGES=250,MAX_TOTAL=2500,MAX_FIELDS=32;
@@ -75,7 +75,7 @@ export function auditExtendedSnapshot(endpoint,pages,manifest,{smallCellThreshol
  const fields=new Map(d.fields.map(f=>[f.source_field,f]));
  const restricted=d.fields.filter(f=>f.pii_policy==='RESTRICTED_DEFAULT_OMIT').map(f=>f.source_field);
  const seen=new Set(),issues=Object.create(null),typeIssues=new Map();
- let total=null,rows=0,smallCells=0,geographyIssues=0,restrictedFieldInstances=0;
+ let total=null,rows=0,smallCells=0,geographyIssues=0,localityWarningRows=0,restrictedFieldInstances=0;
  const flag=x=>{issues[x]=(issues[x]??0)+1;};
  for(const [i,page] of pages.entries()){
   const error=checkPage(endpoint,page,i,total);
@@ -88,16 +88,17 @@ export function auditExtendedSnapshot(endpoint,pages,manifest,{smallCellThreshol
    if(row.provinceCode!=='54'||row.districtCode!=='5406'){
     flag('OUT_OF_DISTRICT');geographyIssues++;continue;
    }
-   if(has(row,'subdistrictCode')&&
-      (!/^54060[1-8]$/.test(String(row.subdistrictCode)))){
-    flag('UNVERIFIED_SUBDISTRICT');geographyIssues++;
-   }
-   if(has(row,'villageCode')&&
+   const subdistrictMismatch=has(row,'subdistrictCode')&&!/^54060[1-8]$/.test(String(row.subdistrictCode));
+   const villageMismatch=has(row,'villageCode')&&
       (!/^54060[1-8]\d{3}$/.test(String(row.villageCode))||
-       (endpoint!=='volunteer-family'&&
-        has(row,'subdistrictCode')&&
-        String(row.villageCode).slice(0,6)!==row.subdistrictCode))){
-    flag('GEOGRAPHY_INCONSISTENT');geographyIssues++;
+       (has(row,'subdistrictCode')&&String(row.villageCode).slice(0,6)!==row.subdistrictCode));
+   if(policy.preserveSourceLocality){
+    // The report's explicit province and district define scope. Lower-level
+    // locality fields are recorded by ThaiPHC and retained as supplied.
+    if(subdistrictMismatch||villageMismatch)localityWarningRows++;
+   }else{
+    if(subdistrictMismatch){flag('UNVERIFIED_SUBDISTRICT');geographyIssues++;}
+    if(villageMismatch){flag('GEOGRAPHY_INCONSISTENT');geographyIssues++;}
    }
    for(const f of d.fields){
     if(!has(row,f.source_field))continue; // absent stays distinct from null
@@ -137,7 +138,7 @@ export function auditExtendedSnapshot(endpoint,pages,manifest,{smallCellThreshol
   return status(endpoint,'INCOMPLETE_SNAPSHOT',{pagesChecked:pages.length,reportedTotal:total,rowsChecked:rows});
  const stats={
   pagesChecked:pages.length,reportedTotal:total,rowsChecked:rows,
-  smallCellRows:smallCells,geographyIssues,
+  smallCellRows:smallCells,geographyIssues,localityWarningRows,
   restrictedColumnsOmittedByDefault:restricted,
   restrictedFieldInstancesObserved:restrictedFieldInstances,
   stableIdentityVerified:policy.key.length>0,

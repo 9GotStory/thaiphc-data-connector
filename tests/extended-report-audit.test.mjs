@@ -94,25 +94,29 @@ test('F010 tenure accepts the observed nullable fields and keeps rejecting inval
   assert.equal(check('volunteer-tenure',ps).issueCounts.SOURCE_TYPE_CHANGED,1);
  }
 });
-test('F010 resigned nullable reasons still stop when village geography is inconsistent',()=>{
+test('F010 resigned reports keep in-district rows with mismatched source locality',()=>{
  const ps=pages('resigned-volunteers',2);
  ps[0].items[0].retirementReason=null;
  assert.equal(check('resigned-volunteers',ps).status,'PERSON_DATA_STORAGE_APPROVAL_REQUIRED');
  ps[0].items[0].villageCode='540303004';
  ps[0].items[1].villageCode='540602001';
  const result=check('resigned-volunteers',ps);
- assert.equal(result.status,'SCHEMA_OR_SCOPE_REVIEW_REQUIRED');
- assert.equal(result.issueCounts.GEOGRAPHY_INCONSISTENT,2);
- assert.equal(result.issueCounts.SOURCE_TYPE_CHANGED,undefined);
+ assert.equal(result.status,'PERSON_DATA_STORAGE_APPROVAL_REQUIRED');
+ assert.equal(result.localityWarningRows,2);
+ ps[0].items[0].districtCode='5403';
+ assert.equal(check('resigned-volunteers',ps).issueCounts.OUT_OF_DISTRICT,1);
 });
-test('F010 family cannot be upserted without stable relation-row key; inconsistent geography is not silently repaired',()=>{
+test('F010 family preserves source locality with full-snapshot identity and requires district 5406',()=>{
  const good=check('volunteer-family',pages('volunteer-family',1));
  assert.equal(good.status,'UNVERIFIED_RELATION_KEY_WRITE_HOLD');
  assert.equal(good.stableIdentityVerified,false);
  const wrong=pages('volunteer-family',1);
  wrong[0].items[0].villageCode='540303004';
- assert.equal(check('volunteer-family',wrong).status,'SCHEMA_OR_SCOPE_REVIEW_REQUIRED');
- assert.equal(check('volunteer-family',wrong).geographyIssues,1);
+ wrong[0].items[0].subdistrictCode='540210';
+ assert.equal(check('volunteer-family',wrong).status,'UNVERIFIED_RELATION_KEY_WRITE_HOLD');
+ assert.equal(check('volunteer-family',wrong).localityWarningRows,1);
+ wrong[0].items[0].districtCode='5403';
+ assert.equal(check('volunteer-family',wrong).issueCounts.OUT_OF_DISTRICT,1);
 });
 
 test('F010 source type diagnostics count allowlisted fields and types without exposing values',()=>{

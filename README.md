@@ -16,7 +16,7 @@ The existing original `ThaiPHC Data` Sheet has **111 independently accepted refe
 
 Personal reports must be **minimized** and sent into a **restricted Google Sheets workbook**; hiding a tab does not restrict who can read it. A separate workbook is the default. The owner explicitly requested the existing workbook on 2026-11-17; reuse is supported only after owner-only sharing is verified and `THAIPHC_SAME_WORKBOOK_APPROVAL=OWNER_ONLY_5406_APPROVED` is configured. The receiver does not inspect Drive sharing itself; recheck it before each report and do not broaden sharing while reports remain. The receiver still requires `THAIPHC_RECEIVER_ENABLED=true`, `THAIPHC_WRITE_ENABLED=true`, and `THAIPHC_PERSON_DATA_WRITE_ENABLED=true` only in the authorized final window. All three toggles stay **false** during development.
 
-The implementation includes bounded report source reads, privacy filtering/HMAC pseudonyms, 25-row signed staging, digest checks and logical complete-snapshot publication. Family has no verified stable relation-row key, so it uses versioned complete-snapshot replacement **only**, and contradictory source geography causes a safety HOLD pending owner reconciliation. A mocked CI pass does not prove a live V3 deployment or grant data-storage rights.
+The implementation includes bounded report source reads, privacy filtering/HMAC pseudonyms, 25-row signed staging, digest checks and logical complete-snapshot publication. Family uses versioned complete snapshots because no stable relation-row key is verified. In Family and Resigned Volunteers, province and district define the row scope, while locality fields retain the source values and discrepancies appear as audit counts. A mocked CI pass does not prove a live V3 deployment or grant data-storage rights.
 
 **Canonical next-stage documentation:** [Feature 010 implementation](docs/feature-010-eight-api-ingestion.md) · [ONE final 8-API UAT runbook](docs/f010-one-final-uat.md) · [GitHub Issue #64](https://github.com/9GotStory/thaiphc-data-connector/issues/64).
 
@@ -34,6 +34,8 @@ The [Assignments nullable village-name correction](docs/f010-assignments-nullabl
 
 ## Source API coverage
 8 documented endpoints, in [docs/api-inventory.md](docs/api-inventory.md), with observed field schemas under [docs/schemas/](docs/schemas/).
+
+For a direct read, run `node scripts/fetch-thaiphc.mjs volunteer-family`. The command prompts for the ThaiPHC token and prints paginated JSON with the restricted fields omitted. Run `node scripts/fetch-thaiphc.mjs --help` for the other endpoints.
 
 ## Repository layout
 - `docs/schemas/` — 8 **redacted, observation-based** API schema references

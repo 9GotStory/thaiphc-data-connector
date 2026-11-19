@@ -84,7 +84,7 @@ function setup(h,{person=true,dest=privateId}={}){
  h.props.set('THAIPHC_REPORT_SPREADSHEET_ID',dest);
  if(person)h.props.set('THAIPHC_PERSON_DATA_WRITE_ENABLED','true');
 }
-function plan(api='assignments',count=27,villageNames=null){
+function plan(api='assignments',count=27,villageNames=null,rowOverrides=[]){
  const fieldsSpec=manifest.datasets.find(d=>d.api===api).fields
   .filter(f=>f.pii_policy==='ALLOW_ONLY_IF_DATASET_APPROVED');
  const fields=fieldsSpec.map(f=>f.column);
@@ -94,7 +94,7 @@ function plan(api='assignments',count=27,villageNames=null){
    f.observed_kind==='boolean'?true:
    ['male','female'].includes(f.column)?6:
    f.column==='total'?12:
-   f.observed_kind==='integer'?10:
+   ['integer','integer_or_null'].includes(f.observed_kind)?10:
    f.column==='provinceCode'?'54':
    f.column==='districtCode'?'5406':
    f.column==='subdistrictCode'?'540601':
@@ -115,7 +115,7 @@ function plan(api='assignments',count=27,villageNames=null){
   rows:Array.from({length:count},(_,i)=>({key:api==='volunteer-family'?
    'snapshot_test-private-run-1_'+String(i+1).padStart(5,'0'):
    api==='volunteer-gender'?'540601'+String(i+1).padStart(3,'0'):
-   'h1_'+String(i).padStart(64,'0'),values:values(i)})),
+   'h1_'+String(i).padStart(64,'0'),values:{...values(i),...rowOverrides[i]}})),
   writeAuthorized:false,appsScriptPosts:0,sheetsWrites:0
  });
 }
@@ -184,6 +184,39 @@ test('F010 assignments publishes mixed null and string village names without cha
 test('F010 assignments nullable village name receiver still rejects numeric and boolean values',()=>{
  for(const value of [7,true]){
   const h=harness();setup(h);const p=plan('assignments',1,[value]);
+  assert.equal(h.post(batch(p,'report-start')).status,'REPORT_STARTED');
+  assert.equal(h.post(batch(p,'report-chunk',p.chunks[0])).status,'REJECTED');
+  assert.equal(h.restricted.has('_ThaiPHCReportCurrent'),false);
+ }
+});
+
+test('F010 signed reports preserve nullable numbers and text through publication',()=>{
+ const scenarios=[
+  ['volunteer-tenure','RTenure_',[
+   {startYear:null,tenureYears:null,osmYear:null,approvalDate:null,retirementDate:'2026-01-02',retirementReason:'synthetic',osmStatus:null},
+   {startYear:2545,tenureYears:0,osmYear:2545,approvalDate:'2025-12-17',retirementDate:null,retirementReason:null,osmStatus:''}
+  ]],
+  ['resigned-volunteers','RResign_',[{retirementReason:null},{retirementReason:'synthetic'}]]
+ ];
+ for(const [endpoint,prefix,rows] of scenarios){
+  const h=harness();setup(h);
+  const p=plan(endpoint,rows.length,null,rows);
+  assert.equal(h.post(batch(p,'report-start')).status,'REPORT_STARTED');
+  assert.equal(h.post(batch(p,'report-chunk',p.chunks[0])).status,'REPORT_CHUNK_STAGED');
+  assert.equal(h.post(batch(p,'report-finalize')).status,'REPORT_FINALIZED');
+  const snapshot=[...h.restricted.values()].find(tab=>tab.name.startsWith(prefix));
+  for(const [i,overrides] of rows.entries())for(const [field,value] of Object.entries(overrides)){
+   assert.equal(snapshot.data[i+2][p.destinationFields.indexOf(field)+1],value??'');
+   assert.equal(JSON.parse(snapshot.data[i+2].at(-1)).values[field],value);
+  }
+  assert.equal(h.restricted.get('_ThaiPHCReportCurrent').data[1][4],p.manifestDigest);
+ }
+});
+
+test('F010 tenure receiver rejects a coerced string or negative nullable integer',()=>{
+ for(const invalid of ['0',-1]){
+  const h=harness();setup(h);
+  const p=plan('volunteer-tenure',1,null,[{tenureYears:invalid}]);
   assert.equal(h.post(batch(p,'report-start')).status,'REPORT_STARTED');
   assert.equal(h.post(batch(p,'report-chunk',p.chunks[0])).status,'REJECTED');
   assert.equal(h.restricted.has('_ThaiPHCReportCurrent'),false);

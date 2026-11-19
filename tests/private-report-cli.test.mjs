@@ -21,7 +21,7 @@ function record(){
  for(const field of d.fields){
   out[field.source_field]=field.observed_kind==='null_only'?null:
    field.observed_kind==='boolean'?true:
-   field.observed_kind==='integer'?1:'SYNTHETIC';
+   ['integer','integer_or_null'].includes(field.observed_kind)?1:'SYNTHETIC';
  }
  out.id='TEST_PRIVATE_ID_0001';
  out.citizenId='SENSITIVE_ID_NOT_FOR_SHEETS';

@@ -1397,12 +1397,12 @@
         {
           "source_field": "retirementReason",
           "column": "retirementReason",
-          "observed_json_type": "string",
-          "observed_kind": "string",
+          "observed_json_type": "string | null",
+          "observed_kind": "string_or_null",
           "sheet_type": "TEXT",
           "format": "PLAIN_TEXT",
           "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
-          "sample_note": "\"resigned\" · พบ \"resigned\" และ \"died\""
+          "sample_note": "\"resigned\" และ \"died\" ในตัวอย่างเดิม; ตรวจต้นทาง 2026-11-19 พบ null 3 แถว"
         },
         {
           "source_field": "osmStatus",
@@ -1598,8 +1598,8 @@
         {
           "source_field": "startYear",
           "column": "startYear",
-          "observed_json_type": "integer",
-          "observed_kind": "integer",
+          "observed_json_type": "integer | null",
+          "observed_kind": "integer_or_null",
           "sheet_type": "NUMBER",
           "format": "NUMBER",
           "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
@@ -1608,8 +1608,8 @@
         {
           "source_field": "tenureYears",
           "column": "tenureYears",
-          "observed_json_type": "integer",
-          "observed_kind": "integer",
+          "observed_json_type": "integer | null",
+          "observed_kind": "integer_or_null",
           "sheet_type": "NUMBER",
           "format": "NUMBER",
           "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
@@ -1618,8 +1618,8 @@
         {
           "source_field": "osmYear",
           "column": "osmYear",
-          "observed_json_type": "integer",
-          "observed_kind": "integer",
+          "observed_json_type": "integer | null",
+          "observed_kind": "integer_or_null",
           "sheet_type": "NUMBER",
           "format": "NUMBER",
           "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
@@ -1628,8 +1628,8 @@
         {
           "source_field": "approvalDate",
           "column": "approvalDate",
-          "observed_json_type": "string (date YYYY-MM-DD)",
-          "observed_kind": "string",
+          "observed_json_type": "string (date YYYY-MM-DD) | null",
+          "observed_kind": "string_or_null",
           "sheet_type": "TEXT",
           "format": "PLAIN_TEXT",
           "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
@@ -1638,9 +1638,9 @@
         {
           "source_field": "retirementDate",
           "column": "retirementDate",
-          "observed_json_type": "null only",
-          "observed_kind": "null_only",
-          "sheet_type": "UNKNOWN_NULL_ONLY",
+          "observed_json_type": "string | null",
+          "observed_kind": "string_or_null",
+          "sheet_type": "TEXT",
           "format": "PLAIN_TEXT",
           "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
           "sample_note": "null · ทั้ง 10 รายการเป็น null; ยังไม่ทราบชนิดเมื่อมีค่า"
@@ -1648,9 +1648,9 @@
         {
           "source_field": "retirementReason",
           "column": "retirementReason",
-          "observed_json_type": "null only",
-          "observed_kind": "null_only",
-          "sheet_type": "UNKNOWN_NULL_ONLY",
+          "observed_json_type": "string | null",
+          "observed_kind": "string_or_null",
+          "sheet_type": "TEXT",
           "format": "PLAIN_TEXT",
           "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",
           "sample_note": "null · ทั้ง 10 รายการเป็น null; ยังไม่ทราบชนิดเมื่อมีค่า"
@@ -1658,8 +1658,8 @@
         {
           "source_field": "osmStatus",
           "column": "osmStatus",
-          "observed_json_type": "string",
-          "observed_kind": "string",
+          "observed_json_type": "string | null",
+          "observed_kind": "string_or_null",
           "sheet_type": "TEXT",
           "format": "PLAIN_TEXT",
           "pii_policy": "ALLOW_ONLY_IF_DATASET_APPROVED",

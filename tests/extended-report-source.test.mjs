@@ -13,7 +13,7 @@ function item(api,i){
  const d=manifest.datasets.find(x=>x.api===api);
  for(const field of d.fields){
   r[field.source_field]=field.observed_kind==='null_only'?null:
-   field.observed_kind==='integer'?12:
+   ['integer','integer_or_null'].includes(field.observed_kind)?12:
    field.observed_kind==='boolean'?true:'TEST_SYNTHETIC';
  }
  r.provinceCode='54';r.districtCode='5406';

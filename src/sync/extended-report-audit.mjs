@@ -35,10 +35,10 @@ function assertManifest(api,manifest){
  return {policy,d};
 }
 function validValue(value,kind){
- if(value===null)return ['null_only','string_or_null'].includes(kind);
+ if(value===null)return ['null_only','string_or_null','integer_or_null'].includes(kind);
  if(kind==='null_only')return false;
  if(kind==='string'||kind==='string_or_null')return safeString(value);
- if(kind==='integer')return integer(value);
+ if(kind==='integer'||kind==='integer_or_null')return integer(value);
  if(kind==='number')return typeof value==='number'&&Number.isFinite(value);
  if(kind==='boolean')return typeof value==='boolean';
  return false;

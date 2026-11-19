@@ -4,6 +4,8 @@
 > **ขอบเขต:** จดบันทึกเฉพาะ Schema และข้อสังเกตที่ยืนยันได้จากตัวอย่าง ไม่ใช่ API Contract อย่างเป็นทางการ  
 > **ความเป็นส่วนตัว:** ตัวอย่าง JSON ใช้ค่าปกปิดแทนชื่อ ที่อยู่ รหัส อสม. ที่ระบุตัวบุคคล และเลขประจำตัวประชาชนจริง
 
+ผลตรวจต้นทางวันที่ 19 พฤศจิกายน 2569 อ่าน 158 หน้าและหยุดก่อนส่งข้อมูล พบ `null` ใน `startYear`, `tenureYears` และ `osmYear` ฟิลด์ละ 116 ค่า ใน `approvalDate` 94 ค่า และใน `osmStatus` 14 ค่า รวมถึงข้อความใน `retirementDate` 47 ค่าและ `retirementReason` 18 ค่า ตัวตรวจและตัวรับรองรับชนิดที่พบตามตาราง โดยคงเลขศูนย์ ข้อความว่าง และ `null` แยกกันในข้อมูลที่ใช้ตรวจความถูกต้อง
+
 ## 1. Endpoint และ Request
 
 - **HTTP Method:** `GET` (ตามรูปแบบการอ่านข้อมูลใน URL ที่ให้มา)
@@ -48,13 +50,13 @@
 | `osmCode` | `string` | "[REDACTED_OSM_CODE]" | รหัส อสม. เป็นข้อความ |
 | `firstName` | `string` | "[REDACTED]" | ชื่อบุคคล |
 | `lastName` | `string` | "[REDACTED]" | นามสกุลบุคคล |
-| `startYear` | `integer` | 2545 | ปีเริ่มต้นเป็นจำนวนเต็ม; ตัวอย่างใช้ปี พ.ศ. |
-| `tenureYears` | `integer` | 24 | อายุงาน (ปี); ค่าที่ API คำนวณมาให้ |
-| `osmYear` | `integer` | 2545 | ปี อสม. เป็นจำนวนเต็ม; ตัวอย่างใช้ปี พ.ศ. |
-| `approvalDate` | `string (date YYYY-MM-DD)` | "2025-12-17" | วันอนุมัติในรูปแบบวันที่ |
-| `retirementDate` | `null only` | `null` | ทั้ง 10 รายการเป็น `null`; ยังไม่ทราบชนิดเมื่อมีค่า |
-| `retirementReason` | `null only` | `null` | ทั้ง 10 รายการเป็น `null`; ยังไม่ทราบชนิดเมื่อมีค่า |
-| `osmStatus` | `string` | "" | เป็น empty string ไม่ใช่ `null` |
+| `startYear` | `integer` หรือ `null` | 2545 | ปีเริ่มต้น ตัวอย่างใช้ปี พ.ศ. |
+| `tenureYears` | `integer` หรือ `null` | 24 | อายุงาน (ปี) ที่ API คำนวณ |
+| `osmYear` | `integer` หรือ `null` | 2545 | ปี อสม. ตัวอย่างใช้ปี พ.ศ. |
+| `approvalDate` | `string` หรือ `null` | "2025-12-17" | วันอนุมัติ ตัวอย่างเป็นวันที่ YYYY-MM-DD |
+| `retirementDate` | `string` หรือ `null` | `null` | หน้าแรกพบ `null` ทั้ง 10 รายการ ผลตรวจเพิ่มเติมพบข้อความ |
+| `retirementReason` | `string` หรือ `null` | `null` | หน้าแรกพบ `null` ทั้ง 10 รายการ ผลตรวจเพิ่มเติมพบข้อความ |
+| `osmStatus` | `string` หรือ `null` | "" | ค่าว่างและ `null` เป็นคนละค่า |
 | `provinceCode` | `string` | "54" | รหัสจังหวัด; ค่าเป็นข้อความ |
 | `provinceName` | `string` | "แพร่" | ชื่อจังหวัด |
 | `districtCode` | `string` | "5406" | รหัสอำเภอ; ค่าเป็นข้อความ |

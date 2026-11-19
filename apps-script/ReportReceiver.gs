@@ -133,7 +133,7 @@ const THAIPHC_REPORT_SCHEMAS = {
     ],
     "kinds": [
       "string",
-      "string",
+      "string_or_null",
       "string",
       "string",
       "string",
@@ -170,13 +170,13 @@ const THAIPHC_REPORT_SCHEMAS = {
       "villageName"
     ],
     "kinds": [
-      "integer",
-      "integer",
-      "integer",
-      "string",
-      "null_only",
-      "null_only",
-      "string",
+      "integer_or_null",
+      "integer_or_null",
+      "integer_or_null",
+      "string_or_null",
+      "string_or_null",
+      "string_or_null",
+      "string_or_null",
       "string",
       "string",
       "string",
@@ -272,12 +272,13 @@ function tphReportValidate_(b){
     const field=spec.fields[i],v=row.values[field],kind=spec.kinds[i];
     const nullable=(b.endpoint==='volunteer-gender'&&
       ['male','female','total'].includes(field))||
-      kind==='null_only'||kind==='string_or_null';
+      ['null_only','string_or_null','integer_or_null'].includes(kind);
     if(v===null){if(!nullable)tphRFail_();}
     else if(kind==='integer'&&!Number.isSafeInteger(v))tphRFail_();
+    else if(kind==='integer_or_null'&&(!Number.isSafeInteger(v)||v<0))tphRFail_();
     else if(kind==='boolean'&&typeof v!=='boolean')tphRFail_();
     else if((kind==='string'||kind==='string_or_null')&&!tphText_(v))tphRFail_();
-    else if(!['integer','boolean','string','string_or_null'].includes(kind))
+    else if(!['integer','integer_or_null','boolean','string','string_or_null'].includes(kind))
       tphRFail_();
    }
    if(row.values.provinceCode!=='54'||row.values.districtCode!=='5406')
@@ -364,7 +365,7 @@ function tphRHandle_(b,props){
   sheet.setFrozenRows(2);
   // Preserve province, district and village identifiers as plain text.
   for(let c=1;c<=columns;c++){
-   if(c===1||c===columns||!['integer','boolean'].includes(spec.kinds[c-2]))
+   if(c===1||c===columns||!['integer','integer_or_null','boolean'].includes(spec.kinds[c-2]))
     sheet.getRange(3,c,Math.max(1,sheet.getMaxRows()-2),1).setNumberFormat('@');
   }
   sheet.hideSheet();

@@ -9,7 +9,7 @@ function source(api,i=0){
  const d=manifest.datasets.find(x=>x.api===api),r={};
  for(const f of d.fields){
   r[f.source_field]=f.observed_kind==='null_only'?null:
-   f.observed_kind==='integer'?12:
+   ['integer','integer_or_null'].includes(f.observed_kind)?12:
    f.observed_kind==='boolean'?true:'FAKE_VALUE';
  }
  r.provinceCode='54';r.districtCode='5406';

@@ -6,10 +6,17 @@ import vm from 'node:vm';
 const PROBE_PATH = new URL('../gate0-sandbox/Gate0Probe.gs', import.meta.url);
 const MANIFEST_PATH = new URL('../gate0-sandbox/appsscript.json', import.meta.url);
 const RUNNER_PATH = new URL('../gate0-sandbox/Gate0Runner.html', import.meta.url);
+const TARGETS_CONFIG = JSON.parse(readFileSync(new URL('../config/thaiphc-targets.json', import.meta.url), 'utf8'));
 
 const VALID_TOKEN = 'TEST_GATE0_SYNTHETIC_TOKEN_0123456789abcdef';
 
-function loadProbeHarness({ fetchImpl = () => { throw new Error('UNEXPECTED_NETWORK_CALL'); } } = {}) {
+function assertNoLegacyProductionIds(text) {
+  for (const id of [TARGETS_CONFIG.scriptId, TARGETS_CONFIG.deploymentId, TARGETS_CONFIG.spreadsheetId]) {
+    assert.equal(text.includes(id), false, 'must not contain production target identifier');
+  }
+}
+
+function loadProbeHarness({ fetchImpl = () => { throw new Error('UNEXPECTED_NETWORK_CALL'); }, nowImpl } = {}) {
   const source = readFileSync(PROBE_PATH, 'utf8');
   const calls = [];
   const htmlOutputs = [];
@@ -36,6 +43,15 @@ function loadProbeHarness({ fetchImpl = () => { throw new Error('UNEXPECTED_NETW
       },
     },
   };
+
+  if (typeof nowImpl === 'function') {
+    const FakeDate = class extends Date {
+      static now() {
+        return nowImpl();
+      }
+    };
+    services.Date = FakeDate;
+  }
 
   const context = vm.createContext(services);
   vm.runInContext(source, context, { filename: 'Gate0Probe.gs', timeout: 2000 });
@@ -66,10 +82,7 @@ test('Gate 0 probe source never references Sheets, Properties, Cache, Drive, Log
     source,
     /\b(?:SpreadsheetApp|PropertiesService|CacheService|DriveApp|Logger|console)\b/,
   );
-  assert.doesNotMatch(
-    source,
-    /131WvR9DXpBFlh4snqGQG3VVV5ljkqcysRK_s0-HaKwQDnzpZs2UfCkE6|AKfycbw6FbaK1XM2AEVt0vokP2Ssz|14yQGRu3EOFVae_IgDR4A3uEGqaza6a2bAhX-DYx68lA/,
-  );
+  assertNoLegacyProductionIds(source);
 });
 
 test('Gate 0 rejects invalid tokens before making any UrlFetchApp request and never echoes token text', () => {
@@ -838,8 +851,183 @@ test('Gate 0 Sandbox execution checklist documents strict Sandbox isolation, Per
   assert.match(checklist, /6 min|6 minutes|6 นาที/i);
   assert.match(checklist, /Go\/No-Go/i);
   assert.match(checklist, /batch size/i);
-  assert.doesNotMatch(
-    checklist,
-    /131WvR9DXpBFlh4snqGQG3VVV5ljkqcysRK_s0-HaKwQDnzpZs2UfCkE6|AKfycbw6FbaK1XM2AEVt0vokP2Ssz|14yQGRu3EOFVae_IgDR4A3uEGqaza6a2bAhX-DYx68lA/,
-  );
+  assertNoLegacyProductionIds(checklist);
+});
+
+test('Gate 0 fails and halts on HTML WAF challenge, out-of-scope rows, or duplicate keys during page-size probes', () => {
+  const hsRows = makeHealthServiceRows(18);
+
+  // 200 HTML WAF challenge during pageSizeProbes must halt run and report BLOCKED_OR_WAF
+  let callWaf = 0;
+  const hWaf = loadProbeHarness({
+    fetchImpl: (url) => {
+      callWaf += 1;
+      const u = new URL(url);
+      const limit = Number(u.searchParams.get('limit'));
+      const offset = Number(u.searchParams.get('offset'));
+      if (callWaf <= 2) {
+        return makeHttpResponse({ items: hsRows.slice(offset, offset + limit), total: 18, limit, offset });
+      }
+      return makeHttpResponse('<html>WAF_PROBE_BLOCK</html>', {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' },
+      });
+    },
+  });
+  const rWaf = hWaf.runGate0Probe(VALID_TOKEN, {
+    endpoints: ['health-services', 'subdistricts'],
+    candidatePageSizes: [10, 50, 100],
+  });
+  assert.equal(hWaf.calls.length, 3);
+  assert.equal(rWaf.overallStatus, 'BLOCKED_OR_WAF');
+  assert.equal(rWaf.goNoGoRecommendation, 'NO_GO_INVESTIGATE_BLOCK_OR_NETWORK');
+  assert.equal(rWaf.endpoints[0].status, 'UNEXPECTED_CONTENT_TYPE');
+  assert.doesNotMatch(JSON.stringify(rWaf), /WAF_PROBE_BLOCK/);
+
+  // Out-of-scope row revealed at pageSize=50 must fail endpoint (never PASS / GO_CANDIDATE)
+  const badRows = makeHealthServiceRows(18);
+  badRows[15].district.district_code = '5407';
+  const hScope = loadProbeHarness({
+    fetchImpl: (url) => {
+      const u = new URL(url);
+      const limit = Number(u.searchParams.get('limit'));
+      const offset = Number(u.searchParams.get('offset'));
+      // Baseline + page 2 return clean rows; size=50 returns the bad row
+      const slice = limit === 50 ? badRows : hsRows.slice(offset, offset + limit);
+      return makeHttpResponse({ items: slice, total: 18, limit, offset });
+    },
+  });
+  const rScope = hScope.runGate0Probe(VALID_TOKEN, {
+    endpoints: ['health-services'],
+    candidatePageSizes: [10, 50],
+  });
+  assert.equal(rScope.overallStatus, 'FAILED');
+  assert.equal(rScope.endpoints[0].status, 'OUT_OF_SCOPE');
+  assert.equal(rScope.endpoints[0].pageSizeProbes[0].behavior, 'SCOPE_FAILED');
+  assert.equal(rScope.endpoints[0].recommendedPageSize, null);
+
+  // Intra-page duplicate key at pageSize=50 must NOT be marked HONORED
+  const dupRows = makeHealthServiceRows(18);
+  dupRows[12].health_service_code = dupRows[0].health_service_code;
+  const hDupSize = loadProbeHarness({
+    fetchImpl: (url) => {
+      const u = new URL(url);
+      const limit = Number(u.searchParams.get('limit'));
+      const offset = Number(u.searchParams.get('offset'));
+      const slice = limit === 50 ? dupRows : hsRows.slice(offset, offset + limit);
+      return makeHttpResponse({ items: slice, total: 18, limit, offset });
+    },
+  });
+  const rDupSize = hDupSize.runGate0Probe(VALID_TOKEN, {
+    endpoints: ['health-services'],
+    candidatePageSizes: [10, 50],
+  });
+  assert.equal(rDupSize.overallStatus, 'FAILED');
+  assert.equal(rDupSize.endpoints[0].status, 'DUPLICATE_SOURCE_KEY');
+  assert.equal(rDupSize.endpoints[0].pageSizeProbes[0].behavior, 'DUPLICATE_SOURCE_KEY');
+  assert.equal(rDupSize.endpoints[0].recommendedPageSize, null);
+});
+
+test('Gate 0 rejects missing stable keys, absent required locality fields, and sanitizes response read exceptions', () => {
+  // Missing stable key (id: null on assignments) must fail with MISSING_SOURCE_KEY
+  const missingKeyRows = makeAssignmentRows(5);
+  missingKeyRows[0].id = null;
+  const hMissingKey = loadProbeHarness({
+    fetchImpl: () =>
+      makeHttpResponse({
+        provinces: [{ provinceCode: '54', osmCount: 5 }],
+        items: missingKeyRows,
+        pagination: { page: 1, limit: 10, total: 5, pages: 1 },
+      }),
+  });
+  const rMissingKey = hMissingKey.runGate0Probe(VALID_TOKEN, {
+    endpoints: ['assignments'],
+    candidatePageSizes: [10],
+  });
+  assert.equal(rMissingKey.overallStatus, 'FAILED');
+  assert.equal(rMissingKey.endpoints[0].status, 'MISSING_SOURCE_KEY');
+
+  // Absent subdistrictCode on assignments must fail with OUT_OF_SCOPE
+  const missingSubRows = makeAssignmentRows(5);
+  delete missingSubRows[0].subdistrictCode;
+  const hMissingSub = loadProbeHarness({
+    fetchImpl: () =>
+      makeHttpResponse({
+        provinces: [{ provinceCode: '54', osmCount: 5 }],
+        items: missingSubRows,
+        pagination: { page: 1, limit: 10, total: 5, pages: 1 },
+      }),
+  });
+  const rMissingSub = hMissingSub.runGate0Probe(VALID_TOKEN, {
+    endpoints: ['assignments'],
+    candidatePageSizes: [10],
+  });
+  assert.equal(rMissingSub.overallStatus, 'FAILED');
+  assert.equal(rMissingSub.endpoints[0].status, 'OUT_OF_SCOPE');
+
+  // Absent villageCode on volunteer-gender must fail with OUT_OF_SCOPE
+  const missingVilRows = makeVolunteerGenderRows(5);
+  delete missingVilRows[0].villageCode;
+  const hMissingVil = loadProbeHarness({
+    fetchImpl: () =>
+      makeHttpResponse({
+        success: true,
+        message: 'Success',
+        items: missingVilRows,
+        total: 5,
+        page: 1,
+        pageSize: 10,
+      }),
+  });
+  const rMissingVil = hMissingVil.runGate0Probe(VALID_TOKEN, {
+    endpoints: ['volunteer-gender'],
+    candidatePageSizes: [10],
+  });
+  assert.equal(rMissingVil.overallStatus, 'FAILED');
+  assert.equal(rMissingVil.endpoints[0].status, 'OUT_OF_SCOPE');
+
+  // Thrown exception inside response.getContentText must never leak raw error or token
+  const hReadErr = loadProbeHarness({
+    fetchImpl: () => ({
+      getResponseCode: () => 200,
+      getAllHeaders: () => ({ 'Content-Type': 'application/json' }),
+      getContent: () => [123, 125],
+      getContentText: () => {
+        throw new Error('SECRET_RESPONSE_READ_CRASH ' + VALID_TOKEN);
+      },
+    }),
+  });
+  const rReadErr = hReadErr.runGate0Probe(VALID_TOKEN, { endpoints: ['subdistricts'] });
+  assert.equal(rReadErr.overallStatus, 'FAILED');
+  assert.equal(rReadErr.endpoints[0].status, 'RESPONSE_READ_ERROR');
+  assert.doesNotMatch(JSON.stringify(rReadErr), /SECRET_RESPONSE_READ_CRASH|TEST_GATE0_SYNTHETIC/);
+});
+
+test('Gate 0 batch-size calibration scales down to 1..2 pages under high latency instead of over-committing past 6-min quota', () => {
+  // Simulate 15,000 ms latency per request -> 60000 / (15000 * 2) = 2 pages
+  let tick = 1000000;
+  const hSlow = loadProbeHarness({
+    nowImpl: () => tick,
+    fetchImpl: () => {
+      tick += 15000;
+      return makeHttpResponse({ items: makeSubdistrictRows() });
+    },
+  });
+  const rSlow = hSlow.runGate0Probe(VALID_TOKEN, { endpoints: ['subdistricts'] });
+  assert.equal(rSlow.overallStatus, 'PASS');
+  assert.equal(rSlow.endpoints[0].baselineCheck.elapsedMs, 15000);
+  assert.equal(rSlow.quotaSummary.suggestedSequentialBatchPages, 2);
+
+  // Simulate extreme 60,000 ms latency -> floor at 1 page (not 5)
+  let tickExtreme = 2000000;
+  const hExtreme = loadProbeHarness({
+    nowImpl: () => tickExtreme,
+    fetchImpl: () => {
+      tickExtreme += 60000;
+      return makeHttpResponse({ items: makeSubdistrictRows() });
+    },
+  });
+  const rExtreme = hExtreme.runGate0Probe(VALID_TOKEN, { endpoints: ['subdistricts'] });
+  assert.equal(rExtreme.overallStatus, 'PASS');
+  assert.equal(rExtreme.quotaSummary.suggestedSequentialBatchPages, 1);
 });

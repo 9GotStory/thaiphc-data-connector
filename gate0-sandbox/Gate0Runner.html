@@ -270,6 +270,18 @@
         }
 
         function renderResult(report) {
+          if (
+            !report ||
+            typeof report !== 'object' ||
+            Array.isArray(report) ||
+            typeof report.overallStatus !== 'string' ||
+            typeof report.goNoGoRecommendation !== 'string' ||
+            !Array.isArray(report.endpoints)
+          ) {
+            showError('ผลลัพธ์จาก GAS RPC ไม่ถูกต้องตามโครงสร้างที่คาดไว้');
+            return;
+          }
+
           resultCard.style.display = 'block';
           summaryBadges.innerHTML = '';
           endpointTableBody.innerHTML = '';
@@ -277,26 +289,26 @@
           var statusClass = report.overallStatus === 'PASS' ? 'pass' : 'fail';
           summaryBadges.appendChild(renderBadge('STATUS: ' + report.overallStatus, statusClass));
           summaryBadges.appendChild(renderBadge('RECOMMENDATION: ' + report.goNoGoRecommendation, statusClass));
-          summaryBadges.appendChild(renderBadge('REQUESTS: ' + report.totalRequests, 'info'));
-          summaryBadges.appendChild(renderBadge('MAX BYTES: ' + report.maxResponseBytes, 'info'));
-          if (report.quotaSummary) {
+          summaryBadges.appendChild(renderBadge('REQUESTS: ' + Number(report.totalRequests || 0), 'info'));
+          summaryBadges.appendChild(renderBadge('MAX BYTES: ' + Number(report.maxResponseBytes || 0), 'info'));
+          if (report.quotaSummary && typeof report.quotaSummary === 'object') {
             summaryBadges.appendChild(
               renderBadge(
-                'SUGGESTED BATCH PAGES: ' + report.quotaSummary.suggestedSequentialBatchPages,
+                'SUGGESTED BATCH PAGES: ' + Number(report.quotaSummary.suggestedSequentialBatchPages || 0),
                 'info',
               ),
             );
           }
 
-          var rows = Array.isArray(report.endpoints) ? report.endpoints : [];
+          var rows = report.endpoints;
           for (var i = 0; i < rows.length; i++) {
-            var ep = rows[i];
-            var base = ep.baselineCheck || {};
+            var ep = rows[i] && typeof rows[i] === 'object' ? rows[i] : {};
+            var base = ep.baselineCheck && typeof ep.baselineCheck === 'object' ? ep.baselineCheck : {};
             var tr = document.createElement('tr');
             var cells = [
-              ep.endpoint,
-              ep.paginationProtocol,
-              ep.status,
+              String(ep.endpoint || '-'),
+              String(ep.paginationProtocol || '-'),
+              String(ep.status || '-'),
               base.httpStatus !== null && base.httpStatus !== undefined ? String(base.httpStatus) : '-',
               base.elapsedMs !== undefined ? String(base.elapsedMs) : '-',
               base.responseBytes !== undefined ? String(base.responseBytes) : '-',
@@ -324,15 +336,22 @@
 
         function hasHttp401(rows) {
           for (var i = 0; i < rows.length; i++) {
-            if (rows[i].status === 'HTTP_401') return true;
+            if (rows[i] && rows[i].status === 'HTTP_401') return true;
           }
           return false;
         }
 
         runProbeBtn.addEventListener('click', function () {
           clearError();
-          var token = tokenInput.value.trim();
-          if (!token || token.length < 16 || token.length > 8192 || /^bearer\b/i.test(token) || !TOKEN_RE.test(token)) {
+          var token = tokenInput.value;
+          if (
+            !token ||
+            token.length < 16 ||
+            token.length > 8192 ||
+            /^bearer\b/i.test(token) ||
+            token.indexOf('MOCK_ONLY_') === 0 ||
+            !TOKEN_RE.test(token)
+          ) {
             showError('รูปแบบ Token ไม่ถูกต้อง: กรุณาวางเฉพาะค่า Bearer Token (ห้ามใส่คำว่า Bearer นำหน้าและต้องไม่มีช่องว่าง)');
             return;
           }

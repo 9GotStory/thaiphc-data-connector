@@ -72,20 +72,20 @@ In the opened Apps Script Editor, verify `appsscript.json` shows `exceptionLoggi
 
 ## Recorded Sandbox Gate 0 Evidence (No Tokens, No Raw Rows)
 
-- **Execution Date (Asia/Bangkok):** `YYYY-MM-DD HH:mm`
-- **Environment:** `SANDBOX` (isolated standalone GAS project; Production & legacy V3 untouched)
-- **Overall Status / Decision:** `[ ] GO` · `[ ] NO-GO (Halt & Revisit ADR-0001)`
-- **Total Requests / Total Elapsed (ms) / Max Response Bytes:** `___ requests / ___ ms / ___ bytes`
-- **Observed Average Latency (ms):** `___ ms`
-- **Calibrated Sequential Batch Size (pages per RPC call):** `___ pages` _(from `quotaSummary.suggestedSequentialBatchPages` + operator review)_
+- **Execution Date (Asia/Bangkok):** `2026-11-21 20:23` (`executedAtUtc: 2026-11-21T13:23:30.951Z`)
+- **Environment:** `SANDBOX` (isolated standalone GAS project; Production & legacy V3 untouched; `sheetsWrites: 0`, `rawRowsReturned: false`)
+- **Overall Status / Decision:** `[x] GO` (`overallStatus: PASS`, `goNoGoRecommendation: GO_CANDIDATE`) · `[ ] NO-GO (Halt & Revisit ADR-0001)`
+- **Total Requests / Total Elapsed (ms) / Max Response Bytes:** `26 requests / 29,457 ms / 78,711 bytes` (`0.15%` of `50 MB/call` limit)
+- **Observed Average Latency (ms):** `1,124 ms` (max observed `2,954 ms` on `volunteer-family` at `pageSize=100`)
+- **Calibrated Page Size & Sequential Batch Size:** `pageSize = 100` (honored across all 6 paginated endpoints: `offset`, `assignment`, `report`) · `10 pages per RPC batch` (`quotaSummary.suggestedSequentialBatchPages = 10`, ~30 s worst-case per batch vs 360 s GAS limit)
 
 | Endpoint | Protocol | HTTP Status | Baseline (`size=10`) | Page 2 Check | `size=50` Behavior | `size=100` Behavior | Recommended Page Size | Locality Warnings |
 |---|---|---:|---|---|---|---|---:|---:|
-| `subdistricts` | `none` | | | N/A | N/A | N/A | N/A | 0 |
-| `health-services` | `offset` | | | | | | | 0 |
-| `assignments` | `assignment` | | | | | | | 0 |
-| `volunteer-gender` | `report` | | | | | | | 0 |
-| `villages` *(optional)* | `none` | | | N/A | N/A | N/A | N/A | 0 |
-| `volunteer-family` *(optional)* | `report` | | | | | | | |
-| `resigned-volunteers` *(optional)* | `report` | | | | | | | |
-| `volunteer-tenure` *(optional)* | `report` | | | | | | | 0 |
+| `subdistricts` | `none` | 200 | PASS (8 items, 294 ms, 2,465 B) | N/A | N/A | N/A | N/A | 0 |
+| `health-services` | `offset` | 200 | PASS (10/18, 585 ms, 11,280 B) | PASS (8/18, offset=10, 0 dup, 337 ms) | HONORED (18 items, 590 ms, 20,319 B) | HONORED (18 items, 347 ms, 20,320 B) | 100 | 0 |
+| `assignments` | `assignment` | 200 | PASS (10/1,571, 2,877 ms, 8,039 B) | PASS (10/1,571, page=2, 0 dup, 2,573 ms) | HONORED (50 items, 2,846 ms, 39,174 B) | HONORED (100 items, 2,707 ms, 78,711 B) | 100 | 0 |
+| `volunteer-gender` | `report` | 200 | PASS (10/85, 308 ms, 2,992 B) | PASS (10/85, page=2, 0 dup, 325 ms) | HONORED (50 items, 306 ms, 14,423 B) | HONORED (85 items, 561 ms, 24,436 B) | 100 | 0 |
+| `villages` | `none` | 200 | PASS (85 items, 1,183 ms, 47,770 B) | N/A | N/A | N/A | N/A | 0 |
+| `volunteer-family` | `report` | 200 | PASS (10/1,823, 2,352 ms, 6,979 B) | PASS (10/1,823, page=2, stable, 2,207 ms) | HONORED (50 items, 2,296 ms, 34,218 B) | HONORED (100 items, 2,954 ms, 68,419 B) | 100 | 3 |
+| `resigned-volunteers` | `report` | 200 | PASS (10/1,152, 357 ms, 5,557 B) | PASS (10/1,152, page=2, 0 dup, 349 ms) | HONORED (50 items, 342 ms, 26,910 B) | HONORED (100 items, 344 ms, 53,839 B) | 100 | 0 |
+| `volunteer-tenure` | `report` | 200 | PASS (10/1,571, 362 ms, 5,694 B) | PASS (10/1,571, page=2, 0 dup, 341 ms) | HONORED (50 items, 597 ms, 28,120 B) | HONORED (100 items, 887 ms, 56,104 B) | 100 | 0 |

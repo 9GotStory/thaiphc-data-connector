@@ -17,11 +17,28 @@
 
 1. Open [script.google.com](https://script.google.com) signed in with your personal `@gmail.com` account and create a **new standalone Apps Script project** named e.g. `ThaiPHC-Gate0-Sandbox-Probe`.
 2. In **Project Settings**, enable **"Show `appsscript.json` manifest file in editor"**.
-3. Copy the three files from `gate0-sandbox/` into the Sandbox GAS project (or push from an isolated local copy via `clasp` with a Sandbox-only `.clasp.json`, which is gitignored):
+3. Copy the three files from `gate0-sandbox/` into the Sandbox GAS project (or push via `clasp` — see **Using `clasp` Safely** below):
    - `gate0-sandbox/appsscript.json` → `appsscript.json`
    - `gate0-sandbox/Gate0Probe.gs` → `Gate0Probe.gs`
    - `gate0-sandbox/Gate0Runner.html` → `Gate0Runner.html`
-4. Deploy as a **Web App** (`Execute as: Me`, `Who has access: Only myself`) and authorize the single requested scope (`Connect to an external service`).
+4. Deploy as a **Web App** (`Execute as: Me`, `Who has access: Only myself`) and authorize the single requested scope (`Connect to an external service`). Confirm the deployment URL is a **Web app** endpoint (`https://script.google.com/macros/s/<sandboxDeploymentId>/exec`), **not** a Library URL (`/macros/library/d/...`).
+
+### Using `clasp` Safely (Sandbox Standalone Only)
+
+If deploying from `thaiphc-data-connector/gate0-sandbox` with `@google/clasp` (`.clasp.json` is gitignored):
+
+> **Important:** `clasp create-script --rootDir .` pulls Google's blank default manifest and **overwrites `gate0-sandbox/appsscript.json`** (dropping `webapp`, `oauthScopes`, and `exceptionLogging: "NONE"`), which causes `clasp create-deployment` to create a Library URL (`/macros/library/d/...`) instead of a Web App (`/exec`). Always restore `appsscript.json` from Git **before** pushing:
+
+```bash
+cd thaiphc-data-connector/gate0-sandbox
+npx @google/clasp create-script --type standalone --title "ThaiPHC-Gate0-Sandbox" --rootDir .
+git checkout -- appsscript.json
+npx @google/clasp push --force
+npx @google/clasp create-deployment -d "Gate 0 Sandbox Web App"
+npx @google/clasp open-script
+```
+
+In the opened Apps Script Editor, verify `appsscript.json` shows `exceptionLogging: "NONE"`, single scope `script.external_request`, and `webapp: { executeAs: "USER_DEPLOYING", access: "MYSELF" }`, then open **Deploy → Manage deployments** to copy the **Web app** `/exec` URL.
 5. Open the Sandbox `/exec` URL in your browser.
 6. Paste your short-lived ThaiPHC Bearer Token (token value only, without `Bearer `), keep the 4 default endpoints checked (`subdistricts`, `health-services`, `assignments`, `volunteer-gender`) and candidate page sizes `10, 50, 100`, and click **"เริ่มทดสอบ Gate 0 (Read-Only)"**.
 7. *(Optional)* Run a second check with the remaining 4 endpoints (`villages`, `volunteer-family`, `resigned-volunteers`, `volunteer-tenure`) to confirm `Preserve Source Locality` counts and report pagination parity.

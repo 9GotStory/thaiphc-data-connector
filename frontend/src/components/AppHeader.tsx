@@ -12,6 +12,7 @@ interface AppHeaderProps {
   onNavigate: (view: ActiveView) => void;
   env: AppEnvironment | null;
   statusState: HeaderStatusState;
+  navLocked?: boolean;
 }
 
 function HeaderEnvironmentPill({
@@ -35,7 +36,13 @@ function HeaderEnvironmentPill({
   return <Badge variant="neutral">กำลังโหลด...</Badge>;
 }
 
-export function AppHeader({ activeView, onNavigate, env, statusState }: AppHeaderProps) {
+export function AppHeader({
+  activeView,
+  onNavigate,
+  env,
+  statusState,
+  navLocked = false,
+}: AppHeaderProps) {
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-card shadow-[var(--shadow-xs)]">
       {env === 'PRODUCTION' && (
@@ -65,10 +72,11 @@ export function AppHeader({ activeView, onNavigate, env, statusState }: AppHeade
             <nav aria-label="เมนูหลัก" className="flex w-full items-center gap-1.5 lg:w-auto">
               <button
                 type="button"
+                disabled={navLocked}
                 aria-current={activeView === 'dashboard' ? 'page' : undefined}
                 onClick={() => onNavigate('dashboard')}
                 className={cn(
-                  'inline-flex flex-1 lg:flex-none items-center justify-center gap-2 min-h-10 rounded-md border-b-2 px-3 py-2 text-sm font-medium transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+                  'inline-flex flex-1 lg:flex-none items-center justify-center gap-2 min-h-10 rounded-md border-b-2 px-3 py-2 text-sm font-medium transition-colors duration-150 cursor-pointer disabled:cursor-not-allowed disabled:opacity-55 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
                   activeView === 'dashboard'
                     ? 'border-primary bg-primary-soft text-primary-soft-foreground'
                     : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
@@ -83,10 +91,11 @@ export function AppHeader({ activeView, onNavigate, env, statusState }: AppHeade
               </button>
               <button
                 type="button"
+                disabled={navLocked}
                 aria-current={activeView === 'sync-workspace' ? 'page' : undefined}
                 onClick={() => onNavigate('sync-workspace')}
                 className={cn(
-                  'inline-flex flex-1 lg:flex-none items-center justify-center gap-2 min-h-10 rounded-md border-b-2 px-3 py-2 text-sm font-medium transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+                  'inline-flex flex-1 lg:flex-none items-center justify-center gap-2 min-h-10 rounded-md border-b-2 px-3 py-2 text-sm font-medium transition-colors duration-150 cursor-pointer disabled:cursor-not-allowed disabled:opacity-55 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
                   activeView === 'sync-workspace'
                     ? 'border-primary bg-primary-soft text-primary-soft-foreground'
                     : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground',

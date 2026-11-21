@@ -2,14 +2,17 @@ import { useState } from 'react';
 import type { DatasetEndpoint } from '@/api/types';
 import { AppHeader, type ActiveView, type HeaderStatusState } from '@/components/AppHeader';
 import { DashboardView } from '@/components/DashboardView';
-import { SyncWorkspaceShell } from '@/components/SyncWorkspaceShell';
+import { SyncWorkspace } from '@/components/sync/SyncWorkspace';
 import { useDashboardStatus } from '@/hooks/useDashboardStatus';
+import { useTokenSession } from '@/hooks/useTokenSession';
 
 export function App() {
   const [activeView, setActiveView] = useState<ActiveView>('dashboard');
   const [selectedEndpoint, setSelectedEndpoint] = useState<DatasetEndpoint>('subdistricts');
+  const [isCommitting, setIsCommitting] = useState(false);
 
   const dashboardQuery = useDashboardStatus();
+  const tokenSession = useTokenSession(isCommitting);
 
   const headerStatusState: HeaderStatusState = dashboardQuery.isPending
     ? 'loading'
@@ -18,8 +21,14 @@ export function App() {
       : 'ready';
 
   function handleOpenSyncWorkspace(endpoint: DatasetEndpoint) {
+    if (isCommitting) return;
     setSelectedEndpoint(endpoint);
     setActiveView('sync-workspace');
+  }
+
+  function handleNavigate(view: ActiveView) {
+    if (isCommitting) return;
+    setActiveView(view);
   }
 
   function handleRefresh() {
@@ -37,9 +46,10 @@ export function App() {
 
       <AppHeader
         activeView={activeView}
-        onNavigate={setActiveView}
+        onNavigate={handleNavigate}
         env={dashboardQuery.data?.env ?? null}
         statusState={headerStatusState}
+        navLocked={isCommitting}
       />
 
       <main
@@ -58,15 +68,17 @@ export function App() {
             onOpenSyncWorkspace={handleOpenSyncWorkspace}
           />
         ) : (
-          <SyncWorkspaceShell
+          <SyncWorkspace
             data={dashboardQuery.data}
             isPending={dashboardQuery.isPending}
             isError={dashboardQuery.isError}
             error={dashboardQuery.error}
             selectedEndpoint={selectedEndpoint}
             onSelectEndpoint={setSelectedEndpoint}
+            tokenSession={tokenSession}
+            onBusyChange={setIsCommitting}
             onRefresh={handleRefresh}
-            onBackToDashboard={() => setActiveView('dashboard')}
+            onBackToDashboard={() => handleNavigate('dashboard')}
           />
         )}
       </main>

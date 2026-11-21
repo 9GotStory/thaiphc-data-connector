@@ -125,15 +125,13 @@ describe('ThaiPHC Data Connector Dashboard Shell (Frontend GasRpcTransport Seam)
       'page',
     );
     expect(screen.getByRole('heading', { level: 1, name: /พื้นที่ซิงก์ข้อมูล/ })).toBeInTheDocument();
-    expect(
-      screen.getByRole('heading', { level: 2, name: /ชุดข้อมูลที่เลือก:.*assignments/ }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /การมอบหมายงาน อสม\./ })).toBeChecked();
 
     // Sync Workspace groups the 8 APIs consistently into 3 Reference + 5 Extended Report
     const wsRefGroup = screen.getByRole('group', { name: /ชุดข้อมูลอ้างอิงพื้นฐาน/ });
     const wsExtGroup = screen.getByRole('group', { name: /ชุดข้อมูลรายงานขยาย/ });
-    expect(within(wsRefGroup).getAllByRole('button')).toHaveLength(3);
-    expect(within(wsExtGroup).getAllByRole('button')).toHaveLength(5);
+    expect(within(wsRefGroup).getAllByRole('radio')).toHaveLength(3);
+    expect(within(wsExtGroup).getAllByRole('radio')).toHaveLength(5);
 
     // Navigate back to Dashboard via top header tab
     const nav = screen.getByRole('navigation', { name: 'เมนูหลัก' });
@@ -158,6 +156,8 @@ describe('ThaiPHC Data Connector Dashboard Shell (Frontend GasRpcTransport Seam)
         new Promise((resolve) => {
           resolveStatus = resolve;
         }),
+      previewDataset: (req) => new MockGasTransport().previewDataset(req),
+      commitSmallDataset: (req) => new MockGasTransport().commitSmallDataset(req),
     };
 
     renderApp(deferredTransport);
@@ -191,6 +191,8 @@ describe('ThaiPHC Data Connector Dashboard Shell (Frontend GasRpcTransport Seam)
           },
         };
       },
+      previewDataset: (req) => new MockGasTransport().previewDataset(req),
+      commitSmallDataset: (req) => new MockGasTransport().commitSmallDataset(req),
     };
 
     const originalClipboard = navigator.clipboard;
@@ -230,13 +232,18 @@ describe('ThaiPHC Data Connector Dashboard Shell (Frontend GasRpcTransport Seam)
             },
           };
         },
+        previewDataset: (req) => new MockGasTransport().previewDataset(req),
+        commitSmallDataset: (req) => new MockGasTransport().commitSmallDataset(req),
       };
       renderApp(allWritesNoHmacTransport);
       const nav = screen.getByRole('navigation', { name: 'เมนูหลัก' });
       await user.click(within(nav).getByRole('button', { name: 'พื้นที่ซิงก์ข้อมูล' }));
       const extGroup = await screen.findByRole('group', { name: /ชุดข้อมูลรายงานขยาย/ });
-      await user.click(within(extGroup).getByRole('button', { name: /assignments/ }));
-      expect(screen.getByText(/ปิดการเขียน \(Preview เท่านั้น\)/)).toBeInTheDocument();
+      const assignRadio = within(extGroup).getByRole('radio', { name: /การมอบหมายงาน อสม\./ });
+      await user.click(assignRadio);
+      expect(
+        within(extGroup).getAllByText(/Preview เท่านั้น \(Guard OFF\)/).length,
+      ).toBeGreaterThanOrEqual(1);
     } finally {
       Object.defineProperty(navigator, 'clipboard', {
         configurable: true,
@@ -257,6 +264,8 @@ describe('ThaiPHC Data Connector Dashboard Shell (Frontend GasRpcTransport Seam)
         }
         return new MockGasTransport({ scenario: 'sandbox-default' }).getDashboardStatus();
       },
+      previewDataset: (req) => new MockGasTransport().previewDataset(req),
+      commitSmallDataset: (req) => new MockGasTransport().commitSmallDataset(req),
     };
 
     renderApp(flakyTransport);
@@ -275,7 +284,7 @@ describe('ThaiPHC Data Connector Dashboard Shell (Frontend GasRpcTransport Seam)
 
     await user.click(within(wsAlert).getByRole('button', { name: /ลองโหลดสถานะอีกครั้ง/ }));
     expect(
-      await screen.findByRole('heading', { level: 2, name: /ชุดข้อมูลที่เลือก:/ }),
+      await screen.findByRole('heading', { level: 2, name: /1\. เลือกชุดข้อมูลสำหรับซิงก์/ }),
     ).toBeInTheDocument();
   });
 });

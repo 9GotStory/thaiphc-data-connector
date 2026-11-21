@@ -1,14 +1,26 @@
 import {
   GasRpcClientError,
   type AppEnvironment,
+  type CommitSmallDatasetData,
+  type CommitStopCode,
   type DashboardDatasetStatus,
   type DashboardStatusData,
   type DatasetEndpoint,
   type DatasetGroup,
   type DatasetLastStatus,
+  type DiffCounts,
+  type DiffKind,
   type GasRpcErrorCode,
   type PaginationProtocol,
+  type PreviewDatasetData,
+  type PreviewDiagnostic,
+  type PreviewFingerprint,
+  type PreviewStopCode,
+  type ReadbackVerification,
+  type ReferencePreviewRow,
+  type ReviewReasonCode,
   type SameWorkbookPolicy,
+  type StaleDriftReason,
   type SyncMode,
   type UnresolvedRunSummary,
   type WorkbookInfo,
@@ -48,11 +60,75 @@ const VALID_SAME_WORKBOOK_POLICIES: ReadonlySet<string> = new Set<SameWorkbookPo
   'SAME_WORKBOOK_UNAPPROVED',
   'INVALID_REPORT_WORKBOOK',
 ]);
-const ALLOWLISTED_SERVER_ERRORS: ReadonlySet<string> = new Set<GasRpcErrorCode>([
+const VALID_DIFF_KINDS: ReadonlySet<string> = new Set<DiffKind>([
+  'INSERT',
+  'UPDATE',
+  'UNCHANGED',
+  'REVIEW',
+]);
+const VALID_REVIEW_REASONS: ReadonlySet<string> = new Set<ReviewReasonCode>([
+  'MISSING_IN_SOURCE',
+  'PLACEHOLDER_COORDS',
+]);
+const PREVIEW_STOP_CODE_LIST: readonly PreviewStopCode[] = [
+  'HTTP_403',
+  'HTTP_ERROR',
+  'REDIRECT_REJECTED',
+  'UNEXPECTED_CONTENT_TYPE',
+  'RESPONSE_TOO_LARGE',
+  'INVALID_JSON',
+  'FETCH_EXCEPTION',
+  'INVALID_ENVELOPE',
+  'OUT_OF_GEOGRAPHIC_SCOPE',
+  'DUPLICATE_SOURCE_KEY',
+  'MISSING_SOURCE_KEY',
+  'UNEXPECTED_FIELD',
+  'TYPE_MISMATCH',
+  'FORMULA_INJECTION_DETECTED',
+  'ASCII_CONTROL_CHAR',
+  'SOURCE_TOTAL_DRIFT',
+  'INCOMPLETE_PAGINATION',
+  'ROW_LIMIT_EXCEEDED',
+  'HEADER_MISMATCH',
+  'INVALID_EXISTING_KEY',
+  'DESTINATION_TOO_LARGE',
+];
+const VALID_PREVIEW_STOP_CODES: ReadonlySet<string> = new Set<PreviewStopCode>(
+  PREVIEW_STOP_CODE_LIST,
+);
+const VALID_COMMIT_STOP_CODES: ReadonlySet<string> = new Set<CommitStopCode>([
+  ...PREVIEW_STOP_CODE_LIST,
+  'WRITE_DISABLED',
+  'PRODUCTION_CONFIRMATION_REQUIRED',
+  'LOCK_BUSY',
+  'UNRESOLVED_PREVIOUS_RUN',
+  'INVALID_FINGERPRINT',
+  'READBACK_MISMATCH',
+  'WRITE_FAILED_UNKNOWN',
+]);
+const VALID_STALE_DRIFT_REASONS: ReadonlySet<string> = new Set<StaleDriftReason>([
+  'SOURCE_CHANGED',
+  'DESTINATION_CHANGED',
+  'BOTH_CHANGED',
+  'ENV_MISMATCH',
+]);
+const DASHBOARD_ERROR_LIST: readonly GasRpcErrorCode[] = [
   'INVALID_ENV_CONFIG',
   'SPREADSHEET_NOT_CONFIGURED',
   'WORKBOOK_ACCESS_FAILED',
   'DASHBOARD_LOAD_FAILED',
+];
+const ALLOWLISTED_DASHBOARD_ERRORS: ReadonlySet<string> = new Set<GasRpcErrorCode>(
+  DASHBOARD_ERROR_LIST,
+);
+const ALLOWLISTED_SYNC_ERRORS: ReadonlySet<string> = new Set<GasRpcErrorCode>([
+  ...DASHBOARD_ERROR_LIST,
+  'INVALID_REQUEST',
+  'INVALID_TOKEN_FORMAT',
+  'HTTP_401',
+  'DATASET_NOT_SUPPORTED',
+  'PREVIEW_FAILED',
+  'COMMIT_FAILED',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -65,6 +141,13 @@ function invalidResponse(detail: string): never {
 
 function assertNonEmptyString(value: unknown, field: string): string {
   if (typeof value !== 'string' || value.length === 0) {
+    invalidResponse(`Invalid string field: ${field}`);
+  }
+  return value;
+}
+
+function assertString(value: unknown, field: string): string {
+  if (typeof value !== 'string') {
     invalidResponse(`Invalid string field: ${field}`);
   }
   return value;
@@ -97,12 +180,52 @@ function assertBoolean(value: unknown, field: string): boolean {
   return value;
 }
 
-function assertNullableNonNegInt(value: unknown, field: string): number | null {
-  if (value === null) return null;
+function assertNonNegInt(value: unknown, field: string): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
     invalidResponse(`Invalid integer field: ${field}`);
   }
   return value;
+}
+
+function assertNullableNonNegInt(value: unknown, field: string): number | null {
+  if (value === null) return null;
+  return assertNonNegInt(value, field);
+}
+
+function assertEnv(value: unknown, field: string): AppEnvironment {
+  if (value !== 'SANDBOX' && value !== 'PRODUCTION') {
+    invalidResponse(`Invalid environment field: ${field}`);
+  }
+  return value;
+}
+
+function unwrapEnvelope(
+  raw: unknown,
+  allowedErrors: ReadonlySet<string>,
+  fallbackCode: GasRpcErrorCode,
+  fallbackMessage: string,
+): Record<string, unknown> {
+  if (!isRecord(raw) || typeof raw.ok !== 'boolean') {
+    invalidResponse('GAS RPC response is not a valid envelope.');
+  }
+
+  if (raw.ok === false) {
+    const errObj = isRecord(raw.error) ? raw.error : null;
+    const rawCode = errObj && typeof errObj.code === 'string' ? errObj.code : '';
+    const safeCode: GasRpcErrorCode = allowedErrors.has(rawCode)
+      ? (rawCode as GasRpcErrorCode)
+      : fallbackCode;
+    const safeMessage =
+      errObj && typeof errObj.message === 'string' && safeCode === rawCode
+        ? errObj.message
+        : fallbackMessage;
+    throw new GasRpcClientError(safeCode, safeMessage);
+  }
+
+  if (!isRecord(raw.data)) {
+    invalidResponse('Missing RPC data payload.');
+  }
+  return raw.data;
 }
 
 function parseWorkbook(value: unknown, field: string): WorkbookInfo {
@@ -115,22 +238,22 @@ function parseWorkbook(value: unknown, field: string): WorkbookInfo {
   };
 }
 
-function parseUnresolvedRun(value: unknown, index: number): UnresolvedRunSummary {
+function parseUnresolvedRun(value: unknown, label: string): UnresolvedRunSummary {
   if (!isRecord(value)) {
-    invalidResponse(`Invalid unresolvedRuns[${index}]`);
+    invalidResponse(`Invalid ${label}`);
   }
   const endpoint = assertAllowedEnum<DatasetEndpoint>(
     value.endpoint,
     VALID_ENDPOINTS,
-    `unresolvedRuns[${index}].endpoint`,
+    `${label}.endpoint`,
   );
   if (value.status !== 'STARTED') {
-    invalidResponse(`Invalid status in unresolvedRuns[${index}]`);
+    invalidResponse(`Invalid status in ${label}`);
   }
   return {
     endpoint,
-    runId: assertNonEmptyString(value.runId, `unresolvedRuns[${index}].runId`),
-    startedAtUtc: assertNullableString(value.startedAtUtc, `unresolvedRuns[${index}].startedAtUtc`),
+    runId: assertNonEmptyString(value.runId, `${label}.runId`),
+    startedAtUtc: assertNullableString(value.startedAtUtc, `${label}.startedAtUtc`),
     status: 'STARTED',
   };
 }
@@ -184,34 +307,161 @@ function parseDataset(value: unknown, index: number): DashboardDatasetStatus {
   };
 }
 
+function parseDiffCounts(value: unknown, field: string): DiffCounts {
+  if (!isRecord(value)) {
+    invalidResponse(`Invalid ${field}`);
+  }
+  return {
+    insert: assertNonNegInt(value.insert, `${field}.insert`),
+    update: assertNonNegInt(value.update, `${field}.update`),
+    unchanged: assertNonNegInt(value.unchanged, `${field}.unchanged`),
+    review: assertNonNegInt(value.review, `${field}.review`),
+  };
+}
+
+function parsePreviewFingerprint(value: unknown, field: string): PreviewFingerprint {
+  if (!isRecord(value)) {
+    invalidResponse(`Invalid ${field}`);
+  }
+  return {
+    endpoint: assertAllowedEnum<DatasetEndpoint>(
+      value.endpoint,
+      VALID_ENDPOINTS,
+      `${field}.endpoint`,
+    ),
+    env: assertEnv(value.env, `${field}.env`),
+    sourceTotal: assertNonNegInt(value.sourceTotal, `${field}.sourceTotal`),
+    datasetDigest: assertNonEmptyString(value.datasetDigest, `${field}.datasetDigest`),
+    sheetRevisionFingerprint: assertNonEmptyString(
+      value.sheetRevisionFingerprint,
+      `${field}.sheetRevisionFingerprint`,
+    ),
+    counts: parseDiffCounts(value.counts, `${field}.counts`),
+    fingerprintDigest: assertNonEmptyString(value.fingerprintDigest, `${field}.fingerprintDigest`),
+  };
+}
+
+function parseDiagnostic(value: unknown, index: number): PreviewDiagnostic {
+  if (!isRecord(value)) {
+    invalidResponse(`Invalid diagnostics[${index}]`);
+  }
+  const diag: PreviewDiagnostic = {
+    code: assertAllowedEnum<PreviewStopCode>(
+      value.code,
+      VALID_PREVIEW_STOP_CODES,
+      `diagnostics[${index}].code`,
+    ),
+    message: assertNonEmptyString(value.message, `diagnostics[${index}].message`),
+  };
+  if (value.field !== undefined) {
+    diag.field = assertString(value.field, `diagnostics[${index}].field`);
+  }
+  if (value.rowIndex !== undefined) {
+    diag.rowIndex = assertNonNegInt(value.rowIndex, `diagnostics[${index}].rowIndex`);
+  }
+  if (value.pageOffset !== undefined) {
+    diag.pageOffset = assertNonNegInt(value.pageOffset, `diagnostics[${index}].pageOffset`);
+  }
+  return diag;
+}
+
+function parseReferencePreviewRow(value: unknown, index: number): ReferencePreviewRow {
+  if (!isRecord(value)) {
+    invalidResponse(`Invalid sampleRows[${index}]`);
+  }
+  if (!Array.isArray(value.changedFields)) {
+    invalidResponse(`Invalid sampleRows[${index}].changedFields`);
+  }
+  const changedFields = value.changedFields.map((entry, idx) => {
+    if (!isRecord(entry)) {
+      invalidResponse(`Invalid sampleRows[${index}].changedFields[${idx}]`);
+    }
+    return {
+      field: assertNonEmptyString(entry.field, `changedFields[${idx}].field`),
+      before: assertString(entry.before, `changedFields[${idx}].before`),
+      after: assertString(entry.after, `changedFields[${idx}].after`),
+    };
+  });
+
+  if (!Array.isArray(value.summaryFields)) {
+    invalidResponse(`Invalid sampleRows[${index}].summaryFields`);
+  }
+  const summaryFields = value.summaryFields.map((entry, idx) => {
+    if (!isRecord(entry)) {
+      invalidResponse(`Invalid sampleRows[${index}].summaryFields[${idx}]`);
+    }
+    return {
+      field: assertNonEmptyString(entry.field, `summaryFields[${idx}].field`),
+      value: assertString(entry.value, `summaryFields[${idx}].value`),
+    };
+  });
+
+  if (!Array.isArray(value.reviewReasons)) {
+    invalidResponse(`Invalid sampleRows[${index}].reviewReasons`);
+  }
+  const reviewReasons = value.reviewReasons.map((reason, idx) =>
+    assertAllowedEnum<ReviewReasonCode>(
+      reason,
+      VALID_REVIEW_REASONS,
+      `sampleRows[${index}].reviewReasons[${idx}]`,
+    ),
+  );
+
+  return {
+    diffKind: assertAllowedEnum<DiffKind>(
+      value.diffKind,
+      VALID_DIFF_KINDS,
+      `sampleRows[${index}].diffKind`,
+    ),
+    sourceKey: assertNonEmptyString(value.sourceKey, `sampleRows[${index}].sourceKey`),
+    displayName: assertString(value.displayName, `sampleRows[${index}].displayName`),
+    displayCode: assertString(value.displayCode, `sampleRows[${index}].displayCode`),
+    changedFields,
+    summaryFields,
+    reviewReasons,
+  };
+}
+
+function parseReadbackVerification(value: unknown): ReadbackVerification {
+  if (!isRecord(value)) {
+    invalidResponse('Invalid readback object');
+  }
+  if (!Array.isArray(value.baselineTabsChecked)) {
+    invalidResponse('Invalid readback.baselineTabsChecked');
+  }
+  const baselineTabsChecked = value.baselineTabsChecked.map((tab, idx) =>
+    assertNonEmptyString(tab, `readback.baselineTabsChecked[${idx}]`),
+  );
+  const stagingTabCleaned =
+    value.stagingTabCleaned === null
+      ? null
+      : assertBoolean(value.stagingTabCleaned, 'readback.stagingTabCleaned');
+
+  return {
+    verified: assertBoolean(value.verified, 'readback.verified'),
+    destinationTab: assertNonEmptyString(value.destinationTab, 'readback.destinationTab'),
+    expectedRowCount: assertNonNegInt(value.expectedRowCount, 'readback.expectedRowCount'),
+    actualRowCount: assertNonNegInt(value.actualRowCount, 'readback.actualRowCount'),
+    uniqueKeysVerified: assertBoolean(value.uniqueKeysVerified, 'readback.uniqueKeysVerified'),
+    rowDigestsVerified: assertBoolean(value.rowDigestsVerified, 'readback.rowDigestsVerified'),
+    unrelatedTabsPreserved: assertBoolean(
+      value.unrelatedTabsPreserved,
+      'readback.unrelatedTabsPreserved',
+    ),
+    baselineTabsChecked,
+    stagingTabCleaned,
+  };
+}
+
 export function parseDashboardStatusResponse(raw: unknown): DashboardStatusData {
-  if (!isRecord(raw) || typeof raw.ok !== 'boolean') {
-    invalidResponse('GAS RPC response is not a valid envelope.');
-  }
+  const data = unwrapEnvelope(
+    raw,
+    ALLOWLISTED_DASHBOARD_ERRORS,
+    'DASHBOARD_LOAD_FAILED',
+    'ไม่สามารถโหลดสถานะ Dashboard จาก Google Apps Script ได้',
+  );
 
-  if (raw.ok === false) {
-    const errObj = isRecord(raw.error) ? raw.error : null;
-    const rawCode = errObj && typeof errObj.code === 'string' ? errObj.code : '';
-    const safeCode: GasRpcErrorCode = ALLOWLISTED_SERVER_ERRORS.has(rawCode)
-      ? (rawCode as GasRpcErrorCode)
-      : 'DASHBOARD_LOAD_FAILED';
-    const safeMessage =
-      errObj && typeof errObj.message === 'string' && safeCode === rawCode
-        ? errObj.message
-        : 'ไม่สามารถโหลดสถานะ Dashboard จาก Google Apps Script ได้';
-    throw new GasRpcClientError(safeCode, safeMessage);
-  }
-
-  const data = raw.data;
-  if (!isRecord(data)) {
-    invalidResponse('Missing dashboard data payload.');
-  }
-
-  const env = data.env;
-  if (env !== 'SANDBOX' && env !== 'PRODUCTION') {
-    invalidResponse('Invalid environment value.');
-  }
-
+  const env = assertEnv(data.env, 'env');
   const scope = data.scope;
   if (!isRecord(scope) || scope.provinceCode !== '54' || scope.districtCode !== '5406') {
     invalidResponse('Invalid geographic scope.');
@@ -252,7 +502,9 @@ export function parseDashboardStatusResponse(raw: unknown): DashboardStatusData 
   if (!Array.isArray(data.unresolvedRuns)) {
     invalidResponse('unresolvedRuns must be an array.');
   }
-  const unresolvedRuns = data.unresolvedRuns.map((item, idx) => parseUnresolvedRun(item, idx));
+  const unresolvedRuns = data.unresolvedRuns.map((item, idx) =>
+    parseUnresolvedRun(item, `unresolvedRuns[${idx}]`),
+  );
 
   if (!Array.isArray(data.datasets) || data.datasets.length !== 8) {
     invalidResponse('datasets must contain exactly 8 ThaiPHC datasets.');
@@ -264,7 +516,7 @@ export function parseDashboardStatusResponse(raw: unknown): DashboardStatusData 
   }
 
   return {
-    env: env as AppEnvironment,
+    env,
     scope: { provinceCode: '54', districtCode: '5406' },
     generatedAtUtc,
     workbooks: {
@@ -276,4 +528,174 @@ export function parseDashboardStatusResponse(raw: unknown): DashboardStatusData 
     unresolvedRuns,
     datasets,
   };
+}
+
+export function parsePreviewDatasetResponse(raw: unknown): PreviewDatasetData {
+  const data = unwrapEnvelope(
+    raw,
+    ALLOWLISTED_SYNC_ERRORS,
+    'PREVIEW_FAILED',
+    'ไม่สามารถรัน Preview ข้อมูลจาก Google Apps Script ได้',
+  );
+
+  const endpoint = assertAllowedEnum<DatasetEndpoint>(data.endpoint, VALID_ENDPOINTS, 'endpoint');
+  const env = assertEnv(data.env, 'env');
+  const syncMode = assertAllowedEnum<SyncMode>(data.syncMode, VALID_SYNC_MODES, 'syncMode');
+  const paginationProtocol = assertAllowedEnum<PaginationProtocol>(
+    data.paginationProtocol,
+    VALID_PAGINATION,
+    'paginationProtocol',
+  );
+  const destinationTab = assertNonEmptyString(data.destinationTab, 'destinationTab');
+  const previewedAtUtc = assertNonEmptyString(data.previewedAtUtc, 'previewedAtUtc');
+  const pagesFetched = assertNonNegInt(data.pagesFetched, 'pagesFetched');
+  const unresolvedPreviousRun =
+    data.unresolvedPreviousRun === null
+      ? null
+      : parseUnresolvedRun(data.unresolvedPreviousRun, 'unresolvedPreviousRun');
+
+  if (data.status === 'STOP_BLOCKED') {
+    if (!Array.isArray(data.diagnostics) || data.diagnostics.length === 0) {
+      invalidResponse('STOP_BLOCKED requires non-empty diagnostics.');
+    }
+    return {
+      status: 'STOP_BLOCKED',
+      endpoint,
+      env,
+      syncMode,
+      paginationProtocol,
+      destinationTab,
+      previewedAtUtc,
+      pagesFetched,
+      diagnostics: data.diagnostics.map((d, idx) => parseDiagnostic(d, idx)),
+      unresolvedPreviousRun,
+    };
+  }
+
+  if (data.status !== 'READY') {
+    invalidResponse('Unknown preview status.');
+  }
+
+  if (data.previewMode !== 'REFERENCE_READABLE') {
+    invalidResponse('Unsupported previewMode.');
+  }
+  if (!isRecord(data.reviewBreakdown)) {
+    invalidResponse('Invalid reviewBreakdown.');
+  }
+  const reviewBreakdown: Partial<Record<ReviewReasonCode, number>> = {};
+  for (const [key, val] of Object.entries(data.reviewBreakdown)) {
+    const code = assertAllowedEnum<ReviewReasonCode>(
+      key,
+      VALID_REVIEW_REASONS,
+      `reviewBreakdown.${key}`,
+    );
+    reviewBreakdown[code] = assertNonNegInt(val, `reviewBreakdown.${key}`);
+  }
+
+  if (!Array.isArray(data.sampleRows)) {
+    invalidResponse('sampleRows must be an array.');
+  }
+
+  return {
+    status: 'READY',
+    endpoint,
+    env,
+    syncMode,
+    paginationProtocol,
+    destinationTab,
+    previewedAtUtc,
+    pagesFetched,
+    sourceTotal: assertNonNegInt(data.sourceTotal, 'sourceTotal'),
+    fingerprint: parsePreviewFingerprint(data.fingerprint, 'fingerprint'),
+    counts: parseDiffCounts(data.counts, 'counts'),
+    reviewBreakdown,
+    unresolvedPreviousRun,
+    legacySnapshotPresent: assertBoolean(data.legacySnapshotPresent, 'legacySnapshotPresent'),
+    legacySnapshotTab: assertNullableString(data.legacySnapshotTab, 'legacySnapshotTab'),
+    writeAllowed: assertBoolean(data.writeAllowed, 'writeAllowed'),
+    blockedGuardReason: assertNullableString(data.blockedGuardReason, 'blockedGuardReason'),
+    previewMode: 'REFERENCE_READABLE',
+    sampleRows: data.sampleRows.map((row, idx) => parseReferencePreviewRow(row, idx)),
+  };
+}
+
+export function parseCommitSmallDatasetResponse(raw: unknown): CommitSmallDatasetData {
+  const data = unwrapEnvelope(
+    raw,
+    ALLOWLISTED_SYNC_ERRORS,
+    'COMMIT_FAILED',
+    'ไม่สามารถดำเนินการบันทึกข้อมูลบน Google Apps Script ได้',
+  );
+
+  const endpoint = assertAllowedEnum<DatasetEndpoint>(data.endpoint, VALID_ENDPOINTS, 'endpoint');
+  const env = assertEnv(data.env, 'env');
+  const destinationTab = assertNonEmptyString(data.destinationTab, 'destinationTab');
+
+  if (data.status === 'COMMITTED_VERIFIED') {
+    if (data.syncLogStatus !== 'COMMITTED_VERIFIED') {
+      invalidResponse('Invalid syncLogStatus for COMMITTED_VERIFIED.');
+    }
+    return {
+      status: 'COMMITTED_VERIFIED',
+      runId: assertNonEmptyString(data.runId, 'runId'),
+      endpoint,
+      env,
+      syncMode: assertAllowedEnum<SyncMode>(data.syncMode, VALID_SYNC_MODES, 'syncMode'),
+      destinationTab,
+      completedAtUtc: assertNonEmptyString(data.completedAtUtc, 'completedAtUtc'),
+      counts: parseDiffCounts(data.counts, 'counts'),
+      fingerprint: parsePreviewFingerprint(data.fingerprint, 'fingerprint'),
+      readback: parseReadbackVerification(data.readback),
+      syncLogStatus: 'COMMITTED_VERIFIED',
+    };
+  }
+
+  if (data.status === 'PREVIEW_STALE_RECONFIRM_REQUIRED') {
+    return {
+      status: 'PREVIEW_STALE_RECONFIRM_REQUIRED',
+      endpoint,
+      env,
+      destinationTab,
+      driftReason: assertAllowedEnum<StaleDriftReason>(
+        data.driftReason,
+        VALID_STALE_DRIFT_REASONS,
+        'driftReason',
+      ),
+      expectedFingerprint: parsePreviewFingerprint(data.expectedFingerprint, 'expectedFingerprint'),
+      currentSourceTotal: assertNonNegInt(data.currentSourceTotal, 'currentSourceTotal'),
+      currentDatasetDigest: assertNonEmptyString(data.currentDatasetDigest, 'currentDatasetDigest'),
+      currentSheetRevisionFingerprint: assertNonEmptyString(
+        data.currentSheetRevisionFingerprint,
+        'currentSheetRevisionFingerprint',
+      ),
+    };
+  }
+
+  if (data.status === 'FAILED_STOP' || data.status === 'UNKNOWN_OUTCOME_STOP') {
+    const syncLogStatus = data.syncLogStatus;
+    if (
+      syncLogStatus !== 'STARTED' &&
+      syncLogStatus !== 'FAILED_STOP' &&
+      syncLogStatus !== 'NOT_WRITTEN'
+    ) {
+      invalidResponse('Invalid syncLogStatus for stop outcome.');
+    }
+    return {
+      status: data.status,
+      runId: assertNullableString(data.runId, 'runId'),
+      endpoint,
+      env,
+      destinationTab,
+      stopCode: assertAllowedEnum<CommitStopCode>(
+        data.stopCode,
+        VALID_COMMIT_STOP_CODES,
+        'stopCode',
+      ),
+      message: assertNonEmptyString(data.message, 'message'),
+      syncLogStatus,
+      stagingTabRetained: assertNullableString(data.stagingTabRetained, 'stagingTabRetained'),
+    };
+  }
+
+  invalidResponse('Unknown commit outcome status.');
 }

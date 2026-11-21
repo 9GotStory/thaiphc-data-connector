@@ -230,6 +230,15 @@
   }
 }
 
+/* Sync Workspace sticky offset override (Header 64px + Token Bar ~76px + 16px on lg+) */
+@media (min-width: 1024px) {
+  html:has(.sync-workspace-root),
+  .sync-workspace-root {
+    --sticky-scroll-offset: 9.75rem;
+    scroll-padding-top: 9.75rem;
+  }
+}
+
 /* Reduced Motion Compliance (WCAG 2.1 / 2.2) */
 @media (prefers-reduced-motion: reduce) {
   *,

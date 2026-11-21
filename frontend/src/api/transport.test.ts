@@ -28,6 +28,18 @@ function createFakeRunner(
         (err) => failureCb?.(err),
       );
     },
+    previewDataset() {
+      handler(
+        (val) => successCb?.(val),
+        (err) => failureCb?.(err),
+      );
+    },
+    commitSmallDataset() {
+      handler(
+        (val) => successCb?.(val),
+        (err) => failureCb?.(err),
+      );
+    },
   };
   return runner;
 }
@@ -141,5 +153,44 @@ describe('GasRpcTransport Seam', () => {
 
     const online = createDefaultGasTransport(() => createFakeRunner(() => {}));
     expect(online.mode).toBe('gas');
+  });
+
+  it('validates previewDataset and commitSmallDataset envelopes at the GasRpcTransport boundary and rejects malformed payloads', async () => {
+    const mock = new MockGasTransport({ scenario: 'sandbox-writable' });
+    const preview = await mock.previewDataset({
+      endpoint: 'subdistricts',
+      token: 'synthetic_token_for_transport_test',
+    });
+    expect(preview.status).toBe('READY');
+    if (preview.status !== 'READY') throw new Error('expected READY');
+
+    const commit = await mock.commitSmallDataset({
+      endpoint: 'subdistricts',
+      token: 'synthetic_token_for_transport_test',
+      expectedFingerprint: preview.fingerprint,
+    });
+    expect(commit.status).toBe('COMMITTED_VERIFIED');
+
+    const badPreviewTransport = new GoogleScriptRunTransport(() =>
+      createFakeRunner((onSuccess) => onSuccess({ ok: true, data: { status: 'UNKNOWN' } })),
+    );
+    await expect(
+      badPreviewTransport.previewDataset({
+        endpoint: 'subdistricts',
+        token: 'synthetic_token_for_transport_test',
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_RPC_RESPONSE' });
+
+    const authErrorTransport = new GoogleScriptRunTransport(() =>
+      createFakeRunner((onSuccess) =>
+        onSuccess({ ok: false, error: { code: 'HTTP_401', message: 'Unauthorized' } }),
+      ),
+    );
+    await expect(
+      authErrorTransport.previewDataset({
+        endpoint: 'subdistricts',
+        token: 'synthetic_token_for_transport_test',
+      }),
+    ).rejects.toMatchObject({ code: 'HTTP_401' });
   });
 });

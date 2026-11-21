@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -56,22 +57,88 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
       THAIPHC_HMAC_KEY_B64: VALID_HMAC_KEY,
     };
 
-    const makeFakeSheet = (name: string, rows: unknown[][]) => ({
-      getName: () => name,
-      getLastRow: () => rows.length,
-      getLastColumn: () => (rows[0] ? rows[0].length : 0),
-      getRange: (row: number, col: number, numRows: number, numCols: number) => ({
-        getValues: () =>
-          Array.from({ length: numRows }, (_, r) =>
-            Array.from({ length: numCols }, (_, c) => rows[row - 1 + r]?.[col - 1 + c] ?? ''),
-          ),
-      }),
-    });
+    const makeFakeSheet = (name: string, rows: unknown[][]) => {
+      const state = {
+        rows: rows.map((r) => [...r]),
+        maxRows: Math.max(100, rows.length + 10),
+        maxColumns: Math.max(26, ...rows.map((r) => r.length)),
+      };
+      return {
+        getName: () => name,
+        getLastRow: () => state.rows.length,
+        getLastColumn: () => state.rows.reduce((max, r) => Math.max(max, r.length), 0),
+        getMaxRows: () => state.maxRows,
+        getMaxColumns: () => state.maxColumns,
+        insertColumnsAfter: (_after: number, howMany: number) => {
+          state.maxColumns += howMany;
+        },
+        insertRowsAfter: (_after: number, howMany: number) => {
+          state.maxRows += howMany;
+        },
+        setFrozenRows: () => undefined,
+        getRange: (row: number, col: number, numRows: number, numCols: number) => ({
+          getValues: () =>
+            Array.from({ length: numRows }, (_, r) =>
+              Array.from(
+                { length: numCols },
+                (_, c) => state.rows[row - 1 + r]?.[col - 1 + c] ?? '',
+              ),
+            ),
+          setValues: (vals: unknown[][]) => {
+            for (let r = 0; r < vals.length; r++) {
+              const idx = row - 1 + r;
+              while (state.rows.length <= idx) state.rows.push([]);
+              for (let c = 0; c < vals[r].length; c++) {
+                state.rows[idx][col - 1 + c] = vals[r][c];
+              }
+            }
+          },
+          setNumberFormat: () => undefined,
+        }),
+      };
+    };
 
     const sheets = [
-      makeFakeSheet('Subdistricts', [['code'], ['540601'], ['540602']]),
+      makeFakeSheet('ชีต1', [['baseline-keep']]),
+      makeFakeSheet('Subdistricts', [
+        [
+          'code',
+          'id',
+          'name_th',
+          'name_en',
+          'postal_code',
+          'label',
+          'district_code',
+          'district_name_th',
+          'district_name_en',
+          'province_code',
+          'province_name_th',
+          'province_name_en',
+          '_schema_version',
+          '_sync_run_id',
+          '_source_key',
+          '_fetched_at_utc',
+          '_quality_status',
+          '_field_presence_json',
+          '_last_seen_run_id',
+          '_row_digest',
+        ],
+      ]),
       makeFakeSheet('_ThaiPHCSyncLog', [
-        ['run_id', 'timestamp_utc', 'env', 'endpoint', 'sync_mode', 'status'],
+        [
+          'run_id',
+          'timestamp_utc',
+          'env',
+          'endpoint',
+          'sync_mode',
+          'status',
+          'preview_digest',
+          'inserted',
+          'updated',
+          'unchanged',
+          'review',
+          'readback_verified',
+        ],
         [
           'run_20261121_0800',
           '2026-11-21T01:00:00.000Z',
@@ -79,6 +146,12 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
           'subdistricts',
           'KEYED_UPSERT',
           'COMMITTED_VERIFIED',
+          'abc',
+          0,
+          0,
+          0,
+          0,
+          true,
         ],
       ]),
     ];
@@ -89,6 +162,25 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
       metaTags: Array<[string, string]>;
       xFrameMode?: string;
     }> = [];
+
+    const mockSubdistrictPayload = JSON.stringify({
+      items: [
+        {
+          code: '540601',
+          id: '540601',
+          name_th: 'บ้านหนุน',
+          name_en: 'Ban Nun',
+          postal_code: '54120',
+          label: 'บ้านหนุน / Ban Nun',
+          district_code: '5406',
+          district_name_th: 'สอง',
+          district_name_en: 'Song',
+          province_code: null,
+          province_name_th: null,
+          province_name_en: null,
+        },
+      ],
+    });
 
     const sandbox = {
       HtmlService: {
@@ -130,6 +222,7 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
         }),
       },
       SpreadsheetApp: {
+        flush: () => undefined,
         openById: (id: string) => {
           if (id !== VALID_SHEET_ID) throw new Error('WRONG_ID');
           return {
@@ -137,8 +230,36 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
             getName: () => 'ThaiPHC VM Sandbox',
             getSheetByName: (name: string) => sheets.find((s) => s.getName() === name) ?? null,
             getSheets: () => sheets,
+            insertSheet: (name: string) => {
+              const s = makeFakeSheet(name, []);
+              sheets.push(s);
+              return s;
+            },
           };
         },
+      },
+      LockService: {
+        getScriptLock: () => ({
+          tryLock: () => true,
+          releaseLock: () => undefined,
+        }),
+      },
+      UrlFetchApp: {
+        fetch: () => ({
+          getResponseCode: () => 200,
+          getAllHeaders: () => ({ 'Content-Type': 'application/json' }),
+          getContent: () => Array.from(Buffer.from(mockSubdistrictPayload, 'utf8')),
+          getContentText: () => mockSubdistrictPayload,
+        }),
+      },
+      Utilities: {
+        DigestAlgorithm: { SHA_256: 'SHA_256' },
+        newBlob: (str: string) => ({
+          getBytes: () => Array.from(Buffer.from(str, 'utf8')),
+        }),
+        computeDigest: (_alg: string, bytes: number[]) =>
+          Array.from(createHash('sha256').update(Buffer.from(bytes)).digest()),
+        getUuid: () => '12345678-1234-1234-1234-1234567890ab',
       },
     };
 
@@ -147,6 +268,8 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
 
     expect(typeof context.doGet).toBe('function');
     expect(typeof context.getDashboardStatus).toBe('function');
+    expect(typeof context.previewDataset).toBe('function');
+    expect(typeof context.commitSmallDataset).toBe('function');
 
     context.doGet();
     expect(htmlCalls).toHaveLength(1);
@@ -164,11 +287,41 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
     expect(result.data.datasets).toHaveLength(8);
     expect(result.data.datasets[0]).toMatchObject({
       endpoint: 'subdistricts',
-      rowCount: 2,
+      rowCount: 0,
       lastRunId: 'run_20261121_0800',
       lastStatus: 'COMMITTED_VERIFIED',
     });
+
+    // Smoke-verify bundled previewDataset + commitSmallDataset in node:vm
+    properties.THAIPHC_WRITE_ENABLED = 'true';
+    const previewRes = JSON.parse(
+      JSON.stringify(
+        context.previewDataset({
+          endpoint: 'subdistricts',
+          token: 'synthetic_vm_token_1234567890',
+        }),
+      ),
+    );
+    expect(previewRes.ok).toBe(true);
+    expect(previewRes.data.status).toBe('READY');
+    expect(previewRes.data.counts).toEqual({ insert: 1, update: 0, unchanged: 0, review: 0 });
+
+    const commitRes = JSON.parse(
+      JSON.stringify(
+        context.commitSmallDataset({
+          endpoint: 'subdistricts',
+          token: 'synthetic_vm_token_1234567890',
+          expectedFingerprint: previewRes.data.fingerprint,
+        }),
+      ),
+    );
+    expect(commitRes.ok).toBe(true);
+    expect(commitRes.data.status).toBe('COMMITTED_VERIFIED');
+    expect(commitRes.data.readback.verified).toBe(true);
+    expect(commitRes.data.readback.unrelatedTabsPreserved).toBe(true);
+
     expect(propertyMutations).toEqual([]);
     expect(JSON.stringify(result)).not.toContain(VALID_HMAC_KEY);
+    expect(JSON.stringify(commitRes)).not.toContain('synthetic_vm_token_1234567890');
   });
 });

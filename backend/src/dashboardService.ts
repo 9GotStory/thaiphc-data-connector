@@ -2,10 +2,16 @@ import {
   DATASET_CATALOG,
   REPORT_CURRENT_TAB,
   SAME_WORKBOOK_APPROVAL_TOKEN,
-  SYNC_LOG_TAB,
 } from './datasetCatalog.ts';
+import {
+  buildHeaderMap,
+  cellToString,
+  isValidSpreadsheetId,
+  parseEnvironment,
+  readSyncLogLatestMap,
+  type SyncLogEntry,
+} from './sheetConfig.ts';
 import type {
-  AppEnvironment,
   DashboardDatasetStatus,
   DashboardErrorCode,
   DashboardPlatform,
@@ -19,15 +25,7 @@ import type {
 
 export type { DashboardPlatform } from './types.ts';
 
-const SPREADSHEET_ID_PATTERN = /^[A-Za-z0-9_-]{25,120}$/;
 const HMAC_KEY_B64_PATTERN = /^[A-Za-z0-9+/]{43}=$/;
-
-interface SyncLogEntry {
-  endpoint: string;
-  runId: string;
-  timestampUtc: string | null;
-  rawStatus: string;
-}
 
 interface ReportCurrentPointer {
   endpoint: string;
@@ -44,43 +42,8 @@ function fail(code: DashboardErrorCode, message: string): DashboardStatusRespons
   return { ok: false, error: { code, message } };
 }
 
-function parseEnvironment(raw: string | null): AppEnvironment | null {
-  if (raw === 'SANDBOX' || raw === 'PRODUCTION') {
-    return raw;
-  }
-  return null;
-}
-
-function isValidSpreadsheetId(value: string | null): value is string {
-  return typeof value === 'string' && SPREADSHEET_ID_PATTERN.test(value);
-}
-
 function isValidHmacKey(value: string | null): boolean {
   return typeof value === 'string' && HMAC_KEY_B64_PATTERN.test(value);
-}
-
-function cellToString(value: unknown): string {
-  if (typeof value === 'string') {
-    return value.trim();
-  }
-  if (value instanceof Date && Number.isFinite(value.getTime())) {
-    return value.toISOString();
-  }
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return String(value);
-  }
-  return '';
-}
-
-function buildHeaderMap(headerRow: unknown[]): Map<string, number> {
-  const map = new Map<string, number>();
-  for (let i = 0; i < headerRow.length; i++) {
-    const key = cellToString(headerRow[i]);
-    if (key.length > 0 && !map.has(key)) {
-      map.set(key, i);
-    }
-  }
-  return map;
 }
 
 function readSheetTable(spreadsheet: SpreadsheetHandle | null, tabName: string): SheetTable | null {
@@ -101,41 +64,6 @@ function readSheetTable(spreadsheet: SpreadsheetHandle | null, tabName: string):
     headers: buildHeaderMap(values[0] ?? []),
     rows: values.slice(1),
   };
-}
-
-function readSyncLogLatest(spreadsheet: SpreadsheetHandle | null): Map<string, SyncLogEntry> {
-  const latestByEndpoint = new Map<string, SyncLogEntry>();
-  const table = readSheetTable(spreadsheet, SYNC_LOG_TAB);
-  if (!table) {
-    return latestByEndpoint;
-  }
-
-  const endpointCol = table.headers.get('endpoint');
-  const runIdCol = table.headers.get('run_id');
-  const statusCol = table.headers.get('status');
-  const timestampCol = table.headers.get('timestamp_utc');
-
-  if (endpointCol === undefined || runIdCol === undefined || statusCol === undefined) {
-    return latestByEndpoint;
-  }
-
-  for (const row of table.rows) {
-    const endpoint = cellToString(row[endpointCol]);
-    const runId = cellToString(row[runIdCol]);
-    const rawStatus = cellToString(row[statusCol]);
-    if (endpoint.length === 0 || runId.length === 0) {
-      continue;
-    }
-    const timestampRaw = timestampCol !== undefined ? cellToString(row[timestampCol]) : '';
-    latestByEndpoint.set(endpoint, {
-      endpoint,
-      runId,
-      timestampUtc: timestampRaw.length > 0 ? timestampRaw : null,
-      rawStatus,
-    });
-  }
-
-  return latestByEndpoint;
 }
 
 function readReportCurrentPointers(
@@ -282,10 +210,10 @@ export function getDashboardStatusWithPlatform(
       platform.getProperty('THAIPHC_PERSON_DATA_WRITE_ENABLED') === 'true';
     const hmacKeyConfigured = isValidHmacKey(platform.getProperty('THAIPHC_HMAC_KEY_B64'));
 
-    const referenceSyncLogs = readSyncLogLatest(referenceSpreadsheet);
+    const referenceSyncLogs = readSyncLogLatestMap(referenceSpreadsheet);
     const reportSyncLogs = usesSameSpreadsheet
       ? referenceSyncLogs
-      : readSyncLogLatest(reportSpreadsheet);
+      : readSyncLogLatestMap(reportSpreadsheet);
     const reportPointers = readReportCurrentPointers(reportSpreadsheet);
     const reportSheetNames = reportSpreadsheet ? reportSpreadsheet.getSheetNames() : [];
 

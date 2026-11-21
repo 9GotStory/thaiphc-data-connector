@@ -1,4 +1,10 @@
-import type { DatasetEndpoint, DatasetGroup, PaginationProtocol, SyncMode } from './types.ts';
+import type {
+  DatasetEndpoint,
+  DatasetGroup,
+  PaginationProtocol,
+  ReferenceDatasetEndpoint,
+  SyncMode,
+} from './types.ts';
 
 export interface DatasetDescriptor {
   readonly endpoint: DatasetEndpoint;
@@ -7,6 +13,24 @@ export interface DatasetDescriptor {
   readonly paginationProtocol: PaginationProtocol;
   readonly defaultTab: string;
   readonly legacyPrefix: string | null;
+}
+
+export type ReferenceFieldKind =
+  'string' | 'string_or_null' | 'integer' | 'number' | 'null_only' | 'object' | 'array';
+
+export interface ReferenceFieldSpec {
+  readonly name: string;
+  readonly kind: ReferenceFieldKind;
+}
+
+export interface ReferenceSchemaSpec {
+  readonly endpoint: ReferenceDatasetEndpoint;
+  readonly tab: string;
+  readonly keyField: string;
+  readonly displayNameField: string;
+  readonly summaryFieldNames: readonly string[];
+  readonly maxRows: number;
+  readonly fields: readonly ReferenceFieldSpec[];
 }
 
 export const DATASET_CATALOG: readonly DatasetDescriptor[] = [
@@ -79,3 +103,129 @@ export const DATASET_CATALOG: readonly DatasetDescriptor[] = [
 export const REPORT_CURRENT_TAB = '_ThaiPHCReportCurrent';
 export const SYNC_LOG_TAB = '_ThaiPHCSyncLog';
 export const SAME_WORKBOOK_APPROVAL_TOKEN = 'OWNER_ONLY_5406_APPROVED';
+export const SCHEMA_VERSION = '0.1.0';
+
+/**
+ * Exact 8 trailing metadata columns matching the deployed 111-row Historical Acceptance Baseline
+ * (apps-script/Code.gs and docs/sheets-schema.json).
+ */
+export const KEYED_UPSERT_METADATA_COLUMNS = [
+  '_schema_version',
+  '_sync_run_id',
+  '_source_key',
+  '_fetched_at_utc',
+  '_quality_status',
+  '_field_presence_json',
+  '_last_seen_run_id',
+  '_row_digest',
+] as const;
+
+export const SYNC_LOG_HEADERS = [
+  'run_id',
+  'timestamp_utc',
+  'env',
+  'endpoint',
+  'sync_mode',
+  'status',
+  'preview_digest',
+  'inserted',
+  'updated',
+  'unchanged',
+  'review',
+  'readback_verified',
+] as const;
+
+export const SYNC_LOG_TEXT_COLUMN_COUNT = SYNC_LOG_HEADERS.indexOf('preview_digest') + 1;
+
+export const REFERENCE_SCHEMAS: Readonly<Record<ReferenceDatasetEndpoint, ReferenceSchemaSpec>> = {
+  subdistricts: {
+    endpoint: 'subdistricts',
+    tab: 'Subdistricts',
+    keyField: 'code',
+    displayNameField: 'name_th',
+    summaryFieldNames: ['name_th', 'name_en', 'postal_code'],
+    maxRows: 20,
+    fields: [
+      { name: 'code', kind: 'string' },
+      { name: 'id', kind: 'string' },
+      { name: 'name_th', kind: 'string' },
+      { name: 'name_en', kind: 'string' },
+      { name: 'postal_code', kind: 'string' },
+      { name: 'label', kind: 'string' },
+      { name: 'district_code', kind: 'string' },
+      { name: 'district_name_th', kind: 'string' },
+      { name: 'district_name_en', kind: 'string' },
+      { name: 'province_code', kind: 'null_only' },
+      { name: 'province_name_th', kind: 'null_only' },
+      { name: 'province_name_en', kind: 'null_only' },
+    ],
+  },
+  villages: {
+    endpoint: 'villages',
+    tab: 'Villages',
+    keyField: 'code',
+    displayNameField: 'name_th',
+    summaryFieldNames: ['name_th', 'subdistrict_name_th', 'village_no', 'health_service_code'],
+    maxRows: 150,
+    fields: [
+      { name: 'code', kind: 'string' },
+      { name: 'village_code_8digit', kind: 'string' },
+      { name: 'id', kind: 'string' },
+      { name: 'name_th', kind: 'string' },
+      { name: 'name_en', kind: 'null_only' },
+      { name: 'village_no', kind: 'integer' },
+      { name: 'metro_status', kind: 'null_only' },
+      { name: 'label', kind: 'string' },
+      { name: 'subdistrict_code', kind: 'string' },
+      { name: 'subdistrict_name_th', kind: 'string' },
+      { name: 'subdistrict_name_en', kind: 'string' },
+      { name: 'district_code', kind: 'string' },
+      { name: 'district_name_th', kind: 'string' },
+      { name: 'district_name_en', kind: 'string' },
+      { name: 'province_code', kind: 'string' },
+      { name: 'province_name_th', kind: 'string' },
+      { name: 'province_name_en', kind: 'string' },
+      { name: 'health_service_code', kind: 'string_or_null' },
+      { name: 'health_service_name_th', kind: 'string_or_null' },
+      { name: 'health_service_name_en', kind: 'null_only' },
+    ],
+  },
+  'health-services': {
+    endpoint: 'health-services',
+    tab: 'HealthServices',
+    keyField: 'health_service_code',
+    displayNameField: 'health_service_name_th',
+    summaryFieldNames: ['health_service_name_th', 'legacy_5digit_code', 'latitude', 'longitude'],
+    maxRows: 100,
+    fields: [
+      { name: 'health_service_code', kind: 'string' },
+      { name: 'health_service_name_th', kind: 'string' },
+      { name: 'health_service_name_en', kind: 'null_only' },
+      { name: 'legacy_5digit_code', kind: 'string' },
+      { name: 'legacy_9digit_code', kind: 'string' },
+      { name: 'village_no', kind: 'string' },
+      { name: 'latitude', kind: 'number' },
+      { name: 'longitude', kind: 'number' },
+      { name: 'health_service_type', kind: 'object' },
+      { name: 'province', kind: 'object' },
+      { name: 'district', kind: 'object' },
+      { name: 'subdistrict', kind: 'object' },
+      { name: 'service_areas', kind: 'array' },
+      { name: 'created_at', kind: 'string' },
+      { name: 'updated_at', kind: 'string' },
+      { name: 'deleted_at', kind: 'null_only' },
+    ],
+  },
+};
+
+export function isReferenceEndpoint(endpoint: string): endpoint is ReferenceDatasetEndpoint {
+  return endpoint === 'subdistricts' || endpoint === 'villages' || endpoint === 'health-services';
+}
+
+export function getDatasetDescriptor(endpoint: DatasetEndpoint): DatasetDescriptor {
+  const found = DATASET_CATALOG.find((item) => item.endpoint === endpoint);
+  if (!found) {
+    throw new Error(`UNKNOWN_ENDPOINT:${endpoint}`);
+  }
+  return found;
+}

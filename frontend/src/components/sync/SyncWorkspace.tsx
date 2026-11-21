@@ -82,6 +82,12 @@ export function SyncWorkspace({
   const previewRunTokenRef = useRef(0);
 
   const selectedDataset = data?.datasets.find((d) => d.endpoint === selectedEndpoint);
+  const targetWorkbook =
+    data === undefined
+      ? null
+      : selectedDataset?.group === 'extended_report'
+        ? (data.workbooks.report ?? data.workbooks.reference)
+        : data.workbooks.reference;
 
   const previewMutation = useMutation({
     mutationFn: (request: PreviewDatasetRequest) => transport.previewDataset(request),
@@ -433,18 +439,25 @@ export function SyncWorkspace({
           )}
 
           {/* Module 4 & 5: Diff & Review Inspector + Explicit Confirmation Gate */}
-          {!isPreviewing && !isCommitting && !commitOutcome && activePreviewData && (
-            <>
-              <DiffReviewInspector key={`diff-${previewInstanceKey}`} preview={activePreviewData} />
-              <ConfirmationGate
-                key={`gate-${previewInstanceKey}`}
-                preview={activePreviewData}
-                targetWorkbook={data.workbooks.reference}
-                isCommitting={isCommitting}
-                onConfirmCommit={handleConfirmCommit}
-              />
-            </>
-          )}
+          {!isPreviewing &&
+            !isCommitting &&
+            !commitOutcome &&
+            activePreviewData &&
+            targetWorkbook && (
+              <>
+                <DiffReviewInspector
+                  key={`diff-${previewInstanceKey}`}
+                  preview={activePreviewData}
+                />
+                <ConfirmationGate
+                  key={`gate-${previewInstanceKey}`}
+                  preview={activePreviewData}
+                  targetWorkbook={targetWorkbook}
+                  isCommitting={isCommitting}
+                  onConfirmCommit={handleConfirmCommit}
+                />
+              </>
+            )}
         </>
       )}
     </div>

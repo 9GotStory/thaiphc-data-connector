@@ -182,6 +182,30 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
       ],
     });
 
+    const mockGenderPayload = JSON.stringify({
+      success: true,
+      message: 'Success',
+      items: [
+        {
+          provinceCode: '54',
+          provinceName: 'แพร่',
+          districtCode: '5406',
+          districtName: 'สอง',
+          subdistrictCode: '540601',
+          subdistrictName: 'บ้านหนุน',
+          villageCode: '540601001',
+          villageNo: '1',
+          villageName: 'หนุนเหนือ',
+          total: 19,
+          male: 3,
+          female: 16,
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 100,
+    });
+
     const sandbox = {
       HtmlService: {
         XFrameOptionsMode: { DEFAULT: 'DEFAULT', ALLOWALL: 'ALLOWALL' },
@@ -245,12 +269,17 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
         }),
       },
       UrlFetchApp: {
-        fetch: () => ({
-          getResponseCode: () => 200,
-          getAllHeaders: () => ({ 'Content-Type': 'application/json' }),
-          getContent: () => Array.from(Buffer.from(mockSubdistrictPayload, 'utf8')),
-          getContentText: () => mockSubdistrictPayload,
-        }),
+        fetch: (url: string) => {
+          const payload = url.includes('/reports/volunteer-gender')
+            ? mockGenderPayload
+            : mockSubdistrictPayload;
+          return {
+            getResponseCode: () => 200,
+            getAllHeaders: () => ({ 'Content-Type': 'application/json' }),
+            getContent: () => Array.from(Buffer.from(payload, 'utf8')),
+            getContentText: () => payload,
+          };
+        },
       },
       Utilities: {
         DigestAlgorithm: { SHA_256: 'SHA_256' },
@@ -320,8 +349,41 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
     expect(commitRes.data.readback.verified).toBe(true);
     expect(commitRes.data.readback.unrelatedTabsPreserved).toBe(true);
 
+    // Smoke-verify bundled volunteer-gender Mode B preview, person-data write guard, and Keyed Upsert commit in node:vm
+    properties.THAIPHC_PERSON_DATA_WRITE_ENABLED = 'false';
+    const vgPreviewBlockedGuard = JSON.parse(
+      JSON.stringify(
+        context.previewDataset({
+          endpoint: 'volunteer-gender',
+          token: 'synthetic_vm_token_1234567890',
+        }),
+      ),
+    );
+    expect(vgPreviewBlockedGuard.ok).toBe(true);
+    expect(vgPreviewBlockedGuard.data.status).toBe('READY');
+    expect(vgPreviewBlockedGuard.data.previewMode).toBe('EXTENDED_MINIMIZED');
+    expect(vgPreviewBlockedGuard.data.writeAllowed).toBe(false);
+    expect(vgPreviewBlockedGuard.data.blockedGuardReason).toBe('THAIPHC_PERSON_DATA_WRITE_ENABLED');
+    expect(vgPreviewBlockedGuard.data.reviewBreakdown).toEqual({ SMALL_CELL_SUPPRESSED: 1 });
+
+    properties.THAIPHC_PERSON_DATA_WRITE_ENABLED = 'true';
+    const vgCommitRes = JSON.parse(
+      JSON.stringify(
+        context.commitSmallDataset({
+          endpoint: 'volunteer-gender',
+          token: 'synthetic_vm_token_1234567890',
+          expectedFingerprint: vgPreviewBlockedGuard.data.fingerprint,
+        }),
+      ),
+    );
+    expect(vgCommitRes.ok).toBe(true);
+    expect(vgCommitRes.data.status).toBe('COMMITTED_VERIFIED');
+    expect(vgCommitRes.data.destinationTab).toBe('VolunteerGender');
+    expect(vgCommitRes.data.readback.verified).toBe(true);
+
     expect(propertyMutations).toEqual([]);
     expect(JSON.stringify(result)).not.toContain(VALID_HMAC_KEY);
     expect(JSON.stringify(commitRes)).not.toContain('synthetic_vm_token_1234567890');
+    expect(JSON.stringify(vgCommitRes)).not.toContain('synthetic_vm_token_1234567890');
   });
 });

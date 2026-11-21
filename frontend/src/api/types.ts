@@ -12,6 +12,8 @@ export type DatasetEndpoint =
 
 export type ReferenceDatasetEndpoint = 'subdistricts' | 'villages' | 'health-services';
 
+export type SmallKeyedDatasetEndpoint = ReferenceDatasetEndpoint | 'volunteer-gender';
+
 export type DatasetGroup = 'reference' | 'extended_report';
 
 export type SyncMode = 'KEYED_UPSERT' | 'COMPLETE_SNAPSHOT';
@@ -43,7 +45,7 @@ export type GasRpcErrorCode =
 
 export type DiffKind = 'INSERT' | 'UPDATE' | 'UNCHANGED' | 'REVIEW';
 
-export type ReviewReasonCode = 'MISSING_IN_SOURCE' | 'PLACEHOLDER_COORDS';
+export type ReviewReasonCode = 'MISSING_IN_SOURCE' | 'PLACEHOLDER_COORDS' | 'SMALL_CELL_SUPPRESSED';
 
 export type PreviewStopCode =
   | 'HTTP_403'
@@ -59,10 +61,13 @@ export type PreviewStopCode =
   | 'MISSING_SOURCE_KEY'
   | 'UNEXPECTED_FIELD'
   | 'TYPE_MISMATCH'
+  | 'GENDER_TOTAL_MISMATCH'
   | 'FORMULA_INJECTION_DETECTED'
   | 'ASCII_CONTROL_CHAR'
   | 'SOURCE_TOTAL_DRIFT'
+  | 'SOURCE_TOTAL_CHANGED'
   | 'INCOMPLETE_PAGINATION'
+  | 'INCOMPLETE_SNAPSHOT'
   | 'ROW_LIMIT_EXCEEDED'
   | 'HEADER_MISMATCH'
   | 'INVALID_EXISTING_KEY'
@@ -71,6 +76,9 @@ export type PreviewStopCode =
 export type CommitStopCode =
   | PreviewStopCode
   | 'WRITE_DISABLED'
+  | 'PERSON_DATA_WRITE_DISABLED'
+  | 'SAME_WORKBOOK_UNAPPROVED'
+  | 'INVALID_REPORT_WORKBOOK'
   | 'PRODUCTION_CONFIRMATION_REQUIRED'
   | 'LOCK_BUSY'
   | 'UNRESOLVED_PREVIOUS_RUN'
@@ -168,7 +176,33 @@ export interface ReferencePreviewRow {
   reviewReasons: ReviewReasonCode[];
 }
 
-export interface PreviewReadyData {
+export type BlockedGuardReason =
+  | 'THAIPHC_WRITE_ENABLED'
+  | 'THAIPHC_PERSON_DATA_WRITE_ENABLED'
+  | 'THAIPHC_SAME_WORKBOOK_APPROVAL'
+  | 'THAIPHC_REPORT_SPREADSHEET_ID';
+
+export interface ExtendedAggregateGroup {
+  groupCode: string;
+  groupLabel: string;
+  rowCount: number;
+  reviewCount: number;
+}
+
+export interface ExtendedMinimizedAttribute {
+  field: string;
+  value: string | null;
+}
+
+export interface ExtendedMinimizedPreviewRow {
+  diffKind: DiffKind;
+  sourceKey: string;
+  scopeLabel: string;
+  minimizedAttributes: ExtendedMinimizedAttribute[];
+  reviewReasons: ReviewReasonCode[];
+}
+
+export interface PreviewReadyBase {
   status: 'READY';
   endpoint: DatasetEndpoint;
   env: AppEnvironment;
@@ -185,10 +219,21 @@ export interface PreviewReadyData {
   legacySnapshotPresent: boolean;
   legacySnapshotTab: string | null;
   writeAllowed: boolean;
-  blockedGuardReason: string | null;
+  blockedGuardReason: BlockedGuardReason | null;
+}
+
+export interface PreviewReadyReferenceData extends PreviewReadyBase {
   previewMode: 'REFERENCE_READABLE';
   sampleRows: ReferencePreviewRow[];
 }
+
+export interface PreviewReadyExtendedData extends PreviewReadyBase {
+  previewMode: 'EXTENDED_MINIMIZED';
+  aggregateSummary: ExtendedAggregateGroup[];
+  sampleRows: ExtendedMinimizedPreviewRow[];
+}
+
+export type PreviewReadyData = PreviewReadyReferenceData | PreviewReadyExtendedData;
 
 export interface PreviewBlockedData {
   status: 'STOP_BLOCKED';

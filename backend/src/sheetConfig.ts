@@ -1,7 +1,12 @@
-import { SYNC_LOG_TAB } from './datasetCatalog.ts';
+import {
+  REPORT_CURRENT_TAB,
+  SAME_WORKBOOK_APPROVAL_TOKEN,
+  SYNC_LOG_TAB,
+} from './datasetCatalog.ts';
 import type {
   AppEnvironment,
   DatasetEndpoint,
+  SameWorkbookPolicy,
   SpreadsheetHandle,
   UnresolvedRunSummary,
 } from './types.ts';
@@ -15,12 +20,60 @@ export interface SyncLogEntry {
   rawStatus: string;
 }
 
+export interface ReportCurrentPointer {
+  endpoint: string;
+  runId: string;
+  snapshotSheet: string;
+}
+
+export interface ReportWorkbookPolicyResult {
+  sameWorkbookPolicy: SameWorkbookPolicy;
+  reportWorkbookApproved: boolean;
+  targetSpreadsheetId: string | null;
+  usesSameSpreadsheet: boolean;
+}
+
 export function parseEnvironment(raw: string | null): AppEnvironment | null {
   return raw === 'SANDBOX' || raw === 'PRODUCTION' ? raw : null;
 }
 
 export function isValidSpreadsheetId(value: string | null): value is string {
   return typeof value === 'string' && SPREADSHEET_ID_PATTERN.test(value);
+}
+
+export function resolveReportWorkbookPolicy(
+  referenceSpreadsheetId: string,
+  rawReportSpreadsheetId: string | null,
+  sameWorkbookApproval: string | null,
+): ReportWorkbookPolicyResult {
+  const trimmedReportId =
+    typeof rawReportSpreadsheetId === 'string' ? rawReportSpreadsheetId.trim() : '';
+
+  if (trimmedReportId === '' || trimmedReportId === referenceSpreadsheetId) {
+    const approved = sameWorkbookApproval === SAME_WORKBOOK_APPROVAL_TOKEN;
+    return {
+      sameWorkbookPolicy: approved ? 'SAME_WORKBOOK_APPROVED' : 'SAME_WORKBOOK_UNAPPROVED',
+      reportWorkbookApproved: approved,
+      targetSpreadsheetId: referenceSpreadsheetId,
+      usesSameSpreadsheet: true,
+    };
+  }
+
+  if (!isValidSpreadsheetId(trimmedReportId)) {
+    return {
+      sameWorkbookPolicy: 'INVALID_REPORT_WORKBOOK',
+      reportWorkbookApproved: false,
+      targetSpreadsheetId: null,
+      usesSameSpreadsheet: false,
+    };
+  }
+
+  return {
+    sameWorkbookPolicy: 'SEPARATE_WORKBOOK',
+    reportWorkbookApproved: true,
+    targetSpreadsheetId: trimmedReportId,
+    usesSameSpreadsheet: false,
+  };
 }
 
 export function cellToString(value: unknown): string {
@@ -95,6 +148,78 @@ export function readSyncLogLatestMap(
   }
 
   return latestByEndpoint;
+}
+
+export function readReportCurrentPointers(
+  spreadsheet: SpreadsheetHandle | null,
+): Map<string, ReportCurrentPointer> {
+  const pointers = new Map<string, ReportCurrentPointer>();
+  if (!spreadsheet) {
+    return pointers;
+  }
+  const sheet = spreadsheet.getSheetByName(REPORT_CURRENT_TAB);
+  if (!sheet) {
+    return pointers;
+  }
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) {
+    return pointers;
+  }
+
+  const values = sheet.getValues(1, 1, lastRow, lastCol);
+  const headers = buildHeaderMap(values[0] ?? []);
+  const endpointCol = headers.get('endpoint');
+  const runIdCol = headers.get('run_id');
+  const snapshotSheetCol = headers.get('snapshot_sheet');
+
+  if (endpointCol === undefined || runIdCol === undefined || snapshotSheetCol === undefined) {
+    return pointers;
+  }
+
+  for (let r = 1; r < values.length; r++) {
+    const row = values[r];
+    const endpoint = cellToString(row[endpointCol]);
+    const runId = cellToString(row[runIdCol]);
+    const snapshotSheet = cellToString(row[snapshotSheetCol]);
+    if (endpoint.length === 0 || snapshotSheet.length === 0) {
+      continue;
+    }
+    pointers.set(endpoint, {
+      endpoint,
+      runId,
+      snapshotSheet,
+    });
+  }
+
+  return pointers;
+}
+
+export function detectLegacySnapshot(
+  endpoint: DatasetEndpoint,
+  legacyPrefix: string | null,
+  fixedTabExists: boolean,
+  reportPointers: ReadonlyMap<string, ReportCurrentPointer>,
+  sheetNames: readonly string[],
+  options: { allowUnindexedPrefixFallback?: boolean } = {},
+): { legacySnapshotPresent: boolean; legacySnapshotTab: string | null } {
+  if (fixedTabExists || legacyPrefix === null) {
+    return { legacySnapshotPresent: false, legacySnapshotTab: null };
+  }
+
+  const pointer = reportPointers.get(endpoint);
+  if (pointer && pointer.snapshotSheet.startsWith(legacyPrefix)) {
+    return { legacySnapshotPresent: true, legacySnapshotTab: pointer.snapshotSheet };
+  }
+
+  if (options.allowUnindexedPrefixFallback) {
+    const matchingTab = sheetNames.find((name) => name.startsWith(legacyPrefix));
+    if (matchingTab) {
+      return { legacySnapshotPresent: true, legacySnapshotTab: matchingTab };
+    }
+  }
+
+  return { legacySnapshotPresent: false, legacySnapshotTab: null };
 }
 
 export function toUnresolvedRunSummary(

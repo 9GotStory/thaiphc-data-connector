@@ -1,33 +1,26 @@
 import {
+  assertSafeString,
+  CellValidationError,
+  computeDatasetDigest,
+  hasOwn,
+  isPlainObject,
+  MAX_CELL_LENGTH,
+  SUBDISTRICT_PATTERN,
+  validateKeyedRowPreamble,
+  VILLAGE_CODE_PATTERN,
+  type FieldPresence,
+} from './cellValidation.ts';
+import {
   REFERENCE_SCHEMAS,
   type ReferenceFieldKind,
   type ReferenceSchemaSpec,
 } from './datasetCatalog.ts';
-import type {
-  PreviewDiagnostic,
-  PreviewStopCode,
-  ReferenceDatasetEndpoint,
-  ReviewReasonCode,
-} from './types.ts';
+import type { PreviewDiagnostic, ReferenceDatasetEndpoint, ReviewReasonCode } from './types.ts';
 
-const MAX_CELL_LENGTH = 32767;
+export type { FieldPresence } from './cellValidation.ts';
+
 const MAX_NESTED_DEPTH = 8;
 const MAX_NESTED_ITEMS = 150;
-const SUBDISTRICT_PATTERN = /^54060[1-8]$/;
-const VILLAGE_CODE_PATTERN = /^54060[1-8]\d{3}$/;
-const FORMULA_INJECTION_PATTERN = /^\s*[=+\-@]/;
-
-function hasAsciiControlChar(value: string): boolean {
-  for (let i = 0; i < value.length; i++) {
-    const code = value.charCodeAt(i);
-    if (code <= 0x1f || code === 0x7f) {
-      return true;
-    }
-  }
-  return false;
-}
-
-export type FieldPresence = 'ABSENT' | 'NULL' | 'VALUE';
 
 export interface ProjectedReferenceRow {
   key: string;
@@ -49,52 +42,6 @@ export type ReferenceValidationResult =
       ok: false;
       diagnostics: PreviewDiagnostic[];
     };
-
-class CellValidationError extends Error {
-  readonly code: PreviewStopCode;
-
-  constructor(code: PreviewStopCode, message: string) {
-    super(message);
-    this.code = code;
-  }
-}
-
-function hasOwn(obj: Record<string, unknown>, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(obj, key);
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    return false;
-  }
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-}
-
-function assertSafeString(value: unknown, fieldName: string): string {
-  if (typeof value !== 'string') {
-    throw new CellValidationError('TYPE_MISMATCH', `Field "${fieldName}" must be a string.`);
-  }
-  if (value.length > MAX_CELL_LENGTH) {
-    throw new CellValidationError(
-      'TYPE_MISMATCH',
-      `Field "${fieldName}" exceeds maximum Google Sheets cell length.`,
-    );
-  }
-  if (hasAsciiControlChar(value)) {
-    throw new CellValidationError(
-      'ASCII_CONTROL_CHAR',
-      `Field "${fieldName}" contains forbidden ASCII control characters.`,
-    );
-  }
-  if (FORMULA_INJECTION_PATTERN.test(value)) {
-    throw new CellValidationError(
-      'FORMULA_INJECTION_DETECTED',
-      `Field "${fieldName}" starts with a forbidden spreadsheet formula prefix (=, +, -, @).`,
-    );
-  }
-  return value;
-}
 
 function canonicalizeJsonValue(value: unknown, fieldName: string, depth = 0): unknown {
   if (depth > MAX_NESTED_DEPTH) {
@@ -333,72 +280,18 @@ export function validateAndProjectReferenceRows(
   const projectedRows: ProjectedReferenceRow[] = [];
 
   for (let rowIndex = 0; rowIndex < rawItems.length; rowIndex++) {
-    const raw = rawItems[rowIndex];
-    if (!isPlainObject(raw)) {
-      diagnostics.push({
-        code: 'TYPE_MISMATCH',
-        message: `Row #${rowIndex + 1} is not a JSON object.`,
-        rowIndex,
-      });
+    const preamble = validateKeyedRowPreamble(
+      rawItems[rowIndex],
+      rowIndex,
+      schema.keyField,
+      allowedFieldNames,
+      seenKeys,
+    );
+    if (!preamble.ok) {
+      diagnostics.push(preamble.diagnostic);
       continue;
     }
-
-    const unexpectedKeys = Object.keys(raw).filter((k) => !allowedFieldNames.has(k));
-    if (unexpectedKeys.length > 0) {
-      diagnostics.push({
-        code: 'UNEXPECTED_FIELD',
-        message: `Row #${rowIndex + 1} contains unexpected schema field "${unexpectedKeys[0]}".`,
-        field: unexpectedKeys[0],
-        rowIndex,
-      });
-      continue;
-    }
-
-    if (!hasOwn(raw, schema.keyField) || raw[schema.keyField] === null) {
-      diagnostics.push({
-        code: 'MISSING_SOURCE_KEY',
-        message: `Row #${rowIndex + 1} is missing required key field "${schema.keyField}".`,
-        field: schema.keyField,
-        rowIndex,
-      });
-      continue;
-    }
-
-    let key: string;
-    try {
-      key = assertSafeString(raw[schema.keyField], schema.keyField);
-      if (key.length === 0) {
-        diagnostics.push({
-          code: 'MISSING_SOURCE_KEY',
-          message: `Row #${rowIndex + 1} has an empty key field "${schema.keyField}".`,
-          field: schema.keyField,
-          rowIndex,
-        });
-        continue;
-      }
-    } catch (err) {
-      const code = err instanceof CellValidationError ? err.code : 'TYPE_MISMATCH';
-      diagnostics.push({
-        code,
-        message:
-          err instanceof CellValidationError
-            ? err.message
-            : `Row #${rowIndex + 1} key field "${schema.keyField}" is invalid.`,
-        field: schema.keyField,
-        rowIndex,
-      });
-      continue;
-    }
-
-    if (seenKeys.has(key)) {
-      diagnostics.push({
-        code: 'DUPLICATE_SOURCE_KEY',
-        message: `Duplicate source key detected at row #${rowIndex + 1}.`,
-        field: schema.keyField,
-        rowIndex,
-      });
-      continue;
-    }
+    const { record: raw, key } = preamble;
 
     const values: Array<string | number | null> = [];
     const presence: Record<string, FieldPresence> = {};
@@ -473,15 +366,9 @@ export function validateAndProjectReferenceRows(
     return { ok: false, diagnostics: diagnostics.slice(0, 25) };
   }
 
-  // Order-independent deterministic dataset digest over sorted [key, rowDigest] pairs
-  const digestInput = projectedRows
-    .map((r) => [r.key, r.rowDigest] as const)
-    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
-  const datasetDigest = sha256Hex(JSON.stringify(digestInput));
-
   return {
     ok: true,
     rows: projectedRows,
-    datasetDigest,
+    datasetDigest: computeDatasetDigest(projectedRows, sha256Hex),
   };
 }

@@ -1,8 +1,11 @@
+import { hasAsciiControlChar } from './cellValidation.ts';
+import { VOLUNTEER_GENDER_SCHEMA } from './datasetCatalog.ts';
 import type {
   HttpFetchOptions,
   HttpFetchResponse,
   PreviewStopCode,
   ReferenceDatasetEndpoint,
+  SmallKeyedDatasetEndpoint,
 } from './types.ts';
 
 export const THAIPHC_ALLOWED_ORIGIN = 'https://api-thaiphc.hss.moph.go.th';
@@ -11,6 +14,7 @@ export const GEO_SCOPE_DISTRICT = '5406';
 export const DEFAULT_PAGE_SIZE = 100;
 const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 const MAX_OFFSET_PAGES = 15;
+const MAX_REPORT_PAGES = 250;
 const BEARER_TOKEN_PATTERN = /^[A-Za-z0-9._~+/-]+={0,}$/;
 
 const HEALTH_SERVICE_TYPE_EXCLUSIONS = [
@@ -21,7 +25,7 @@ const HEALTH_SERVICE_TYPE_EXCLUSIONS = [
 
 export type FetchUrlFn = (url: string, options: HttpFetchOptions) => HttpFetchResponse;
 
-export type ReferenceFetchResult =
+export type DatasetFetchResult =
   | {
       ok: true;
       items: unknown[];
@@ -83,36 +87,10 @@ function encodePairs(pairs: ReadonlyArray<readonly [string, string]>): string {
   return pairs.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
 }
 
-export function buildReferenceRequestUrl(
-  endpoint: ReferenceDatasetEndpoint,
-  offset = 0,
-  pageSize = DEFAULT_PAGE_SIZE,
+function buildAllowlistedUrl(
+  path: string,
+  pairs: ReadonlyArray<readonly [string, string]>,
 ): string {
-  let path: string;
-  let pairs: Array<readonly [string, string]>;
-
-  if (endpoint === 'subdistricts') {
-    path = '/api/v1/lookups/subdistricts';
-    pairs = [['district_code', GEO_SCOPE_DISTRICT]];
-  } else if (endpoint === 'villages') {
-    path = '/api/v1/lookups/villages';
-    pairs = [
-      ['province_code', GEO_SCOPE_PROVINCE],
-      ['district_code', GEO_SCOPE_DISTRICT],
-    ];
-  } else {
-    path = '/api/v1/geo-management/health-services';
-    pairs = [
-      ['limit', String(pageSize)],
-      ['offset', String(offset)],
-      ...HEALTH_SERVICE_TYPE_EXCLUSIONS.map(
-        (id) => ['health_service_type_ids_exclude', id] as const,
-      ),
-      ['province_code', GEO_SCOPE_PROVINCE],
-      ['district_code', GEO_SCOPE_DISTRICT],
-    ];
-  }
-
   const url = `${THAIPHC_ALLOWED_ORIGIN}${path}?${encodePairs(pairs)}`;
   if (
     !url.startsWith(`${THAIPHC_ALLOWED_ORIGIN}/api/v1/`) ||
@@ -122,6 +100,44 @@ export function buildReferenceRequestUrl(
     throw new Error('REQUEST_SCOPE_REJECTED');
   }
   return url;
+}
+
+export function buildReferenceRequestUrl(
+  endpoint: ReferenceDatasetEndpoint,
+  offset = 0,
+  pageSize = DEFAULT_PAGE_SIZE,
+): string {
+  if (endpoint === 'subdistricts') {
+    return buildAllowlistedUrl('/api/v1/lookups/subdistricts', [
+      ['district_code', GEO_SCOPE_DISTRICT],
+    ]);
+  }
+  if (endpoint === 'villages') {
+    return buildAllowlistedUrl('/api/v1/lookups/villages', [
+      ['province_code', GEO_SCOPE_PROVINCE],
+      ['district_code', GEO_SCOPE_DISTRICT],
+    ]);
+  }
+  return buildAllowlistedUrl('/api/v1/geo-management/health-services', [
+    ['limit', String(pageSize)],
+    ['offset', String(offset)],
+    ...HEALTH_SERVICE_TYPE_EXCLUSIONS.map((id) => ['health_service_type_ids_exclude', id] as const),
+    ['province_code', GEO_SCOPE_PROVINCE],
+    ['district_code', GEO_SCOPE_DISTRICT],
+  ]);
+}
+
+export function buildReportRequestUrl(
+  endpoint: 'volunteer-gender',
+  page = 1,
+  pageSize = DEFAULT_PAGE_SIZE,
+): string {
+  return buildAllowlistedUrl(`/api/v1/reports/${endpoint}`, [
+    ['page', String(page)],
+    ['pageSize', String(pageSize)],
+    ['province', GEO_SCOPE_PROVINCE],
+    ['district', GEO_SCOPE_DISTRICT],
+  ]);
 }
 
 type SingleGetOutcome =
@@ -232,16 +248,147 @@ function executeAllowlistedGet(url: string, token: string, fetchUrl: FetchUrlFn)
   }
 }
 
-export function fetchReferenceDataset(
-  endpoint: ReferenceDatasetEndpoint,
+function fetchReportPaginatedDataset(
+  endpoint: 'volunteer-gender',
+  token: string,
+  fetchUrl: FetchUrlFn,
+  pageSize: number,
+  maxRows: number,
+): DatasetFetchResult {
+  const items: unknown[] = [];
+  let expectedTotal: number | null = null;
+  let pagesFetched = 0;
+
+  for (let page = 1; page <= MAX_REPORT_PAGES; page++) {
+    const offset = (page - 1) * pageSize;
+    const url = buildReportRequestUrl(endpoint, page, pageSize);
+    const res = executeAllowlistedGet(url, token, fetchUrl);
+    pagesFetched += 1;
+
+    if (!res.ok) {
+      if (res.authFailed) {
+        return { ...res, pagesFetched };
+      }
+      return { ...res, pagesFetched, pageOffset: offset };
+    }
+
+    const data = res.data;
+    if (
+      !hasExactKeys(data, ['success', 'message', 'items', 'total', 'page', 'pageSize']) ||
+      data.success !== true ||
+      typeof data.message !== 'string' ||
+      data.message.length > 256 ||
+      hasAsciiControlChar(data.message) ||
+      !Array.isArray(data.items) ||
+      !Number.isSafeInteger(data.total) ||
+      (data.total as number) < 0 ||
+      !Number.isSafeInteger(data.page) ||
+      data.page !== page ||
+      !Number.isSafeInteger(data.pageSize) ||
+      data.pageSize !== pageSize
+    ) {
+      return {
+        ok: false,
+        authFailed: false,
+        code: 'INVALID_ENVELOPE',
+        message:
+          'ThaiPHC report pagination envelope did not match { success: true, message, items, total, page, pageSize }.',
+        pagesFetched,
+        pageOffset: offset,
+      };
+    }
+
+    const total = data.total as number;
+    if (total > maxRows) {
+      return {
+        ok: false,
+        authFailed: false,
+        code: 'ROW_LIMIT_EXCEEDED',
+        message: `ThaiPHC report total (${total}) exceeds maximum safe row limit (${maxRows}) for ${endpoint}.`,
+        pagesFetched,
+        pageOffset: offset,
+      };
+    }
+
+    if (expectedTotal !== null && total !== expectedTotal) {
+      return {
+        ok: false,
+        authFailed: false,
+        code: 'SOURCE_TOTAL_CHANGED',
+        message: 'ThaiPHC report source total changed mid-fetch between pages.',
+        pagesFetched,
+        pageOffset: offset,
+      };
+    }
+    expectedTotal = total;
+
+    if (total === 0) {
+      return {
+        ok: false,
+        authFailed: false,
+        code: 'INCOMPLETE_SNAPSHOT',
+        message: `ThaiPHC report snapshot returned zero rows for ${endpoint}.`,
+        pagesFetched,
+        pageOffset: offset,
+      };
+    }
+
+    const expectedCount = Math.min(pageSize, Math.max(0, total - offset));
+    if (data.items.length !== expectedCount) {
+      return {
+        ok: false,
+        authFailed: false,
+        code: 'INCOMPLETE_SNAPSHOT',
+        message: 'ThaiPHC report page item count did not match reported total and pageSize.',
+        pagesFetched,
+        pageOffset: offset,
+      };
+    }
+
+    items.push(...data.items);
+    if (items.length >= total) {
+      break;
+    }
+  }
+
+  if (expectedTotal === null || items.length === 0 || items.length !== expectedTotal) {
+    return {
+      ok: false,
+      authFailed: false,
+      code: 'INCOMPLETE_SNAPSHOT',
+      message: 'ThaiPHC report pagination ended before collecting the complete snapshot.',
+      pagesFetched,
+    };
+  }
+
+  return {
+    ok: true,
+    items,
+    sourceTotal: expectedTotal,
+    pagesFetched,
+  };
+}
+
+export function fetchSmallKeyedDataset(
+  endpoint: SmallKeyedDatasetEndpoint,
   token: string,
   fetchUrl: FetchUrlFn,
   requestedPageSize = DEFAULT_PAGE_SIZE,
-): ReferenceFetchResult {
+): DatasetFetchResult {
   const pageSize =
     Number.isSafeInteger(requestedPageSize) && requestedPageSize >= 1 && requestedPageSize <= 100
       ? requestedPageSize
       : DEFAULT_PAGE_SIZE;
+
+  if (endpoint === 'volunteer-gender') {
+    return fetchReportPaginatedDataset(
+      endpoint,
+      token,
+      fetchUrl,
+      pageSize,
+      VOLUNTEER_GENDER_SCHEMA.maxRows,
+    );
+  }
 
   if (endpoint === 'subdistricts' || endpoint === 'villages') {
     const url = buildReferenceRequestUrl(endpoint);

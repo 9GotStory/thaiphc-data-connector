@@ -1,14 +1,11 @@
+import { DATASET_CATALOG } from './datasetCatalog.ts';
 import {
-  DATASET_CATALOG,
-  REPORT_CURRENT_TAB,
-  SAME_WORKBOOK_APPROVAL_TOKEN,
-} from './datasetCatalog.ts';
-import {
-  buildHeaderMap,
-  cellToString,
+  detectLegacySnapshot,
   isValidSpreadsheetId,
   parseEnvironment,
+  readReportCurrentPointers,
   readSyncLogLatestMap,
+  resolveReportWorkbookPolicy,
   type SyncLogEntry,
 } from './sheetConfig.ts';
 import type {
@@ -17,7 +14,6 @@ import type {
   DashboardPlatform,
   DashboardStatusResponse,
   DatasetLastStatus,
-  SameWorkbookPolicy,
   SpreadsheetHandle,
   UnresolvedRunSummary,
   WorkbookInfo,
@@ -27,77 +23,12 @@ export type { DashboardPlatform } from './types.ts';
 
 const HMAC_KEY_B64_PATTERN = /^[A-Za-z0-9+/]{43}=$/;
 
-interface ReportCurrentPointer {
-  endpoint: string;
-  runId: string;
-  snapshotSheet: string;
-}
-
-interface SheetTable {
-  headers: Map<string, number>;
-  rows: unknown[][];
-}
-
 function fail(code: DashboardErrorCode, message: string): DashboardStatusResponse {
   return { ok: false, error: { code, message } };
 }
 
 function isValidHmacKey(value: string | null): boolean {
   return typeof value === 'string' && HMAC_KEY_B64_PATTERN.test(value);
-}
-
-function readSheetTable(spreadsheet: SpreadsheetHandle | null, tabName: string): SheetTable | null {
-  if (!spreadsheet) {
-    return null;
-  }
-  const sheet = spreadsheet.getSheetByName(tabName);
-  if (!sheet) {
-    return null;
-  }
-  const lastRow = sheet.getLastRow();
-  const lastCol = sheet.getLastColumn();
-  if (lastRow < 2 || lastCol < 1) {
-    return null;
-  }
-  const values = sheet.getValues(1, 1, lastRow, lastCol);
-  return {
-    headers: buildHeaderMap(values[0] ?? []),
-    rows: values.slice(1),
-  };
-}
-
-function readReportCurrentPointers(
-  spreadsheet: SpreadsheetHandle | null,
-): Map<string, ReportCurrentPointer> {
-  const pointers = new Map<string, ReportCurrentPointer>();
-  const table = readSheetTable(spreadsheet, REPORT_CURRENT_TAB);
-  if (!table) {
-    return pointers;
-  }
-
-  const endpointCol = table.headers.get('endpoint');
-  const runIdCol = table.headers.get('run_id');
-  const snapshotSheetCol = table.headers.get('snapshot_sheet');
-
-  if (endpointCol === undefined || runIdCol === undefined || snapshotSheetCol === undefined) {
-    return pointers;
-  }
-
-  for (const row of table.rows) {
-    const endpoint = cellToString(row[endpointCol]);
-    const runId = cellToString(row[runIdCol]);
-    const snapshotSheet = cellToString(row[snapshotSheetCol]);
-    if (endpoint.length === 0 || snapshotSheet.length === 0) {
-      continue;
-    }
-    pointers.set(endpoint, {
-      endpoint,
-      runId,
-      snapshotSheet,
-    });
-  }
-
-  return pointers;
 }
 
 function mapLogStatus(entry: SyncLogEntry | undefined): DatasetLastStatus {
@@ -164,37 +95,23 @@ export function getDashboardStatusWithPlatform(
       name: referenceSpreadsheet.getName(),
     };
 
-    const rawReportId = platform.getProperty('THAIPHC_REPORT_SPREADSHEET_ID');
-    const sameWorkbookApproval = platform.getProperty('THAIPHC_SAME_WORKBOOK_APPROVAL');
-    const trimmedReportId = typeof rawReportId === 'string' ? rawReportId.trim() : '';
-
-    let sameWorkbookPolicy: SameWorkbookPolicy;
-    let reportWorkbookApproved: boolean;
+    const reportPolicy = resolveReportWorkbookPolicy(
+      referenceSpreadsheetId,
+      platform.getProperty('THAIPHC_REPORT_SPREADSHEET_ID'),
+      platform.getProperty('THAIPHC_SAME_WORKBOOK_APPROVAL'),
+    );
+    const { sameWorkbookPolicy, reportWorkbookApproved, usesSameSpreadsheet } = reportPolicy;
     let reportSpreadsheet: SpreadsheetHandle | null = null;
     let reportWorkbook: WorkbookInfo | null = null;
-    let usesSameSpreadsheet = false;
 
-    if (trimmedReportId === '' || trimmedReportId === referenceSpreadsheetId) {
-      usesSameSpreadsheet = true;
-      if (sameWorkbookApproval === SAME_WORKBOOK_APPROVAL_TOKEN) {
-        sameWorkbookPolicy = 'SAME_WORKBOOK_APPROVED';
-        reportWorkbookApproved = true;
-      } else {
-        sameWorkbookPolicy = 'SAME_WORKBOOK_UNAPPROVED';
-        reportWorkbookApproved = false;
-      }
+    if (usesSameSpreadsheet) {
       reportSpreadsheet = referenceSpreadsheet;
       reportWorkbook = referenceWorkbook;
-    } else if (!isValidSpreadsheetId(trimmedReportId)) {
-      sameWorkbookPolicy = 'INVALID_REPORT_WORKBOOK';
-      reportWorkbookApproved = false;
-    } else {
-      sameWorkbookPolicy = 'SEPARATE_WORKBOOK';
-      reportWorkbookApproved = true;
+    } else if (reportPolicy.targetSpreadsheetId !== null) {
       try {
-        reportSpreadsheet = platform.openSpreadsheetById(trimmedReportId);
+        reportSpreadsheet = platform.openSpreadsheetById(reportPolicy.targetSpreadsheetId);
         reportWorkbook = {
-          spreadsheetId: trimmedReportId,
+          spreadsheetId: reportPolicy.targetSpreadsheetId,
           name: reportSpreadsheet.getName(),
         };
       } catch {
@@ -259,24 +176,14 @@ export function getDashboardStatusWithPlatform(
 
       const rowCount = readRowCountOnly(targetSpreadsheet, descriptor.defaultTab, 1);
       const fixedTabExists = rowCount !== null;
-
-      let legacySnapshotPresent = false;
-      let legacySnapshotTab: string | null = null;
-      if (!fixedTabExists && descriptor.legacyPrefix !== null) {
-        const pointer = reportPointers.get(descriptor.endpoint);
-        if (pointer && pointer.snapshotSheet.startsWith(descriptor.legacyPrefix)) {
-          legacySnapshotPresent = true;
-          legacySnapshotTab = pointer.snapshotSheet;
-        } else {
-          const matchingTab = reportSheetNames.find((name) =>
-            name.startsWith(descriptor.legacyPrefix as string),
-          );
-          if (matchingTab) {
-            legacySnapshotPresent = true;
-            legacySnapshotTab = matchingTab;
-          }
-        }
-      }
+      const { legacySnapshotPresent, legacySnapshotTab } = detectLegacySnapshot(
+        descriptor.endpoint,
+        descriptor.legacyPrefix,
+        fixedTabExists,
+        reportPointers,
+        reportSheetNames,
+        { allowUnindexedPrefixFallback: true },
+      );
 
       return {
         endpoint: descriptor.endpoint,

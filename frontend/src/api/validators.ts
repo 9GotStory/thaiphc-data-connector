@@ -1,6 +1,7 @@
 import {
   GasRpcClientError,
   type AppEnvironment,
+  type BlockedGuardReason,
   type CommitSmallDatasetData,
   type CommitStopCode,
   type DashboardDatasetStatus,
@@ -10,6 +11,9 @@ import {
   type DatasetLastStatus,
   type DiffCounts,
   type DiffKind,
+  type ExtendedAggregateGroup,
+  type ExtendedMinimizedAttribute,
+  type ExtendedMinimizedPreviewRow,
   type GasRpcErrorCode,
   type PaginationProtocol,
   type PreviewDatasetData,
@@ -17,6 +21,7 @@ import {
   type PreviewFingerprint,
   type PreviewStopCode,
   type ReadbackVerification,
+  type ReferenceChangedField,
   type ReferencePreviewRow,
   type ReviewReasonCode,
   type SameWorkbookPolicy,
@@ -66,9 +71,16 @@ const VALID_DIFF_KINDS: ReadonlySet<string> = new Set<DiffKind>([
   'UNCHANGED',
   'REVIEW',
 ]);
+const VALID_BLOCKED_GUARD_REASONS: ReadonlySet<string> = new Set<BlockedGuardReason>([
+  'THAIPHC_WRITE_ENABLED',
+  'THAIPHC_PERSON_DATA_WRITE_ENABLED',
+  'THAIPHC_SAME_WORKBOOK_APPROVAL',
+  'THAIPHC_REPORT_SPREADSHEET_ID',
+]);
 const VALID_REVIEW_REASONS: ReadonlySet<string> = new Set<ReviewReasonCode>([
   'MISSING_IN_SOURCE',
   'PLACEHOLDER_COORDS',
+  'SMALL_CELL_SUPPRESSED',
 ]);
 const PREVIEW_STOP_CODE_LIST: readonly PreviewStopCode[] = [
   'HTTP_403',
@@ -84,10 +96,13 @@ const PREVIEW_STOP_CODE_LIST: readonly PreviewStopCode[] = [
   'MISSING_SOURCE_KEY',
   'UNEXPECTED_FIELD',
   'TYPE_MISMATCH',
+  'GENDER_TOTAL_MISMATCH',
   'FORMULA_INJECTION_DETECTED',
   'ASCII_CONTROL_CHAR',
   'SOURCE_TOTAL_DRIFT',
+  'SOURCE_TOTAL_CHANGED',
   'INCOMPLETE_PAGINATION',
+  'INCOMPLETE_SNAPSHOT',
   'ROW_LIMIT_EXCEEDED',
   'HEADER_MISMATCH',
   'INVALID_EXISTING_KEY',
@@ -99,6 +114,9 @@ const VALID_PREVIEW_STOP_CODES: ReadonlySet<string> = new Set<PreviewStopCode>(
 const VALID_COMMIT_STOP_CODES: ReadonlySet<string> = new Set<CommitStopCode>([
   ...PREVIEW_STOP_CODE_LIST,
   'WRITE_DISABLED',
+  'PERSON_DATA_WRITE_DISABLED',
+  'SAME_WORKBOOK_UNAPPROVED',
+  'INVALID_REPORT_WORKBOOK',
   'PRODUCTION_CONFIRMATION_REQUIRED',
   'LOCK_BUSY',
   'UNRESOLVED_PREVIOUS_RUN',
@@ -365,23 +383,39 @@ function parseDiagnostic(value: unknown, index: number): PreviewDiagnostic {
   return diag;
 }
 
+function parseChangedFields(value: unknown, label: string): ReferenceChangedField[] {
+  if (!Array.isArray(value)) {
+    invalidResponse(`Invalid ${label}`);
+  }
+  return value.map((entry, idx) => {
+    if (!isRecord(entry)) {
+      invalidResponse(`Invalid ${label}[${idx}]`);
+    }
+    return {
+      field: assertNonEmptyString(entry.field, `${label}[${idx}].field`),
+      before: assertString(entry.before, `${label}[${idx}].before`),
+      after: assertString(entry.after, `${label}[${idx}].after`),
+    };
+  });
+}
+
+function parseReviewReasons(value: unknown, label: string): ReviewReasonCode[] {
+  if (!Array.isArray(value)) {
+    invalidResponse(`Invalid ${label}`);
+  }
+  return value.map((reason, idx) =>
+    assertAllowedEnum<ReviewReasonCode>(reason, VALID_REVIEW_REASONS, `${label}[${idx}]`),
+  );
+}
+
 function parseReferencePreviewRow(value: unknown, index: number): ReferencePreviewRow {
   if (!isRecord(value)) {
     invalidResponse(`Invalid sampleRows[${index}]`);
   }
-  if (!Array.isArray(value.changedFields)) {
-    invalidResponse(`Invalid sampleRows[${index}].changedFields`);
-  }
-  const changedFields = value.changedFields.map((entry, idx) => {
-    if (!isRecord(entry)) {
-      invalidResponse(`Invalid sampleRows[${index}].changedFields[${idx}]`);
-    }
-    return {
-      field: assertNonEmptyString(entry.field, `changedFields[${idx}].field`),
-      before: assertString(entry.before, `changedFields[${idx}].before`),
-      after: assertString(entry.after, `changedFields[${idx}].after`),
-    };
-  });
+  const changedFields = parseChangedFields(
+    value.changedFields,
+    `sampleRows[${index}].changedFields`,
+  );
 
   if (!Array.isArray(value.summaryFields)) {
     invalidResponse(`Invalid sampleRows[${index}].summaryFields`);
@@ -396,15 +430,9 @@ function parseReferencePreviewRow(value: unknown, index: number): ReferencePrevi
     };
   });
 
-  if (!Array.isArray(value.reviewReasons)) {
-    invalidResponse(`Invalid sampleRows[${index}].reviewReasons`);
-  }
-  const reviewReasons = value.reviewReasons.map((reason, idx) =>
-    assertAllowedEnum<ReviewReasonCode>(
-      reason,
-      VALID_REVIEW_REASONS,
-      `sampleRows[${index}].reviewReasons[${idx}]`,
-    ),
+  const reviewReasons = parseReviewReasons(
+    value.reviewReasons,
+    `sampleRows[${index}].reviewReasons`,
   );
 
   return {
@@ -418,6 +446,62 @@ function parseReferencePreviewRow(value: unknown, index: number): ReferencePrevi
     displayCode: assertString(value.displayCode, `sampleRows[${index}].displayCode`),
     changedFields,
     summaryFields,
+    reviewReasons,
+  };
+}
+
+function parseExtendedAggregateGroup(value: unknown, index: number): ExtendedAggregateGroup {
+  if (!isRecord(value)) {
+    invalidResponse(`Invalid aggregateSummary[${index}]`);
+  }
+  return {
+    groupCode: assertNonEmptyString(value.groupCode, `aggregateSummary[${index}].groupCode`),
+    groupLabel: assertString(value.groupLabel, `aggregateSummary[${index}].groupLabel`),
+    rowCount: assertNonNegInt(value.rowCount, `aggregateSummary[${index}].rowCount`),
+    reviewCount: assertNonNegInt(value.reviewCount, `aggregateSummary[${index}].reviewCount`),
+  };
+}
+
+function parseExtendedMinimizedAttribute(
+  value: unknown,
+  label: string,
+): ExtendedMinimizedAttribute {
+  if (!isRecord(value)) {
+    invalidResponse(`Invalid ${label}`);
+  }
+  return {
+    field: assertNonEmptyString(value.field, `${label}.field`),
+    value: assertNullableString(value.value, `${label}.value`),
+  };
+}
+
+function parseExtendedMinimizedPreviewRow(
+  value: unknown,
+  index: number,
+): ExtendedMinimizedPreviewRow {
+  if (!isRecord(value)) {
+    invalidResponse(`Invalid sampleRows[${index}]`);
+  }
+  if (!Array.isArray(value.minimizedAttributes)) {
+    invalidResponse(`Invalid sampleRows[${index}].minimizedAttributes`);
+  }
+  const minimizedAttributes = value.minimizedAttributes.map((attr, idx) =>
+    parseExtendedMinimizedAttribute(attr, `sampleRows[${index}].minimizedAttributes[${idx}]`),
+  );
+  const reviewReasons = parseReviewReasons(
+    value.reviewReasons,
+    `sampleRows[${index}].reviewReasons`,
+  );
+
+  return {
+    diffKind: assertAllowedEnum<DiffKind>(
+      value.diffKind,
+      VALID_DIFF_KINDS,
+      `sampleRows[${index}].diffKind`,
+    ),
+    sourceKey: assertNonEmptyString(value.sourceKey, `sampleRows[${index}].sourceKey`),
+    scopeLabel: assertString(value.scopeLabel, `sampleRows[${index}].scopeLabel`),
+    minimizedAttributes,
     reviewReasons,
   };
 }
@@ -576,9 +660,6 @@ export function parsePreviewDatasetResponse(raw: unknown): PreviewDatasetData {
     invalidResponse('Unknown preview status.');
   }
 
-  if (data.previewMode !== 'REFERENCE_READABLE') {
-    invalidResponse('Unsupported previewMode.');
-  }
   if (!isRecord(data.reviewBreakdown)) {
     invalidResponse('Invalid reviewBreakdown.');
   }
@@ -596,8 +677,8 @@ export function parsePreviewDatasetResponse(raw: unknown): PreviewDatasetData {
     invalidResponse('sampleRows must be an array.');
   }
 
-  return {
-    status: 'READY',
+  const baseReady = {
+    status: 'READY' as const,
     endpoint,
     env,
     syncMode,
@@ -613,10 +694,39 @@ export function parsePreviewDatasetResponse(raw: unknown): PreviewDatasetData {
     legacySnapshotPresent: assertBoolean(data.legacySnapshotPresent, 'legacySnapshotPresent'),
     legacySnapshotTab: assertNullableString(data.legacySnapshotTab, 'legacySnapshotTab'),
     writeAllowed: assertBoolean(data.writeAllowed, 'writeAllowed'),
-    blockedGuardReason: assertNullableString(data.blockedGuardReason, 'blockedGuardReason'),
-    previewMode: 'REFERENCE_READABLE',
-    sampleRows: data.sampleRows.map((row, idx) => parseReferencePreviewRow(row, idx)),
+    blockedGuardReason:
+      data.blockedGuardReason === null
+        ? null
+        : assertAllowedEnum<BlockedGuardReason>(
+            data.blockedGuardReason,
+            VALID_BLOCKED_GUARD_REASONS,
+            'blockedGuardReason',
+          ),
   };
+
+  if (data.previewMode === 'REFERENCE_READABLE') {
+    return {
+      ...baseReady,
+      previewMode: 'REFERENCE_READABLE',
+      sampleRows: data.sampleRows.map((row, idx) => parseReferencePreviewRow(row, idx)),
+    };
+  }
+
+  if (data.previewMode === 'EXTENDED_MINIMIZED') {
+    if (!Array.isArray(data.aggregateSummary)) {
+      invalidResponse('aggregateSummary must be an array for EXTENDED_MINIMIZED preview.');
+    }
+    return {
+      ...baseReady,
+      previewMode: 'EXTENDED_MINIMIZED',
+      aggregateSummary: data.aggregateSummary.map((group, idx) =>
+        parseExtendedAggregateGroup(group, idx),
+      ),
+      sampleRows: data.sampleRows.map((row, idx) => parseExtendedMinimizedPreviewRow(row, idx)),
+    };
+  }
+
+  invalidResponse('Unsupported previewMode.');
 }
 
 export function parseCommitSmallDatasetResponse(raw: unknown): CommitSmallDatasetData {

@@ -193,4 +193,103 @@ describe('GasRpcTransport Seam', () => {
       }),
     ).rejects.toMatchObject({ code: 'HTTP_401' });
   });
+
+  it('validates Mode B EXTENDED_MINIMIZED volunteer-gender previews, enforces report write guards, and rejects malformed Mode B payloads at the GasRpcTransport boundary', async () => {
+    // 1. MockGasTransport sandbox-report-writable returns valid Mode B preview & COMMITTED_VERIFIED commit
+    const reportMock = new MockGasTransport({ scenario: 'sandbox-report-writable' });
+    const vgPreview = await reportMock.previewDataset({
+      endpoint: 'volunteer-gender',
+      token: 'synthetic_token_for_gender_test',
+    });
+    expect(vgPreview.status).toBe('READY');
+    if (vgPreview.status !== 'READY' || vgPreview.previewMode !== 'EXTENDED_MINIMIZED') {
+      throw new Error('Expected READY EXTENDED_MINIMIZED preview for volunteer-gender');
+    }
+
+    expect(vgPreview.destinationTab).toBe('VolunteerGender');
+    expect(vgPreview.paginationProtocol).toBe('report');
+    expect(vgPreview.legacySnapshotPresent).toBe(true);
+    expect(vgPreview.legacySnapshotTab).toBe('RGender_f010_20261119');
+    expect(vgPreview.writeAllowed).toBe(true);
+    expect(vgPreview.reviewBreakdown.SMALL_CELL_SUPPRESSED).toBeGreaterThan(0);
+    expect(vgPreview.aggregateSummary.length).toBeGreaterThan(0);
+    expect(
+      vgPreview.sampleRows.some(
+        (r) =>
+          r.reviewReasons.includes('SMALL_CELL_SUPPRESSED') &&
+          r.minimizedAttributes.some((a) => a.field === 'male' && a.value === null),
+      ),
+    ).toBe(true);
+    expect(JSON.stringify(vgPreview)).not.toMatch(/citizenId|firstName|lastName|osmCode/);
+
+    const vgCommit = await reportMock.commitSmallDataset({
+      endpoint: 'volunteer-gender',
+      token: 'synthetic_token_for_gender_test',
+      expectedFingerprint: vgPreview.fingerprint,
+    });
+    expect(vgCommit.status).toBe('COMMITTED_VERIFIED');
+    if (vgCommit.status === 'COMMITTED_VERIFIED') {
+      expect(vgCommit.destinationTab).toBe('VolunteerGender');
+      expect(vgCommit.readback.verified).toBe(true);
+    }
+
+    // 2. sandbox-writable has personDataWriteEnabled: false -> blocks volunteer-gender commit fail-closed
+    const personOffMock = new MockGasTransport({ scenario: 'sandbox-writable' });
+    const personOffPreview = await personOffMock.previewDataset({
+      endpoint: 'volunteer-gender',
+      token: 'synthetic_token_for_gender_test',
+    });
+    expect(personOffPreview.status).toBe('READY');
+    if (personOffPreview.status === 'READY') {
+      expect(personOffPreview.writeAllowed).toBe(false);
+      expect(personOffPreview.blockedGuardReason).toBe('THAIPHC_PERSON_DATA_WRITE_ENABLED');
+      const personOffCommit = await personOffMock.commitSmallDataset({
+        endpoint: 'volunteer-gender',
+        token: 'synthetic_token_for_gender_test',
+        expectedFingerprint: personOffPreview.fingerprint,
+      });
+      expect(personOffCommit.status).toBe('FAILED_STOP');
+      if (personOffCommit.status === 'FAILED_STOP') {
+        expect(personOffCommit.stopCode).toBe('PERSON_DATA_WRITE_DISABLED');
+      }
+    }
+
+    // 3. GoogleScriptRunTransport rejects malformed EXTENDED_MINIMIZED payloads (missing aggregateSummary)
+    const malformedModeB = new GoogleScriptRunTransport(() =>
+      createFakeRunner((onSuccess) =>
+        onSuccess({
+          ok: true,
+          data: {
+            ...vgPreview,
+            aggregateSummary: 'not-an-array',
+          },
+        }),
+      ),
+    );
+    await expect(
+      malformedModeB.previewDataset({
+        endpoint: 'volunteer-gender',
+        token: 'synthetic_token_for_gender_test',
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_RPC_RESPONSE' });
+
+    const invalidGuardReason = new GoogleScriptRunTransport(() =>
+      createFakeRunner((onSuccess) =>
+        onSuccess({
+          ok: true,
+          data: {
+            ...vgPreview,
+            writeAllowed: false,
+            blockedGuardReason: 'UNLISTED_GUARD_PROPERTY',
+          },
+        }),
+      ),
+    );
+    await expect(
+      invalidGuardReason.previewDataset({
+        endpoint: 'volunteer-gender',
+        token: 'synthetic_token_for_gender_test',
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_RPC_RESPONSE' });
+  });
 });

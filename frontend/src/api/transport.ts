@@ -169,10 +169,13 @@ export class MockGasTransport implements GasRpcTransport {
 const VALID_MOCK_SCENARIOS: ReadonlySet<string> = new Set<MockScenario>([
   'sandbox-default',
   'sandbox-writable',
+  'sandbox-report-writable',
   'production-unresolved',
   'production-writable',
+  'production-report-writable',
   'production-clean',
   'same-workbook-unapproved',
+  'same-workbook-unapproved-writable',
   'rpc-error',
 ]);
 

@@ -359,8 +359,12 @@ describe('Reference Datasets Repeatable Sync (Backend GAS RPC Seam)', () => {
       env.platform,
     );
     expect(preview2.ok).toBe(true);
-    if (!preview2.ok || preview2.data.status !== 'READY') {
-      throw new Error('expected READY preview 2');
+    if (
+      !preview2.ok ||
+      preview2.data.status !== 'READY' ||
+      preview2.data.previewMode !== 'REFERENCE_READABLE'
+    ) {
+      throw new Error('expected READY REFERENCE_READABLE preview 2');
     }
     expect(preview2.data.counts).toEqual({ insert: 1, update: 1, unchanged: 0, review: 1 });
     expect(preview2.data.reviewBreakdown).toEqual({ MISSING_IN_SOURCE: 1 });

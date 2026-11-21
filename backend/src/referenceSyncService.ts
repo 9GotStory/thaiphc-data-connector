@@ -1,42 +1,59 @@
+import type { FieldPresence } from './cellValidation.ts';
 import {
   getDatasetDescriptor,
   isReferenceEndpoint,
+  isSmallKeyedEndpoint,
   KEYED_UPSERT_METADATA_COLUMNS,
-  REFERENCE_SCHEMAS,
+  SAME_WORKBOOK_APPROVAL_TOKEN,
   SCHEMA_VERSION,
+  SMALL_KEYED_SCHEMAS,
   SYNC_LOG_HEADERS,
   SYNC_LOG_TAB,
   SYNC_LOG_TEXT_COLUMN_COUNT,
+  type KeyedDatasetSchemaSpec,
   type ReferenceSchemaSpec,
 } from './datasetCatalog.ts';
+import {
+  formatVolunteerGenderScopeLabel,
+  validateAndProjectVolunteerGenderRows,
+  type ProjectedVolunteerGenderRow,
+} from './extendedReportProjection.ts';
 import {
   validateAndProjectReferenceRows,
   type ProjectedReferenceRow,
 } from './referenceValidator.ts';
 import {
   cellToString,
+  detectLegacySnapshot,
   isValidSpreadsheetId,
   parseEnvironment,
+  readReportCurrentPointers,
   readSyncLogLatestMap,
+  resolveReportWorkbookPolicy,
   toUnresolvedRunSummary,
 } from './sheetConfig.ts';
-import { fetchReferenceDataset, isValidBearerToken } from './thaiphcClient.ts';
+import { fetchSmallKeyedDataset, isValidBearerToken } from './thaiphcClient.ts';
 import type {
   AppEnvironment,
+  BlockedGuardReason,
   CommitSmallDatasetRequest,
   CommitSmallDatasetResponse,
   CommitStopCode,
   DatasetEndpoint,
   DiffCounts,
+  DiffKind,
+  ExtendedAggregateGroup,
+  ExtendedMinimizedPreviewRow,
   PreviewDatasetRequest,
   PreviewDatasetResponse,
   PreviewDiagnostic,
   PreviewFingerprint,
+  PreviewReadyBase,
   ReadbackVerification,
   ReferenceChangedField,
-  ReferenceDatasetEndpoint,
   ReferencePreviewRow,
   ReviewReasonCode,
+  SmallKeyedDatasetEndpoint,
   StaleDriftReason,
   SyncPlatform,
   SyncRpcErrorCode,
@@ -68,12 +85,30 @@ interface SyncLogSummary {
   unresolvedRun: UnresolvedRunSummary | null;
 }
 
-interface ValidatedBaseContext {
-  endpoint: ReferenceDatasetEndpoint;
-  env: AppEnvironment;
-  spreadsheetId: string;
-  schema: ReferenceSchemaSpec;
+interface ProjectedKeyedRowBase {
+  key: string;
+  values: Array<string | number | null>;
+  presence: Record<string, FieldPresence>;
+  rowDigest: string;
+  reviewReasons: ReviewReasonCode[];
 }
+
+interface ValidatedBaseContext {
+  endpoint: SmallKeyedDatasetEndpoint;
+  isExtendedReport: boolean;
+  env: AppEnvironment;
+  referenceSpreadsheetId: string;
+  schema: KeyedDatasetSchemaSpec<SmallKeyedDatasetEndpoint>;
+}
+
+type WriteGuardEvaluation =
+  | { writeAllowed: true; blockedGuardReason: null }
+  | {
+      writeAllowed: false;
+      blockedGuardReason: BlockedGuardReason;
+      stopCode: CommitStopCode;
+      message: string;
+    };
 
 function previewRpcError(code: SyncRpcErrorCode, message: string): PreviewDatasetResponse {
   return { ok: false, error: { code, message } };
@@ -93,7 +128,7 @@ function validateBaseRequest(
   if (!request || typeof request !== 'object') {
     return { ok: false, code: 'INVALID_REQUEST', message: missingMsg };
   }
-  if (typeof request.endpoint !== 'string' || !isReferenceEndpoint(request.endpoint)) {
+  if (typeof request.endpoint !== 'string' || !isSmallKeyedEndpoint(request.endpoint)) {
     return { ok: false, code: 'DATASET_NOT_SUPPORTED', message: unsupportedMsg };
   }
   if (!isValidBearerToken(request.token)) {
@@ -112,8 +147,8 @@ function validateBaseRequest(
       message: 'THAIPHC_ENV must be configured as SANDBOX or PRODUCTION in Script Properties.',
     };
   }
-  const spreadsheetId = platform.getProperty('THAIPHC_SPREADSHEET_ID');
-  if (!isValidSpreadsheetId(spreadsheetId)) {
+  const referenceSpreadsheetId = platform.getProperty('THAIPHC_SPREADSHEET_ID');
+  if (!isValidSpreadsheetId(referenceSpreadsheetId)) {
     return {
       ok: false,
       code: 'SPREADSHEET_NOT_CONFIGURED',
@@ -124,18 +159,91 @@ function validateBaseRequest(
     ok: true,
     ctx: {
       endpoint: request.endpoint,
+      isExtendedReport: !isReferenceEndpoint(request.endpoint),
       env,
-      spreadsheetId,
-      schema: REFERENCE_SCHEMAS[request.endpoint],
+      referenceSpreadsheetId,
+      schema: SMALL_KEYED_SCHEMAS[request.endpoint],
     },
   };
 }
 
-function getExpectedHeaders(schema: ReferenceSchemaSpec): string[] {
+function resolveTargetSpreadsheetId(
+  ctx: ValidatedBaseContext,
+  platform: SyncPlatform,
+): { ok: true; spreadsheetId: string } | { ok: false; message: string } {
+  if (!ctx.isExtendedReport) {
+    return { ok: true, spreadsheetId: ctx.referenceSpreadsheetId };
+  }
+  const policy = resolveReportWorkbookPolicy(
+    ctx.referenceSpreadsheetId,
+    platform.getProperty('THAIPHC_REPORT_SPREADSHEET_ID'),
+    platform.getProperty('THAIPHC_SAME_WORKBOOK_APPROVAL'),
+  );
+  if (policy.targetSpreadsheetId === null) {
+    return {
+      ok: false,
+      message: 'THAIPHC_REPORT_SPREADSHEET_ID is invalid in Google Apps Script Properties.',
+    };
+  }
+  return { ok: true, spreadsheetId: policy.targetSpreadsheetId };
+}
+
+function evaluateWriteGuards(
+  ctx: ValidatedBaseContext,
+  platform: SyncPlatform,
+): WriteGuardEvaluation {
+  if (platform.getProperty('THAIPHC_WRITE_ENABLED') !== 'true') {
+    return {
+      writeAllowed: false,
+      blockedGuardReason: 'THAIPHC_WRITE_ENABLED',
+      stopCode: 'WRITE_DISABLED',
+      message: 'THAIPHC_WRITE_ENABLED is OFF in Google Apps Script Properties. Commit rejected.',
+    };
+  }
+
+  if (ctx.isExtendedReport) {
+    if (platform.getProperty('THAIPHC_PERSON_DATA_WRITE_ENABLED') !== 'true') {
+      return {
+        writeAllowed: false,
+        blockedGuardReason: 'THAIPHC_PERSON_DATA_WRITE_ENABLED',
+        stopCode: 'PERSON_DATA_WRITE_DISABLED',
+        message:
+          'THAIPHC_PERSON_DATA_WRITE_ENABLED is OFF in Google Apps Script Properties. Extended Report Commit rejected.',
+      };
+    }
+
+    const reportPolicy = resolveReportWorkbookPolicy(
+      ctx.referenceSpreadsheetId,
+      platform.getProperty('THAIPHC_REPORT_SPREADSHEET_ID'),
+      platform.getProperty('THAIPHC_SAME_WORKBOOK_APPROVAL'),
+    );
+    if (reportPolicy.sameWorkbookPolicy === 'INVALID_REPORT_WORKBOOK') {
+      return {
+        writeAllowed: false,
+        blockedGuardReason: 'THAIPHC_REPORT_SPREADSHEET_ID',
+        stopCode: 'INVALID_REPORT_WORKBOOK',
+        message:
+          'THAIPHC_REPORT_SPREADSHEET_ID is invalid in Google Apps Script Properties. Commit rejected.',
+      };
+    }
+    if (reportPolicy.sameWorkbookPolicy === 'SAME_WORKBOOK_UNAPPROVED') {
+      return {
+        writeAllowed: false,
+        blockedGuardReason: 'THAIPHC_SAME_WORKBOOK_APPROVAL',
+        stopCode: 'SAME_WORKBOOK_UNAPPROVED',
+        message: `Writing Extended Report datasets into the reference workbook requires THAIPHC_SAME_WORKBOOK_APPROVAL=${SAME_WORKBOOK_APPROVAL_TOKEN} or a separate THAIPHC_REPORT_SPREADSHEET_ID.`,
+      };
+    }
+  }
+
+  return { writeAllowed: true, blockedGuardReason: null };
+}
+
+function getExpectedHeaders(schema: KeyedDatasetSchemaSpec): string[] {
   return [...schema.fields.map((f) => f.name), ...KEYED_UPSERT_METADATA_COLUMNS];
 }
 
-function getTextColumnIndices(schema: ReferenceSchemaSpec): number[] {
+function getTextColumnIndices(schema: KeyedDatasetSchemaSpec): number[] {
   const cols: number[] = [];
   for (let i = 0; i < schema.fields.length; i++) {
     const kind = schema.fields[i].kind;
@@ -157,7 +265,7 @@ function getTextColumnIndices(schema: ReferenceSchemaSpec): number[] {
 
 function readDestinationState(
   spreadsheet: WritableSpreadsheetHandle,
-  schema: ReferenceSchemaSpec,
+  schema: KeyedDatasetSchemaSpec,
 ): { ok: true; state: DestinationState } | { ok: false; diagnostic: PreviewDiagnostic } {
   const expectedHeaders = getExpectedHeaders(schema);
   const sheet = spreadsheet.getSheetByName(schema.tab);
@@ -192,7 +300,7 @@ function readDestinationState(
       ok: false,
       diagnostic: {
         code: 'HEADER_MISMATCH',
-        message: `Destination tab "${schema.tab}" headers do not match the expected 111-row baseline schema.`,
+        message: `Destination tab "${schema.tab}" headers do not match the expected schema.`,
       },
     };
   }
@@ -352,9 +460,9 @@ function buildSummaryFields(
 }
 
 function computeChangedFields(
-  schema: ReferenceSchemaSpec,
+  schema: KeyedDatasetSchemaSpec,
   existing: ExistingDestinationRow,
-  incoming: ProjectedReferenceRow,
+  incoming: ProjectedKeyedRowBase,
 ): ReferenceChangedField[] {
   const changed: ReferenceChangedField[] = [];
   for (let i = 0; i < schema.fields.length; i++) {
@@ -372,90 +480,61 @@ function computeChangedFields(
   return changed;
 }
 
-function computeReferenceDiff(
-  schema: ReferenceSchemaSpec,
-  projectedRows: readonly ProjectedReferenceRow[],
+function computeKeyedDiff<TRow extends ProjectedKeyedRowBase, TPreviewRow>(
+  projectedRows: readonly TRow[],
   dest: DestinationState,
+  mapIncoming: (
+    row: TRow,
+    diffKind: Exclude<DiffKind, 'REVIEW'>,
+    existing: ExistingDestinationRow | undefined,
+  ) => TPreviewRow,
+  mapMissing: (existing: ExistingDestinationRow) => TPreviewRow,
 ): {
   counts: DiffCounts;
   reviewBreakdown: Partial<Record<ReviewReasonCode, number>>;
-  sampleRows: ReferencePreviewRow[];
+  sampleRows: TPreviewRow[];
   missingKeys: string[];
 } {
   let insert = 0;
   let update = 0;
   let unchanged = 0;
-  let placeholderCoords = 0;
+  let incomingReviewCount = 0;
+  const reviewBreakdown: Partial<Record<ReviewReasonCode, number>> = {};
   const incomingKeys = new Set<string>();
-  const sampleRows: ReferencePreviewRow[] = [];
+  const sampleRows: TPreviewRow[] = [];
 
   for (const row of projectedRows) {
     incomingKeys.add(row.key);
     const existing = dest.byKey.get(row.key);
-    if (row.reviewReasons.includes('PLACEHOLDER_COORDS')) {
-      placeholderCoords += 1;
+    if (row.reviewReasons.length > 0) {
+      incomingReviewCount += 1;
+      for (const reason of row.reviewReasons) {
+        reviewBreakdown[reason] = (reviewBreakdown[reason] ?? 0) + 1;
+      }
     }
 
     if (!existing) {
       insert += 1;
-      sampleRows.push({
-        diffKind: 'INSERT',
-        sourceKey: row.key,
-        displayName: row.displayName,
-        displayCode: row.displayCode,
-        changedFields: [],
-        summaryFields: buildSummaryFields(schema, row),
-        reviewReasons: [...row.reviewReasons],
-      });
+      sampleRows.push(mapIncoming(row, 'INSERT', undefined));
     } else if (existing.rowDigest === row.rowDigest) {
       unchanged += 1;
-      sampleRows.push({
-        diffKind: 'UNCHANGED',
-        sourceKey: row.key,
-        displayName: row.displayName,
-        displayCode: row.displayCode,
-        changedFields: [],
-        summaryFields: buildSummaryFields(schema, row),
-        reviewReasons: [...row.reviewReasons],
-      });
+      sampleRows.push(mapIncoming(row, 'UNCHANGED', existing));
     } else {
       update += 1;
-      sampleRows.push({
-        diffKind: 'UPDATE',
-        sourceKey: row.key,
-        displayName: row.displayName,
-        displayCode: row.displayCode,
-        changedFields: computeChangedFields(schema, existing, row),
-        summaryFields: buildSummaryFields(schema, row),
-        reviewReasons: [...row.reviewReasons],
-      });
+      sampleRows.push(mapIncoming(row, 'UPDATE', existing));
     }
   }
 
-  const nameFieldIdx = schema.fields.findIndex((f) => f.name === schema.displayNameField);
   const missingKeys: string[] = [];
   for (const existing of dest.rows) {
     if (!incomingKeys.has(existing.key)) {
       missingKeys.push(existing.key);
-      const existingName = nameFieldIdx >= 0 ? cellToString(existing.cells[nameFieldIdx]) : '';
-      sampleRows.push({
-        diffKind: 'REVIEW',
-        sourceKey: existing.key,
-        displayName: existingName || existing.key,
-        displayCode: existing.key,
-        changedFields: [],
-        summaryFields: [],
-        reviewReasons: ['MISSING_IN_SOURCE'],
-      });
+      sampleRows.push(mapMissing(existing));
     }
   }
 
-  const reviewBreakdown: Partial<Record<ReviewReasonCode, number>> = {};
   if (missingKeys.length > 0) {
     reviewBreakdown.MISSING_IN_SOURCE = missingKeys.length;
-  }
-  if (placeholderCoords > 0) {
-    reviewBreakdown.PLACEHOLDER_COORDS = placeholderCoords;
   }
 
   return {
@@ -463,7 +542,7 @@ function computeReferenceDiff(
       insert,
       update,
       unchanged,
-      review: missingKeys.length + placeholderCoords,
+      review: missingKeys.length + incomingReviewCount,
     },
     reviewBreakdown,
     sampleRows,
@@ -471,19 +550,91 @@ function computeReferenceDiff(
   };
 }
 
+function computeReferenceDiff(
+  schema: ReferenceSchemaSpec,
+  projectedRows: readonly ProjectedReferenceRow[],
+  dest: DestinationState,
+) {
+  const nameFieldIdx = schema.fields.findIndex((f) => f.name === schema.displayNameField);
+  return computeKeyedDiff(
+    projectedRows,
+    dest,
+    (row, diffKind, existing) => ({
+      diffKind,
+      sourceKey: row.key,
+      displayName: row.displayName,
+      displayCode: row.displayCode,
+      changedFields:
+        diffKind === 'UPDATE' && existing ? computeChangedFields(schema, existing, row) : [],
+      summaryFields: buildSummaryFields(schema, row),
+      reviewReasons: [...row.reviewReasons],
+    }),
+    (existing): ReferencePreviewRow => {
+      const existingName = nameFieldIdx >= 0 ? cellToString(existing.cells[nameFieldIdx]) : '';
+      return {
+        diffKind: 'REVIEW',
+        sourceKey: existing.key,
+        displayName: existingName || existing.key,
+        displayCode: existing.key,
+        changedFields: [],
+        summaryFields: [],
+        reviewReasons: ['MISSING_IN_SOURCE'],
+      };
+    },
+  );
+}
+
+function computeVolunteerGenderDiff(
+  schema: KeyedDatasetSchemaSpec,
+  projectedRows: readonly ProjectedVolunteerGenderRow[],
+  dest: DestinationState,
+) {
+  const subCodeIdx = schema.fields.findIndex((f) => f.name === 'subdistrictCode');
+  const subNameIdx = schema.fields.findIndex((f) => f.name === 'subdistrictName');
+  const villageNoIdx = schema.fields.findIndex((f) => f.name === 'villageNo');
+  const villageNameIdx = schema.fields.findIndex((f) => f.name === 'villageName');
+
+  return computeKeyedDiff(
+    projectedRows,
+    dest,
+    (row, diffKind): ExtendedMinimizedPreviewRow => ({
+      diffKind,
+      sourceKey: row.key,
+      scopeLabel: row.scopeLabel,
+      minimizedAttributes: [...row.minimizedAttributes],
+      reviewReasons: [...row.reviewReasons],
+    }),
+    (existing): ExtendedMinimizedPreviewRow => ({
+      diffKind: 'REVIEW',
+      sourceKey: existing.key,
+      scopeLabel: formatVolunteerGenderScopeLabel({
+        subdistrictCode: subCodeIdx >= 0 ? cellToString(existing.cells[subCodeIdx]) : '',
+        subdistrictName: subNameIdx >= 0 ? cellToString(existing.cells[subNameIdx]) : '',
+        villageNo: villageNoIdx >= 0 ? cellToString(existing.cells[villageNoIdx]) : '',
+        villageName: villageNameIdx >= 0 ? cellToString(existing.cells[villageNameIdx]) : '',
+      }),
+      minimizedAttributes: [],
+      reviewReasons: ['MISSING_IN_SOURCE'],
+    }),
+  );
+}
+
 function buildSheetRowValues(
-  row: ProjectedReferenceRow,
+  row: ProjectedKeyedRowBase,
   runId: string,
   fetchedAtUtc: string,
+  isExtendedReport: boolean,
 ): Array<string | number> {
   const sourceCells = row.values.map((v) => (v === null ? '' : v));
+  const qualityStatus =
+    isExtendedReport && row.reviewReasons.includes('SMALL_CELL_SUPPRESSED') ? 'WARNING' : 'VALID';
   return [
     ...sourceCells,
     SCHEMA_VERSION,
     runId,
     row.key,
     fetchedAtUtc,
-    'VALID',
+    qualityStatus,
     JSON.stringify(row.presence),
     runId,
     row.rowDigest,
@@ -503,7 +654,7 @@ function applyTextFormatsToRange(
 
 function ensureDestinationSheet(
   spreadsheet: WritableSpreadsheetHandle,
-  schema: ReferenceSchemaSpec,
+  schema: KeyedDatasetSchemaSpec,
 ): WritableSheetHandle {
   const headers = getExpectedHeaders(schema);
   const existing = spreadsheet.getSheetByName(schema.tab);
@@ -623,8 +774,8 @@ function updateSyncLogRow(
 
 function verifyDestinationReadback(
   spreadsheet: WritableSpreadsheetHandle,
-  schema: ReferenceSchemaSpec,
-  projectedRows: readonly ProjectedReferenceRow[],
+  schema: KeyedDatasetSchemaSpec,
+  projectedRows: readonly ProjectedKeyedRowBase[],
   previousDest: DestinationState,
   expectedTabsBefore: readonly string[],
   expectedInsertCount: number,
@@ -755,6 +906,48 @@ function makeCommitStop(
   };
 }
 
+type ProjectedValidationOutcome =
+  | {
+      ok: true;
+      mode: 'REFERENCE_READABLE';
+      rows: ProjectedReferenceRow[];
+      datasetDigest: string;
+    }
+  | {
+      ok: true;
+      mode: 'EXTENDED_MINIMIZED';
+      rows: ProjectedVolunteerGenderRow[];
+      datasetDigest: string;
+      aggregateSummary: ExtendedAggregateGroup[];
+    }
+  | { ok: false; diagnostics: PreviewDiagnostic[] };
+
+function validateAndProjectSmallDataset(
+  endpoint: SmallKeyedDatasetEndpoint,
+  rawItems: readonly unknown[],
+  sha256Hex: (input: string) => string,
+): ProjectedValidationOutcome {
+  if (isReferenceEndpoint(endpoint)) {
+    const res = validateAndProjectReferenceRows(endpoint, rawItems, sha256Hex);
+    if (!res.ok) return res;
+    return {
+      ok: true,
+      mode: 'REFERENCE_READABLE',
+      rows: res.rows,
+      datasetDigest: res.datasetDigest,
+    };
+  }
+  const res = validateAndProjectVolunteerGenderRows(rawItems, sha256Hex);
+  if (!res.ok) return res;
+  return {
+    ok: true,
+    mode: 'EXTENDED_MINIMIZED',
+    rows: res.rows,
+    datasetDigest: res.datasetDigest,
+    aggregateSummary: res.aggregateSummary,
+  };
+}
+
 export function previewDatasetWithPlatform(
   request: PreviewDatasetRequest,
   platform: SyncPlatform,
@@ -764,20 +957,27 @@ export function previewDatasetWithPlatform(
       request,
       platform,
       'Preview request payload is required.',
-      'Preview is currently enabled for Reference Datasets (subdistricts, villages, health-services).',
+      'Preview is currently enabled for Reference Datasets (subdistricts, villages, health-services) and volunteer-gender.',
     );
     if (!base.ok) {
       return previewRpcError(base.code, base.message);
     }
     const { ctx } = base;
 
+    const targetIdResult = resolveTargetSpreadsheetId(ctx, platform);
+    if (!targetIdResult.ok) {
+      return previewRpcError('SPREADSHEET_NOT_CONFIGURED', targetIdResult.message);
+    }
+
     let spreadsheet: WritableSpreadsheetHandle;
     try {
-      spreadsheet = platform.openSpreadsheetById(ctx.spreadsheetId);
+      spreadsheet = platform.openSpreadsheetById(targetIdResult.spreadsheetId);
     } catch {
       return previewRpcError(
         'WORKBOOK_ACCESS_FAILED',
-        'Unable to open the configured reference Google Sheets workbook.',
+        ctx.isExtendedReport
+          ? 'Unable to open the configured report Google Sheets workbook.'
+          : 'Unable to open the configured reference Google Sheets workbook.',
       );
     }
 
@@ -785,7 +985,7 @@ export function previewDatasetWithPlatform(
     const previewedAtUtc = platform.now().toISOString();
     const logSummary = readEndpointSyncLogSummary(spreadsheet, ctx.endpoint);
 
-    const fetchResult = fetchReferenceDataset(
+    const fetchResult = fetchSmallKeyedDataset(
       ctx.endpoint,
       request.token,
       platform.fetchUrl,
@@ -810,7 +1010,7 @@ export function previewDatasetWithPlatform(
       );
     }
 
-    const validation = validateAndProjectReferenceRows(
+    const validation = validateAndProjectSmallDataset(
       ctx.endpoint,
       fetchResult.items,
       platform.sha256Hex,
@@ -836,45 +1036,80 @@ export function previewDatasetWithPlatform(
       );
     }
 
-    const diff = computeReferenceDiff(ctx.schema, validation.rows, destResult.state);
     const sheetRevisionFingerprint = computeSheetRevisionFingerprint(
       destResult.state,
       logSummary,
       platform.sha256Hex,
     );
-    const fingerprint = computePreviewFingerprint(
-      ctx.endpoint,
-      ctx.env,
-      fetchResult.sourceTotal,
-      validation.datasetDigest,
-      sheetRevisionFingerprint,
-      diff.counts,
-      platform.sha256Hex,
-    );
 
-    const writeEnabled = platform.getProperty('THAIPHC_WRITE_ENABLED') === 'true';
+    const guardStatus = evaluateWriteGuards(ctx, platform);
+    const buildReadyBase = (
+      counts: DiffCounts,
+      reviewBreakdown: Partial<Record<ReviewReasonCode, number>>,
+      legacy: { legacySnapshotPresent: boolean; legacySnapshotTab: string | null },
+    ): PreviewReadyBase => ({
+      status: 'READY',
+      endpoint: ctx.endpoint,
+      env: ctx.env,
+      syncMode: descriptor.syncMode,
+      paginationProtocol: descriptor.paginationProtocol,
+      destinationTab: ctx.schema.tab,
+      previewedAtUtc,
+      pagesFetched: fetchResult.pagesFetched,
+      sourceTotal: fetchResult.sourceTotal,
+      fingerprint: computePreviewFingerprint(
+        ctx.endpoint,
+        ctx.env,
+        fetchResult.sourceTotal,
+        validation.datasetDigest,
+        sheetRevisionFingerprint,
+        counts,
+        platform.sha256Hex,
+      ),
+      counts,
+      reviewBreakdown,
+      unresolvedPreviousRun: logSummary.unresolvedRun,
+      legacySnapshotPresent: legacy.legacySnapshotPresent,
+      legacySnapshotTab: legacy.legacySnapshotTab,
+      writeAllowed: guardStatus.writeAllowed,
+      blockedGuardReason: guardStatus.blockedGuardReason,
+    });
+
+    if (validation.mode === 'REFERENCE_READABLE') {
+      const diff = computeReferenceDiff(
+        ctx.schema as ReferenceSchemaSpec,
+        validation.rows,
+        destResult.state,
+      );
+      return {
+        ok: true,
+        data: {
+          ...buildReadyBase(diff.counts, diff.reviewBreakdown, {
+            legacySnapshotPresent: false,
+            legacySnapshotTab: null,
+          }),
+          previewMode: 'REFERENCE_READABLE',
+          sampleRows: diff.sampleRows,
+        },
+      };
+    }
+
+    const diff = computeVolunteerGenderDiff(ctx.schema, validation.rows, destResult.state);
+    const reportPointers = readReportCurrentPointers(spreadsheet);
+    const legacy = detectLegacySnapshot(
+      ctx.endpoint,
+      descriptor.legacyPrefix,
+      destResult.state.exists,
+      reportPointers,
+      spreadsheet.getSheetNames(),
+    );
 
     return {
       ok: true,
       data: {
-        status: 'READY',
-        endpoint: ctx.endpoint,
-        env: ctx.env,
-        syncMode: descriptor.syncMode,
-        paginationProtocol: descriptor.paginationProtocol,
-        destinationTab: ctx.schema.tab,
-        previewedAtUtc,
-        pagesFetched: fetchResult.pagesFetched,
-        sourceTotal: fetchResult.sourceTotal,
-        fingerprint,
-        counts: diff.counts,
-        reviewBreakdown: diff.reviewBreakdown,
-        unresolvedPreviousRun: logSummary.unresolvedRun,
-        legacySnapshotPresent: false,
-        legacySnapshotTab: null,
-        writeAllowed: writeEnabled,
-        blockedGuardReason: writeEnabled ? null : 'THAIPHC_WRITE_ENABLED',
-        previewMode: 'REFERENCE_READABLE',
+        ...buildReadyBase(diff.counts, diff.reviewBreakdown, legacy),
+        previewMode: 'EXTENDED_MINIMIZED',
+        aggregateSummary: validation.aggregateSummary,
         sampleRows: diff.sampleRows,
       },
     };
@@ -892,7 +1127,7 @@ export function commitSmallDatasetWithPlatform(
       request,
       platform,
       'Commit request payload is required.',
-      'Commit is currently enabled for Reference Datasets (subdistricts, villages, health-services).',
+      'Commit is currently enabled for Reference Datasets (subdistricts, villages, health-services) and volunteer-gender.',
     );
     if (!base.ok) {
       return commitRpcError(base.code, base.message);
@@ -945,13 +1180,14 @@ export function commitSmallDatasetWithPlatform(
       );
     }
 
-    if (platform.getProperty('THAIPHC_WRITE_ENABLED') !== 'true') {
+    const preLockGuard = evaluateWriteGuards(ctx, platform);
+    if (!preLockGuard.writeAllowed) {
       return makeCommitStop(
         ctx.endpoint,
         ctx.env,
         ctx.schema.tab,
-        'WRITE_DISABLED',
-        'THAIPHC_WRITE_ENABLED is OFF in Google Apps Script Properties. Commit rejected.',
+        preLockGuard.stopCode,
+        preLockGuard.message,
       );
     }
 
@@ -997,23 +1233,37 @@ export function commitSmallDatasetWithPlatform(
     }
 
     try {
-      if (platform.getProperty('THAIPHC_WRITE_ENABLED') !== 'true') {
+      const inLockGuard = evaluateWriteGuards(ctx, platform);
+      if (!inLockGuard.writeAllowed) {
         return makeCommitStop(
           ctx.endpoint,
           ctx.env,
           ctx.schema.tab,
-          'WRITE_DISABLED',
-          'THAIPHC_WRITE_ENABLED is OFF in Google Apps Script Properties. Commit rejected.',
+          inLockGuard.stopCode,
+          inLockGuard.message,
+        );
+      }
+
+      const targetIdResult = resolveTargetSpreadsheetId(ctx, platform);
+      if (!targetIdResult.ok) {
+        return makeCommitStop(
+          ctx.endpoint,
+          ctx.env,
+          ctx.schema.tab,
+          'INVALID_REPORT_WORKBOOK',
+          targetIdResult.message,
         );
       }
 
       let spreadsheet: WritableSpreadsheetHandle;
       try {
-        spreadsheet = platform.openSpreadsheetById(ctx.spreadsheetId);
+        spreadsheet = platform.openSpreadsheetById(targetIdResult.spreadsheetId);
       } catch {
         return commitRpcError(
           'WORKBOOK_ACCESS_FAILED',
-          'Unable to open the configured reference Google Sheets workbook.',
+          ctx.isExtendedReport
+            ? 'Unable to open the configured report Google Sheets workbook.'
+            : 'Unable to open the configured reference Google Sheets workbook.',
         );
       }
 
@@ -1031,7 +1281,7 @@ export function commitSmallDatasetWithPlatform(
         );
       }
 
-      const fetchResult = fetchReferenceDataset(
+      const fetchResult = fetchSmallKeyedDataset(
         ctx.endpoint,
         request.token,
         platform.fetchUrl,
@@ -1050,7 +1300,7 @@ export function commitSmallDatasetWithPlatform(
         );
       }
 
-      const validation = validateAndProjectReferenceRows(
+      const validation = validateAndProjectSmallDataset(
         ctx.endpoint,
         fetchResult.items,
         platform.sha256Hex,
@@ -1110,7 +1360,15 @@ export function commitSmallDatasetWithPlatform(
         };
       }
 
-      const diff = computeReferenceDiff(ctx.schema, validation.rows, destResult.state);
+      const diffCounts: DiffCounts =
+        validation.mode === 'REFERENCE_READABLE'
+          ? computeReferenceDiff(
+              ctx.schema as ReferenceSchemaSpec,
+              validation.rows,
+              destResult.state,
+            ).counts
+          : computeVolunteerGenderDiff(ctx.schema, validation.rows, destResult.state).counts;
+
       const now = platform.now();
       const nowUtc = now.toISOString();
       const runId = platform.generateRunId(ctx.endpoint, now);
@@ -1136,11 +1394,11 @@ export function commitSmallDatasetWithPlatform(
         for (const row of validation.rows) {
           const existing = destResult.state.byKey.get(row.key);
           if (!existing) {
-            additions.push(buildSheetRowValues(row, runId, nowUtc));
+            additions.push(buildSheetRowValues(row, runId, nowUtc, ctx.isExtendedReport));
           } else if (existing.rowDigest !== row.rowDigest) {
             updates.push({
               rowNumber: existing.rowNumber,
-              values: buildSheetRowValues(row, runId, nowUtc),
+              values: buildSheetRowValues(row, runId, nowUtc, ctx.isExtendedReport),
             });
           }
         }
@@ -1194,7 +1452,7 @@ export function commitSmallDatasetWithPlatform(
             syncMode: descriptor.syncMode,
             status: 'FAILED_STOP',
             previewDigest: expectedFp.fingerprintDigest,
-            counts: diff.counts,
+            counts: diffCounts,
             readbackVerified: false,
           });
           platform.flushSpreadsheet();
@@ -1217,7 +1475,7 @@ export function commitSmallDatasetWithPlatform(
           syncMode: descriptor.syncMode,
           status: 'COMMITTED_VERIFIED',
           previewDigest: expectedFp.fingerprintDigest,
-          counts: diff.counts,
+          counts: diffCounts,
           readbackVerified: true,
         });
         platform.flushSpreadsheet();
@@ -1232,7 +1490,7 @@ export function commitSmallDatasetWithPlatform(
             syncMode: descriptor.syncMode,
             destinationTab: ctx.schema.tab,
             completedAtUtc,
-            counts: diff.counts,
+            counts: diffCounts,
             fingerprint: expectedFp,
             readback,
             syncLogStatus: 'COMMITTED_VERIFIED',

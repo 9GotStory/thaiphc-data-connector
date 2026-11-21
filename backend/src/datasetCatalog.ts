@@ -3,6 +3,7 @@ import type {
   DatasetGroup,
   PaginationProtocol,
   ReferenceDatasetEndpoint,
+  SmallKeyedDatasetEndpoint,
   SyncMode,
 } from './types.ts';
 
@@ -15,23 +16,27 @@ export interface DatasetDescriptor {
   readonly legacyPrefix: string | null;
 }
 
-export type ReferenceFieldKind =
+export type DatasetFieldKind =
   'string' | 'string_or_null' | 'integer' | 'number' | 'null_only' | 'object' | 'array';
 
-export interface ReferenceFieldSpec {
+export type ReferenceFieldKind = DatasetFieldKind;
+
+export interface DatasetFieldSpec {
   readonly name: string;
-  readonly kind: ReferenceFieldKind;
+  readonly kind: DatasetFieldKind;
 }
 
-export interface ReferenceSchemaSpec {
-  readonly endpoint: ReferenceDatasetEndpoint;
+export interface KeyedDatasetSchemaSpec<TEndpoint extends DatasetEndpoint = DatasetEndpoint> {
+  readonly endpoint: TEndpoint;
   readonly tab: string;
   readonly keyField: string;
   readonly displayNameField: string;
   readonly summaryFieldNames: readonly string[];
   readonly maxRows: number;
-  readonly fields: readonly ReferenceFieldSpec[];
+  readonly fields: readonly DatasetFieldSpec[];
 }
+
+export type ReferenceSchemaSpec = KeyedDatasetSchemaSpec<ReferenceDatasetEndpoint>;
 
 export const DATASET_CATALOG: readonly DatasetDescriptor[] = [
   {
@@ -218,8 +223,42 @@ export const REFERENCE_SCHEMAS: Readonly<Record<ReferenceDatasetEndpoint, Refere
   },
 };
 
+export const VOLUNTEER_GENDER_SCHEMA: KeyedDatasetSchemaSpec<'volunteer-gender'> = {
+  endpoint: 'volunteer-gender',
+  tab: 'VolunteerGender',
+  keyField: 'villageCode',
+  displayNameField: 'villageName',
+  summaryFieldNames: ['total', 'male', 'female'],
+  maxRows: 150,
+  fields: [
+    { name: 'provinceCode', kind: 'string' },
+    { name: 'provinceName', kind: 'string' },
+    { name: 'districtCode', kind: 'string' },
+    { name: 'districtName', kind: 'string' },
+    { name: 'subdistrictCode', kind: 'string' },
+    { name: 'subdistrictName', kind: 'string' },
+    { name: 'villageCode', kind: 'string' },
+    { name: 'villageNo', kind: 'string' },
+    { name: 'villageName', kind: 'string' },
+    { name: 'total', kind: 'integer' },
+    { name: 'male', kind: 'integer' },
+    { name: 'female', kind: 'integer' },
+  ],
+};
+
+export const SMALL_KEYED_SCHEMAS: Readonly<
+  Record<SmallKeyedDatasetEndpoint, KeyedDatasetSchemaSpec<SmallKeyedDatasetEndpoint>>
+> = {
+  ...REFERENCE_SCHEMAS,
+  'volunteer-gender': VOLUNTEER_GENDER_SCHEMA,
+};
+
 export function isReferenceEndpoint(endpoint: string): endpoint is ReferenceDatasetEndpoint {
   return endpoint === 'subdistricts' || endpoint === 'villages' || endpoint === 'health-services';
+}
+
+export function isSmallKeyedEndpoint(endpoint: string): endpoint is SmallKeyedDatasetEndpoint {
+  return isReferenceEndpoint(endpoint) || endpoint === 'volunteer-gender';
 }
 
 export function getDatasetDescriptor(endpoint: DatasetEndpoint): DatasetDescriptor {

@@ -67,8 +67,9 @@ export function ConfirmationGate({
     );
   }
 
-  // Gate State 1B — Locked by Write Guard OFF
+  // Gate State 1B — Locked by Write Guard OFF or Unapproved Workbook Policy
   if (!preview.writeAllowed) {
+    const guardReason = preview.blockedGuardReason ?? 'THAIPHC_WRITE_ENABLED';
     return (
       <Card className="bg-muted/60 border-border">
         <CardContent className="p-5 space-y-3">
@@ -83,12 +84,40 @@ export function ConfirmationGate({
                 โหมดอ่านอย่างเดียว — ไม่สามารถ Commit ได้
               </h3>
               <p id="commit-guard-off-desc" className="text-sm text-muted-foreground">
-                สวิตช์ฝั่งเซิร์ฟเวอร์{' '}
-                <code className="font-mono font-semibold text-foreground">
-                  {preview.blockedGuardReason ?? 'THAIPHC_WRITE_ENABLED'}
-                </code>{' '}
-                มีค่าเป็น <code className="font-mono">false</code> (OFF) — เปิดใช้งานได้เฉพาะผ่าน Google
-                Apps Script Project Settings &gt; Script Properties
+                {guardReason === 'THAIPHC_SAME_WORKBOOK_APPROVAL' ? (
+                  <>
+                    การเขียนชุดข้อมูลรายงานขยายลงสมุดงานเดียวกับข้อมูลอ้างอิงถูกบล็อกโดยนโยบายแยกสมุดงาน —
+                    ต้องกำหนด{' '}
+                    <code className="font-mono font-semibold text-foreground">
+                      THAIPHC_SAME_WORKBOOK_APPROVAL
+                    </code>{' '}
+                    เป็น{' '}
+                    <code className="font-mono font-semibold text-foreground">
+                      OWNER_ONLY_5406_APPROVED
+                    </code>{' '}
+                    หรือกำหนด{' '}
+                    <code className="font-mono font-semibold text-foreground">
+                      THAIPHC_REPORT_SPREADSHEET_ID
+                    </code>{' '}
+                    แยกสมุดงานใน Google Apps Script Project Settings &gt; Script Properties
+                  </>
+                ) : guardReason === 'THAIPHC_REPORT_SPREADSHEET_ID' ? (
+                  <>
+                    ค่า{' '}
+                    <code className="font-mono font-semibold text-foreground">
+                      THAIPHC_REPORT_SPREADSHEET_ID
+                    </code>{' '}
+                    ไม่ถูกต้อง — แก้ไขได้เฉพาะผ่าน Google Apps Script Project Settings &gt; Script
+                    Properties
+                  </>
+                ) : (
+                  <>
+                    สวิตช์ฝั่งเซิร์ฟเวอร์{' '}
+                    <code className="font-mono font-semibold text-foreground">{guardReason}</code>{' '}
+                    มีค่าเป็น <code className="font-mono">false</code> (OFF) — เปิดใช้งานได้เฉพาะผ่าน
+                    Google Apps Script Project Settings &gt; Script Properties
+                  </>
+                )}
               </p>
             </div>
           </div>

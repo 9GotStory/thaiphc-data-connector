@@ -13,8 +13,13 @@ const PSEUDONYMIZED_ENDPOINTS: ReadonlySet<DatasetEndpoint> = new Set([
   'volunteer-tenure',
 ]);
 
-function isReferenceDatasetEndpoint(endpoint: DatasetEndpoint): boolean {
-  return endpoint === 'subdistricts' || endpoint === 'villages' || endpoint === 'health-services';
+function isSupportedSyncEndpoint(endpoint: DatasetEndpoint): boolean {
+  return (
+    endpoint === 'subdistricts' ||
+    endpoint === 'villages' ||
+    endpoint === 'health-services' ||
+    endpoint === 'volunteer-gender'
+  );
 }
 
 interface DatasetSelectorProps {
@@ -132,7 +137,7 @@ export function DatasetSelector({
 }: DatasetSelectorProps) {
   const referenceDatasets = data.datasets.filter((d) => d.group === 'reference');
   const extendedDatasets = data.datasets.filter((d) => d.group === 'extended_report');
-  const isSelectedSupported = isReferenceDatasetEndpoint(selectedEndpoint);
+  const isSelectedSupported = isSupportedSyncEndpoint(selectedEndpoint);
 
   return (
     <Card>
@@ -222,11 +227,12 @@ export function DatasetSelector({
             />
             <span>
               ชุดข้อมูลรายงานขยาย (<code className="font-mono">{selectedEndpoint}</code>)
-              อยู่ระหว่างการเปิดใช้งานในรอบงานถัดไป (Tickets 04–07) — ในรอบนี้สามารถรัน Preview และ
+              อยู่ระหว่างการเปิดใช้งานในรอบงานถัดไป (Tickets 05–07) — ในรอบนี้สามารถรัน Preview และ
               Repeatable Sync ได้ครบทั้ง 3 Reference Datasets (
               <code className="font-mono">subdistricts</code>,{' '}
               <code className="font-mono">villages</code>,{' '}
-              <code className="font-mono">health-services</code>)
+              <code className="font-mono">health-services</code>) และ{' '}
+              <code className="font-mono">volunteer-gender</code> (Mode B · Minimized Projection)
             </span>
           </div>
         )}

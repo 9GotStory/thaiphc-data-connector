@@ -412,4 +412,113 @@ describe('Reference Datasets Repeatable Sync (Frontend GasRpcTransport Seam)', (
     expect(input2.value).toBe('');
     expect(document.activeElement).toBe(input2);
   });
+
+  it('switches Sync Workspace to Mode B Extended Report Preview for volunteer-gender with Minimized Projection banner, LEGACY_F010_SNAPSHOT_PRESENT notice, SMALL_CELL_SUPPRESSED review, report workbook display, and Keyed Upsert commit', async () => {
+    const user = userEvent.setup();
+    const transport = new MockGasTransport({ scenario: 'sandbox-report-writable' });
+
+    renderApp(transport);
+    await openSyncWorkspace(user);
+
+    const tokenInput = screen.getByLabelText(/ThaiPHC Bearer Token/) as HTMLInputElement;
+    await user.click(tokenInput);
+    await user.paste(VALID_TOKEN);
+
+    // Select volunteer-gender radio card
+    const vgRadio = screen.getByRole('radio', { name: /สรุปเพศ อสม\. รายหมู่บ้าน/ });
+    await user.click(vgRadio);
+    expect(vgRadio).toBeChecked();
+
+    const previewBtn = screen.getByRole('button', { name: /เริ่ม Preview/ });
+    expect(previewBtn).toBeEnabled();
+    await user.click(previewBtn);
+
+    // Mode B privacy boundary banner, LEGACY_F010_SNAPSHOT_PRESENT notice, and SMALL_CELL_SUPPRESSED review explanation
+    expect(
+      await screen.findByText(/ขอบเขตคุ้มครองข้อมูลส่วนบุคคล \(Minimized Projection\)/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/LEGACY_F010_SNAPSHOT_PRESENT/)).toBeInTheDocument();
+    expect(screen.getByText(/RGender_f010_20261119/)).toBeInTheDocument();
+    expect(screen.getAllByText(/SMALL_CELL_SUPPRESSED/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/Complementary Small-Cell Suppression/)).toBeInTheDocument();
+
+    // Aggregate summary and strictly minimized/suppressed sample rows (with null for suppressed counts)
+    expect(screen.getAllByText(/540601/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/540601001/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('null').length).toBeGreaterThanOrEqual(2);
+
+    // Filter to REVIEW shows suppressed rows only
+    const reviewFilter = screen.getByRole('button', { name: /REVIEW/ });
+    await user.click(reviewFilter);
+    expect(reviewFilter).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByText('540603001')).not.toBeInTheDocument();
+
+    // Confirmation Gate shows the separate report workbook name (not reference workbook)
+    expect(screen.getByText('ThaiPHC Extended Reports (Sandbox Mock)')).toBeInTheDocument();
+
+    // Commit through SANDBOX AlertDialog -> COMMITTED_VERIFIED + Destination Readback
+    await user.click(screen.getByRole('button', { name: /ตรวจสอบและยืนยันการบันทึก \(SANDBOX\)/ }));
+    const dialog = screen.getByRole('alertdialog');
+    expect(within(dialog).getByText(/VolunteerGender/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: /ยืนยันบันทึกข้อมูล/ }));
+
+    expect(await screen.findByText(/ซิงก์และตรวจสอบ Destination Readback สำเร็จ/)).toBeInTheDocument();
+    expect(screen.getByText('VolunteerGender')).toBeInTheDocument();
+  });
+
+  it('locks volunteer-gender Commit when THAIPHC_PERSON_DATA_WRITE_ENABLED is OFF or same-workbook approval is missing, and enforces typed PRODUCTION phrase when approved', async () => {
+    const user = userEvent.setup();
+
+    // 1. THAIPHC_PERSON_DATA_WRITE_ENABLED OFF (sandbox-writable has writeEnabled=true, personDataWriteEnabled=false)
+    const personOffRender = renderApp(new MockGasTransport({ scenario: 'sandbox-writable' }));
+    await openSyncWorkspace(user);
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole('radio', { name: /สรุปเพศ อสม\. รายหมู่บ้าน/ }));
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+
+    expect(await screen.findByText(/โหมดอ่านอย่างเดียว — ไม่สามารถ Commit ได้/)).toBeInTheDocument();
+    expect(screen.getByText('THAIPHC_PERSON_DATA_WRITE_ENABLED')).toBeInTheDocument();
+    expect(screen.queryAllByRole('switch')).toHaveLength(0);
+    personOffRender.unmount();
+
+    // 2. Same-workbook unapproved (writeEnabled=true, personDataWriteEnabled=true, reportWorkbookApproved=false)
+    const sameUnapprovedRender = renderApp(
+      new MockGasTransport({ scenario: 'same-workbook-unapproved-writable' }),
+    );
+    await openSyncWorkspace(user);
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole('radio', { name: /สรุปเพศ อสม\. รายหมู่บ้าน/ }));
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+
+    expect(await screen.findByText(/โหมดอ่านอย่างเดียว — ไม่สามารถ Commit ได้/)).toBeInTheDocument();
+    expect(screen.getByText('THAIPHC_SAME_WORKBOOK_APPROVAL')).toBeInTheDocument();
+    expect(screen.getByText(/OWNER_ONLY_5406_APPROVED/)).toBeInTheDocument();
+    sameUnapprovedRender.unmount();
+
+    // 3. PRODUCTION report writable enforces exact typed phrase "PRODUCTION 5406 volunteer-gender"
+    renderApp(new MockGasTransport({ scenario: 'production-report-writable' }));
+    await openSyncWorkspace(user);
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole('radio', { name: /สรุปเพศ อสม\. รายหมู่บ้าน/ }));
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+
+    await screen.findByText(/ขอบเขตคุ้มครองข้อมูลส่วนบุคคล \(Minimized Projection\)/);
+    await user.click(screen.getByRole('button', { name: /ดำเนินการยืนยันการบันทึก \(PRODUCTION\)/ }));
+
+    const prodDialog = screen.getByRole('alertdialog');
+    const confirmAction = within(prodDialog).getByRole('button', {
+      name: /ยืนยันบันทึกข้อมูลลง PRODUCTION/,
+    });
+    expect(confirmAction).toBeDisabled();
+
+    const phraseInput = within(prodDialog).getByLabelText(/พิมพ์ข้อความด้านบนให้ตรงทุกตัวอักษร/);
+    await user.type(phraseInput, 'PRODUCTION 5406 volunteer-gender');
+    expect(confirmAction).toBeEnabled();
+    await user.click(confirmAction);
+
+    expect(await screen.findByText(/ซิงก์และตรวจสอบ Destination Readback สำเร็จ/)).toBeInTheDocument();
+  });
 });

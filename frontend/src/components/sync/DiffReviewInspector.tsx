@@ -1,15 +1,20 @@
 import {
   AlertTriangle,
+  Archive,
   CheckCircle2,
+  Lock,
   MinusCircle,
   OctagonAlert,
   PlusCircle,
   RefreshCw,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   DiffKind,
+  ExtendedMinimizedPreviewRow,
   PreviewDatasetData,
+  PreviewReadyExtendedData,
+  PreviewReadyReferenceData,
   ReferencePreviewRow,
   ReviewReasonCode,
 } from '@/api/types';
@@ -35,6 +40,8 @@ type DiffFilter = 'ALL' | DiffKind;
 const REVIEW_EXPLANATIONS: Record<ReviewReasonCode, string> = {
   MISSING_IN_SOURCE: 'พบในชีตเดิมแต่ไม่พบในต้นทาง — ระบบจะคงแถวเดิมไว้ ไม่ลบอัตโนมัติ',
   PLACEHOLDER_COORDS: 'พบพิกัด (0, 0) ซึ่งเป็นค่าตัวแทน (คงค่าไว้ในชีต ห้ามนำไปปักหมุดแผนที่)',
+  SMALL_CELL_SUPPRESSED:
+    'ปิดบังค่าจำนวน 1–4 เป็น null ตามกฎ Complementary Small-Cell Suppression (ปิดบังทั้ง male และ female และปิดบัง total เมื่อน้อยกว่า 5)',
 };
 
 function shortHex(hex: string): string {
@@ -78,6 +85,22 @@ function DiffBadge({ kind }: { kind: DiffKind }) {
   }
 }
 
+function ReviewReasonBadges({ reasons }: { reasons: readonly ReviewReasonCode[] }) {
+  if (reasons.length === 0) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {reasons.map((reason) => (
+        <Badge key={reason} variant="review" className="font-mono font-semibold">
+          <AlertTriangle className="size-3 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+          <span>{reason}</span>
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
 function RowChangeDetails({ row }: { row: ReferencePreviewRow }) {
   return (
     <div className="space-y-1.5 text-xs">
@@ -105,16 +128,314 @@ function RowChangeDetails({ row }: { row: ReferencePreviewRow }) {
         </div>
       )}
       {row.reviewReasons.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 pt-0.5">
-          {row.reviewReasons.map((reason) => (
-            <Badge key={reason} variant="review" className="font-mono font-semibold">
-              <AlertTriangle className="size-3 shrink-0" strokeWidth={1.75} aria-hidden="true" />
-              <span>{reason}</span>
-            </Badge>
-          ))}
+        <div className="pt-0.5">
+          <ReviewReasonBadges reasons={row.reviewReasons} />
         </div>
       )}
     </div>
+  );
+}
+
+function ExtendedRowAttributes({ row }: { row: ExtendedMinimizedPreviewRow }) {
+  if (row.minimizedAttributes.length === 0) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  return (
+    <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+      {row.minimizedAttributes.map((attr) => (
+        <span key={attr.field} className="inline-flex items-baseline gap-1">
+          <code className="font-mono text-foreground">{attr.field}:</code>
+          {attr.value === null ? (
+            <code className="rounded bg-diff-review-bg px-1 py-0.5 font-mono text-[0.7rem] font-semibold text-diff-review-fg">
+              null
+            </code>
+          ) : (
+            <span className="font-mono tabular-nums text-foreground">{attr.value}</span>
+          )}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function SamplePreviewShell({
+  title,
+  filteredCount,
+  activeFilter,
+  onClearFilter,
+  allUnchanged,
+  preamble,
+  contentClassName,
+  children,
+}: {
+  title: string;
+  filteredCount: number;
+  activeFilter: DiffFilter;
+  onClearFilter: () => void;
+  allUnchanged: boolean;
+  preamble?: ReactNode;
+  contentClassName?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 border-b border-border/70">
+        <div>
+          <h3 className="text-[0.9375rem] font-semibold leading-[1.45] text-foreground">{title}</h3>
+          <p className="text-xs text-muted-foreground">
+            แสดง {filteredCount.toLocaleString('en-US')} รายการ
+            {activeFilter !== 'ALL' ? ` (กรองเฉพาะ ${activeFilter})` : ' (ทั้งหมด)'}
+          </p>
+        </div>
+        {activeFilter !== 'ALL' && (
+          <Button type="button" variant="outline" size="sm" onClick={onClearFilter}>
+            แสดงทั้งหมด
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent className={contentClassName}>
+        {preamble}
+        {allUnchanged && activeFilter === 'ALL' ? (
+          <div className="flex items-center gap-2.5 rounded-lg border border-status-verified-border bg-status-verified-bg/60 p-4 text-sm text-status-verified-fg">
+            <CheckCircle2 className="size-5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+            <span>ข้อมูลต้นทางตรงกับปลายทางทั้งหมด (UNCHANGED) — ไม่มีความจำเป็นต้องเขียนข้อมูลใหม่</span>
+          </div>
+        ) : filteredCount === 0 ? (
+          <p className="p-2 text-sm text-muted-foreground">
+            ไม่มีรายการที่ตรงกับตัวกรอง <code className="font-mono">{activeFilter}</code>
+          </p>
+        ) : (
+          children
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function matchesDiffFilter(
+  row: { diffKind: DiffKind; reviewReasons: readonly ReviewReasonCode[] },
+  activeFilter: DiffFilter,
+): boolean {
+  if (activeFilter === 'ALL') return true;
+  if (activeFilter === 'REVIEW') {
+    return row.diffKind === 'REVIEW' || row.reviewReasons.length > 0;
+  }
+  return row.diffKind === activeFilter;
+}
+
+function ModeAReferenceSampleCard({
+  preview,
+  activeFilter,
+  onClearFilter,
+  allUnchanged,
+}: {
+  preview: PreviewReadyReferenceData;
+  activeFilter: DiffFilter;
+  onClearFilter: () => void;
+  allUnchanged: boolean;
+}) {
+  const filteredRows = preview.sampleRows.filter((row) => matchesDiffFilter(row, activeFilter));
+
+  return (
+    <SamplePreviewShell
+      title="ตัวอย่างรายการเปรียบเทียบ (Mode A · Reference Dataset)"
+      filteredCount={filteredRows.length}
+      activeFilter={activeFilter}
+      onClearFilter={onClearFilter}
+      allUnchanged={allUnchanged}
+      contentClassName="p-3 sm:p-4"
+    >
+      {/* Desktop / Tablet semantic table */}
+      <div className="hidden md:block">
+        <Table>
+          <caption className="sr-only">ตารางตัวอย่างผลต่างของชุดข้อมูล {preview.endpoint}</caption>
+          <TableHeader>
+            <TableRow>
+              <TableHead scope="col">สถานะ (Diff)</TableHead>
+              <TableHead scope="col">_source_key</TableHead>
+              <TableHead scope="col">ชื่อ / รหัสอ้างอิง</TableHead>
+              <TableHead scope="col">รายการเปลี่ยนแปลง (Changed Fields)</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filteredRows.map((row) => (
+              <TableRow key={`${row.diffKind}-${row.sourceKey}`}>
+                <TableCell>
+                  <DiffBadge kind={row.diffKind} />
+                </TableCell>
+                <TableCell className="font-mono text-xs font-medium tabular-nums">
+                  {row.sourceKey}
+                </TableCell>
+                <TableCell>
+                  <div className="font-medium text-foreground">{row.displayName}</div>
+                  <div className="font-mono text-xs text-muted-foreground">{row.displayCode}</div>
+                </TableCell>
+                <TableCell>
+                  <RowChangeDetails row={row} />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Mobile 375px stacked cards (zero horizontal page overflow) */}
+      <div className="space-y-2.5 md:hidden">
+        {filteredRows.map((row) => (
+          <div
+            key={`card-${row.diffKind}-${row.sourceKey}`}
+            className="rounded-lg border border-border bg-card p-3 space-y-2"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <DiffBadge kind={row.diffKind} />
+              <code className="font-mono text-xs font-medium text-foreground">{row.sourceKey}</code>
+            </div>
+            <div className="text-sm font-medium text-foreground">{row.displayName}</div>
+            <RowChangeDetails row={row} />
+          </div>
+        ))}
+      </div>
+    </SamplePreviewShell>
+  );
+}
+
+function ModeBExtendedSampleCard({
+  preview,
+  activeFilter,
+  onClearFilter,
+  allUnchanged,
+}: {
+  preview: PreviewReadyExtendedData;
+  activeFilter: DiffFilter;
+  onClearFilter: () => void;
+  allUnchanged: boolean;
+}) {
+  const filteredRows = preview.sampleRows.filter((row) => matchesDiffFilter(row, activeFilter));
+
+  const preamble = (
+    <>
+      {/* Mandatory Top Privacy Boundary Banner */}
+      <div
+        role="status"
+        className="flex items-start gap-2.5 rounded-lg border border-border border-l-4 border-l-primary bg-muted p-3.5 text-xs sm:text-sm text-foreground"
+      >
+        <Lock
+          className="mt-0.5 size-4 shrink-0 text-primary"
+          strokeWidth={1.75}
+          aria-hidden="true"
+        />
+        <span>
+          ขอบเขตคุ้มครองข้อมูลส่วนบุคคล (Minimized Projection):
+          แสดงเฉพาะสรุปผลต่างและตัวอย่างแถวที่ผ่านการตัดข้อมูลระบุตัวตนโดยตรงจากฝั่ง GAS แล้วเท่านั้น —
+          ไม่มีเลขบัตรประชาชน ชื่อ-สกุล ที่อยู่ หรือรหัส อสม.
+        </span>
+      </div>
+
+      {/* Aggregate Summary Block by Subdistrict (Zero Personal Identifiers) */}
+      {preview.aggregateSummary.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-xs font-semibold text-muted-foreground">
+            สรุปจำนวนแถวตามพื้นที่ตำบล (อ.สอง 5406 — ปราศจากข้อมูลระบุตัวตน)
+          </h4>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            {preview.aggregateSummary.map((group) => (
+              <div
+                key={group.groupCode}
+                className="rounded-md border border-border bg-muted/40 p-2.5 space-y-1"
+              >
+                <div className="flex items-center justify-between gap-1.5">
+                  <code className="font-mono font-semibold text-foreground">{group.groupCode}</code>
+                  <span className="font-mono font-semibold tabular-nums text-foreground">
+                    {group.rowCount.toLocaleString('en-US')} แถว
+                  </span>
+                </div>
+                <div className="truncate text-muted-foreground">{group.groupLabel}</div>
+                {group.reviewCount > 0 && (
+                  <div className="font-mono text-[0.7rem] font-medium text-diff-review-fg">
+                    REVIEW: {group.reviewCount.toLocaleString('en-US')} แถว
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  return (
+    <SamplePreviewShell
+      title="ตัวอย่างรายการที่ผ่านการลดทอนข้อมูล (Mode B · Extended Report · Minimized Projection)"
+      filteredCount={filteredRows.length}
+      activeFilter={activeFilter}
+      onClearFilter={onClearFilter}
+      allUnchanged={allUnchanged}
+      preamble={preamble}
+      contentClassName="p-3 sm:p-4 space-y-4"
+    >
+      {/* Desktop / Tablet semantic table */}
+      <div className="hidden md:block">
+        <Table>
+          <caption className="sr-only">
+            ตารางตัวอย่างแถวที่ผ่านการลดทอนของชุดข้อมูล {preview.endpoint}
+          </caption>
+          <TableHeader>
+            <TableRow>
+              <TableHead scope="col">สถานะ (Diff)</TableHead>
+              <TableHead scope="col">คีย์อ้างอิง (_source_key)</TableHead>
+              <TableHead scope="col">ขอบเขตพื้นที่ (54 / 5406)</TableHead>
+              <TableHead scope="col">ฟิลด์ที่ลดทอนแล้ว (Minimized Attributes)</TableHead>
+              <TableHead scope="col">หมายเหตุตรวจทาน (REVIEW)</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filteredRows.map((row) => (
+              <TableRow key={`${row.diffKind}-${row.sourceKey}`}>
+                <TableCell>
+                  <DiffBadge kind={row.diffKind} />
+                </TableCell>
+                <TableCell className="min-w-0">
+                  <CopyableIdentifier
+                    value={row.sourceKey}
+                    label={`_source_key ${row.sourceKey}`}
+                    maxWidthClass="max-w-[180px]"
+                  />
+                </TableCell>
+                <TableCell className="text-xs text-foreground">{row.scopeLabel}</TableCell>
+                <TableCell>
+                  <ExtendedRowAttributes row={row} />
+                </TableCell>
+                <TableCell>
+                  <ReviewReasonBadges reasons={row.reviewReasons} />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Mobile 375px stacked cards (zero horizontal page overflow) */}
+      <div className="space-y-2.5 md:hidden">
+        {filteredRows.map((row) => (
+          <div
+            key={`card-${row.diffKind}-${row.sourceKey}`}
+            className="rounded-lg border border-border bg-card p-3 space-y-2"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <DiffBadge kind={row.diffKind} />
+              <CopyableIdentifier
+                value={row.sourceKey}
+                label={`_source_key ${row.sourceKey}`}
+                maxWidthClass="max-w-[160px]"
+              />
+            </div>
+            <div className="text-xs font-medium text-foreground">{row.scopeLabel}</div>
+            <ExtendedRowAttributes row={row} />
+            {row.reviewReasons.length > 0 && <ReviewReasonBadges reasons={row.reviewReasons} />}
+          </div>
+        ))}
+      </div>
+    </SamplePreviewShell>
   );
 }
 
@@ -218,14 +539,6 @@ export function DiffReviewInspector({ preview }: DiffReviewInspectorProps) {
     );
   }
 
-  const filteredRows = preview.sampleRows.filter((row) => {
-    if (activeFilter === 'ALL') return true;
-    if (activeFilter === 'REVIEW') {
-      return row.diffKind === 'REVIEW' || row.reviewReasons.length > 0;
-    }
-    return row.diffKind === activeFilter;
-  });
-
   const allUnchanged =
     preview.counts.insert === 0 && preview.counts.update === 0 && preview.counts.review === 0;
 
@@ -291,6 +604,33 @@ export function DiffReviewInspector({ preview }: DiffReviewInspectorProps) {
                 <code className="font-mono">_ThaiPHCSyncLog</code> กรุณาตรวจสอบแท็บปลายทาง{' '}
                 <code className="font-mono">{preview.destinationTab}</code>{' '}
                 และติ๊กยืนยันการตรวจสอบในขั้นตอนยืนยันก่อนบันทึกข้อมูลใหม่
+              </AlertDescription>
+            </div>
+          </div>
+        </Alert>
+      )}
+
+      {/* 4.3 LEGACY_F010_SNAPSHOT_PRESENT Notice Banner (Conditional, Non-Blocking) */}
+      {preview.legacySnapshotPresent && (
+        <Alert variant="legacy" role="status">
+          <div className="flex items-start gap-3">
+            <Archive className="mt-0.5 size-5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+            <div className="space-y-1">
+              <AlertTitle className="text-[0.9375rem]">
+                ตรวจพบแท็บ F010 Legacy Snapshot เดิม (LEGACY_F010_SNAPSHOT_PRESENT)
+              </AlertTitle>
+              <AlertDescription className="mt-1 text-foreground">
+                การซิงก์ครั้งนี้จะเริ่มต้นแท็บ Keyed Upsert ถาวร (
+                <code className="font-mono font-semibold">{preview.destinationTab}</code>)
+                สำหรับชุดข้อมูลนี้ โดยแท็บ Legacy Snapshot เดิม
+                {preview.legacySnapshotTab && (
+                  <>
+                    {' '}
+                    (<code className="font-mono font-semibold">{preview.legacySnapshotTab}</code>)
+                  </>
+                )}{' '}
+                และประวัติใน <code className="font-mono">_ThaiPHCReportCurrent</code>{' '}
+                จะยังคงอยู่ครบถ้วนและไม่ถูกลบอัตโนมัติ
               </AlertDescription>
             </div>
           </div>
@@ -422,101 +762,22 @@ export function DiffReviewInspector({ preview }: DiffReviewInspectorProps) {
         </div>
       )}
 
-      {/* 4.6 Mode A — Reference Readable Sample & Changed-Fields Table */}
-      <Card>
-        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 border-b border-border/70">
-          <div>
-            <h3 className="text-[0.9375rem] font-semibold leading-[1.45] text-foreground">
-              ตัวอย่างรายการเปรียบเทียบ (Mode A · Reference Dataset)
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              แสดง {filteredRows.length.toLocaleString('en-US')} รายการ
-              {activeFilter !== 'ALL' ? ` (กรองเฉพาะ ${activeFilter})` : ' (ทั้งหมด)'}
-            </p>
-          </div>
-          {activeFilter !== 'ALL' && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setActiveFilter('ALL')}
-            >
-              แสดงทั้งหมด
-            </Button>
-          )}
-        </CardHeader>
-        <CardContent className="p-0 sm:p-4">
-          {allUnchanged && activeFilter === 'ALL' ? (
-            <div className="flex items-center gap-2.5 rounded-lg border border-status-verified-border bg-status-verified-bg/60 p-4 m-4 sm:m-0 text-sm text-status-verified-fg">
-              <CheckCircle2 className="size-5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
-              <span>ข้อมูลต้นทางตรงกับปลายทางทั้งหมด (UNCHANGED) — ไม่มีความจำเป็นต้องเขียนข้อมูลใหม่</span>
-            </div>
-          ) : filteredRows.length === 0 ? (
-            <p className="p-4 text-sm text-muted-foreground">
-              ไม่มีรายการที่ตรงกับตัวกรอง <code className="font-mono">{activeFilter}</code>
-            </p>
-          ) : (
-            <>
-              {/* Desktop / Tablet semantic table */}
-              <div className="hidden md:block">
-                <Table>
-                  <caption className="sr-only">
-                    ตารางตัวอย่างผลต่างของชุดข้อมูล {preview.endpoint}
-                  </caption>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead scope="col">สถานะ (Diff)</TableHead>
-                      <TableHead scope="col">_source_key</TableHead>
-                      <TableHead scope="col">ชื่อ / รหัสอ้างอิง</TableHead>
-                      <TableHead scope="col">รายการเปลี่ยนแปลง (Changed Fields)</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredRows.map((row) => (
-                      <TableRow key={`${row.diffKind}-${row.sourceKey}`}>
-                        <TableCell>
-                          <DiffBadge kind={row.diffKind} />
-                        </TableCell>
-                        <TableCell className="font-mono text-xs font-medium tabular-nums">
-                          {row.sourceKey}
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-medium text-foreground">{row.displayName}</div>
-                          <div className="font-mono text-xs text-muted-foreground">
-                            {row.displayCode}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <RowChangeDetails row={row} />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {/* Mobile 375px stacked cards (zero horizontal page overflow) */}
-              <div className="space-y-2.5 p-3 md:hidden">
-                {filteredRows.map((row) => (
-                  <div
-                    key={`card-${row.diffKind}-${row.sourceKey}`}
-                    className="rounded-lg border border-border bg-card p-3 space-y-2"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <DiffBadge kind={row.diffKind} />
-                      <code className="font-mono text-xs font-medium text-foreground">
-                        {row.sourceKey}
-                      </code>
-                    </div>
-                    <div className="text-sm font-medium text-foreground">{row.displayName}</div>
-                    <RowChangeDetails row={row} />
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+      {/* 4.6 Dual-Mode Privacy-Scoped Sample Preview Table */}
+      {preview.previewMode === 'REFERENCE_READABLE' ? (
+        <ModeAReferenceSampleCard
+          preview={preview}
+          activeFilter={activeFilter}
+          onClearFilter={() => setActiveFilter('ALL')}
+          allUnchanged={allUnchanged}
+        />
+      ) : (
+        <ModeBExtendedSampleCard
+          preview={preview}
+          activeFilter={activeFilter}
+          onClearFilter={() => setActiveFilter('ALL')}
+          allUnchanged={allUnchanged}
+        />
+      )}
     </section>
   );
 }

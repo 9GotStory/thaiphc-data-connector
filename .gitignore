@@ -151,3 +151,7 @@ vite.config.ts.timestamp-*
 # Google Apps Script clasp local credentials and project bindings
 .clasp.json
 .clasprc.json
+
+# Local specs/tickets and browser QA artifacts
+.scratch/
+.playwright-cli/

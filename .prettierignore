@@ -1,0 +1,13 @@
+node_modules/
+dist/
+frontend/dist/
+backend/dist/
+.scratch/
+.playwright-cli/
+/apps-script/
+/gate0-sandbox/
+/src/
+/tests/
+/docs/
+/design-system/
+package-lock.json

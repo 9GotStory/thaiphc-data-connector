@@ -5,9 +5,28 @@
   "type": "module",
   "description": "ThaiPHC offline-first manual connector",
   "engines": { "node": ">=26 <27" },
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
   "bin": { "thaiphc": "./src/cli/index.mjs" },
   "scripts": {
-    "test": "node --test",
-    "cli": "node src/cli/index.mjs"
+    "test": "node --test tests",
+    "test:app": "npm --workspace=frontend run build && npm --workspace=frontend run test && npm --workspace=backend run test",
+    "test:all": "npm run test && npm run test:app",
+    "cli": "node src/cli/index.mjs",
+    "dev": "npm --workspace=frontend run dev",
+    "build": "npm --workspace=frontend run build && npm --workspace=backend run build",
+    "typecheck": "npm --workspace=frontend run typecheck && npm --workspace=backend run typecheck",
+    "lint": "npm --workspace=frontend run lint && npm --workspace=backend run lint",
+    "format:check": "prettier --check frontend backend vitest.config.ts",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run test:all",
+    "gas:login": "npm --workspace=backend run gas:login",
+    "gas:status": "npm --workspace=backend run gas:status",
+    "gas:push": "npm run build && npm --workspace=backend run gas:push:only",
+    "gas:open": "npm --workspace=backend run gas:open"
+  },
+  "devDependencies": {
+    "prettier": "^3.10.1"
   }
 }

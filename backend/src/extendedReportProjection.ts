@@ -11,17 +11,24 @@ import {
 import {
   ASSIGNMENTS_RESTRICTED_SOURCE_FIELDS,
   ASSIGNMENTS_SCHEMA,
+  RESIGNED_VOLUNTEERS_RESTRICTED_SOURCE_FIELDS,
+  RESIGNED_VOLUNTEERS_SCHEMA,
   VOLUNTEER_GENDER_SCHEMA,
+  VOLUNTEER_TENURE_RESTRICTED_SOURCE_FIELDS,
+  VOLUNTEER_TENURE_SCHEMA,
+  type KeyedDatasetSchemaSpec,
 } from './datasetCatalog.ts';
 import type {
   ExtendedAggregateGroup,
   ExtendedMinimizedAttribute,
+  LargeKeyedDatasetEndpoint,
   PreviewDiagnostic,
   ReviewReasonCode,
 } from './types.ts';
 
 export const SMALL_CELL_THRESHOLD = 5;
 const POSITIVE_VILLAGE_NO_PATTERN = /^0*[1-9]\d{0,2}$/;
+const NON_NEGATIVE_VILLAGE_NO_PATTERN = /^\d{1,3}$/;
 
 export interface ProjectedVolunteerGenderRow {
   key: string;
@@ -54,16 +61,24 @@ export interface SuppressedGenderCounts {
   suppressed: boolean;
 }
 
-function formatExtendedScopeLabel(fields: {
+export function formatExtendedScopeLabel(fields: {
   subdistrictCode: string;
   subdistrictName: string;
   villageNo: string;
   villageName: string | null;
+  villageCode?: string;
 }): string {
-  const villageSuffix = [fields.villageNo ? `หมู่ ${fields.villageNo}` : '', fields.villageName ?? '']
+  const villageBase = [fields.villageNo ? `หมู่ ${fields.villageNo}` : '', fields.villageName ?? '']
     .filter(Boolean)
     .join(' ');
-  return ['54 / 5406', `${fields.subdistrictCode} ${fields.subdistrictName}`.trim(), villageSuffix]
+  const villageWithCode = fields.villageCode
+    ? [villageBase, `(${fields.villageCode})`].filter(Boolean).join(' ')
+    : villageBase;
+  return [
+    '54 / 5406',
+    `${fields.subdistrictCode} ${fields.subdistrictName}`.trim(),
+    villageWithCode,
+  ]
     .filter(Boolean)
     .join(' · ');
 }
@@ -105,34 +120,49 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
-function isWithinVolunteerGenderScope(row: Record<string, unknown>): boolean {
+export function hasLowerLevelLocalityMismatch(
+  row: {
+    subdistrictCode?: unknown;
+    villageCode?: unknown;
+    villageNo?: unknown;
+  },
+  options: { requirePositiveVillageOrdinal?: boolean } = {},
+): boolean {
+  if (typeof row.subdistrictCode !== 'string' || !SUBDISTRICT_PATTERN.test(row.subdistrictCode)) {
+    return true;
+  }
   if (
-    row.provinceCode !== '54' ||
-    row.districtCode !== '5406' ||
-    typeof row.subdistrictCode !== 'string' ||
-    !SUBDISTRICT_PATTERN.test(row.subdistrictCode) ||
     typeof row.villageCode !== 'string' ||
     !VILLAGE_CODE_PATTERN.test(row.villageCode) ||
     row.villageCode.slice(0, 6) !== row.subdistrictCode
   ) {
-    return false;
+    return true;
   }
-
   const villageOrdinal = Number(row.villageCode.slice(6));
-  if (!Number.isSafeInteger(villageOrdinal) || villageOrdinal < 1) {
-    return false;
+  const minOrdinal = options.requirePositiveVillageOrdinal ? 1 : 0;
+  if (!Number.isSafeInteger(villageOrdinal) || villageOrdinal < minOrdinal) {
+    return true;
   }
-
   if (typeof row.villageNo === 'string') {
-    if (!POSITIVE_VILLAGE_NO_PATTERN.test(row.villageNo)) {
-      return false;
+    const pattern = options.requirePositiveVillageOrdinal
+      ? POSITIVE_VILLAGE_NO_PATTERN
+      : NON_NEGATIVE_VILLAGE_NO_PATTERN;
+    if (!pattern.test(row.villageNo)) {
+      return true;
     }
     if (Number(row.villageNo) !== villageOrdinal) {
-      return false;
+      return true;
     }
   }
+  return false;
+}
 
-  return true;
+function isWithinVolunteerGenderScope(row: Record<string, unknown>): boolean {
+  return (
+    row.provinceCode === '54' &&
+    row.districtCode === '5406' &&
+    !hasLowerLevelLocalityMismatch(row, { requirePositiveVillageOrdinal: true })
+  );
 }
 
 export function validateAndProjectVolunteerGenderRows(
@@ -352,7 +382,7 @@ export function validateAndProjectVolunteerGenderRows(
   };
 }
 
-export interface ProjectedAssignmentsRow {
+export interface ProjectedPersonKeyedRow {
   key: string; // F010 h1_<64-hex> Pseudonymous Key
   values: Array<string | number | boolean | null>;
   presence: Record<string, FieldPresence>;
@@ -364,10 +394,10 @@ export interface ProjectedAssignmentsRow {
   reviewReasons: ReviewReasonCode[];
 }
 
-export type AssignmentsValidationResult =
+export type PersonKeyedValidationResult =
   | {
       ok: true;
-      rows: ProjectedAssignmentsRow[];
+      rows: ProjectedPersonKeyedRow[];
       aggregateSummary: ExtendedAggregateGroup[];
     }
   | {
@@ -375,54 +405,76 @@ export type AssignmentsValidationResult =
       diagnostics: PreviewDiagnostic[];
     };
 
-const ASSIGNMENTS_ALLOWED_SOURCE_FIELDS = new Set<string>([
-  ...ASSIGNMENTS_RESTRICTED_SOURCE_FIELDS,
-  ...ASSIGNMENTS_SCHEMA.fields.map((f) => f.name),
-]);
-
-const ASSIGNMENTS_NON_KEY_RESTRICTED_FIELDS = ASSIGNMENTS_RESTRICTED_SOURCE_FIELDS.filter(
-  (name) => name !== ASSIGNMENTS_SCHEMA.keyField,
-);
-
-export function formatAssignmentsScopeLabel(fields: {
-  subdistrictCode: string;
-  subdistrictNameTh: string;
-  villageNo: string;
-  villageName: string | null;
-}): string {
-  return formatExtendedScopeLabel({
-    subdistrictCode: fields.subdistrictCode,
-    subdistrictName: fields.subdistrictNameTh,
-    villageNo: fields.villageNo,
-    villageName: fields.villageName,
-  });
+interface PersonKeyedProjectionConfig {
+  readonly schema: KeyedDatasetSchemaSpec<LargeKeyedDatasetEndpoint>;
+  readonly allowedSourceFields: ReadonlySet<string>;
+  readonly nonKeyRestrictedFields: readonly string[];
+  readonly subdistrictNameField: 'subdistrictNameTh' | 'subdistrictName';
+  readonly hasVillageCode: boolean;
 }
 
-function isWithinAssignmentsScope(row: Record<string, unknown>): boolean {
-  return (
-    row.provinceCode === '54' &&
-    row.districtCode === '5406' &&
-    typeof row.subdistrictCode === 'string' &&
-    SUBDISTRICT_PATTERN.test(row.subdistrictCode)
-  );
+function buildPersonKeyedConfig(
+  schema: KeyedDatasetSchemaSpec<LargeKeyedDatasetEndpoint>,
+  restrictedFields: readonly string[],
+  opts: {
+    subdistrictNameField: 'subdistrictNameTh' | 'subdistrictName';
+    hasVillageCode: boolean;
+  },
+): PersonKeyedProjectionConfig {
+  return {
+    schema,
+    allowedSourceFields: new Set<string>([
+      ...restrictedFields,
+      ...schema.fields.map((f) => f.name),
+    ]),
+    nonKeyRestrictedFields: restrictedFields.filter((name) => name !== schema.keyField),
+    ...opts,
+  };
 }
+
+const PERSON_KEYED_CONFIGS: Readonly<
+  Record<LargeKeyedDatasetEndpoint, PersonKeyedProjectionConfig>
+> = {
+  assignments: buildPersonKeyedConfig(ASSIGNMENTS_SCHEMA, ASSIGNMENTS_RESTRICTED_SOURCE_FIELDS, {
+    subdistrictNameField: 'subdistrictNameTh',
+    hasVillageCode: false,
+  }),
+  'resigned-volunteers': buildPersonKeyedConfig(
+    RESIGNED_VOLUNTEERS_SCHEMA,
+    RESIGNED_VOLUNTEERS_RESTRICTED_SOURCE_FIELDS,
+    {
+      subdistrictNameField: 'subdistrictName',
+      hasVillageCode: true,
+    },
+  ),
+  'volunteer-tenure': buildPersonKeyedConfig(
+    VOLUNTEER_TENURE_SCHEMA,
+    VOLUNTEER_TENURE_RESTRICTED_SOURCE_FIELDS,
+    {
+      subdistrictNameField: 'subdistrictName',
+      hasVillageCode: true,
+    },
+  ),
+};
 
 /**
- * Server-side Minimized Projection for `assignments`:
- * - Strips all 8 RESTRICTED_DEFAULT_OMIT fields (id, osmCode, citizenId, prefixNameTh,
- *   prefixNameEn, firstName, lastName, fullName) before returning or storing anything.
- * - Validates nullable `villageName` (`string | null`) and boolean `isActive`.
- * - Enforces strict Geographic Scope (54 / 5406) on provinceCode, districtCode,
- *   subdistrictCode (540601..540608), and positive villageNo.
+ * Server-side Minimized Projection for person-level Keyed Upsert datasets:
+ * - Strips all RESTRICTED_DEFAULT_OMIT fields before returning or storing anything.
+ * - Enforces Geographic Scope (54 / 5406) on provinceCode and districtCode as a hard gate.
+ * - Applies dataset-specific Preserve Source Locality strictly where configured
+ *   (`resigned-volunteers`: lower-level subdistrict/village mismatches retain original values
+ *   unaltered and surface as `REVIEW` [`LOCALITY_MISMATCH`]; other datasets hard-block).
  * - Derives deterministic F010 `h1_<64-hex>` Pseudonymous Keys via `derivePseudonym(rawId)`.
  */
-export function validateAndProjectAssignmentsRows(
+export function validateAndProjectLargeKeyedRows(
+  endpoint: LargeKeyedDatasetEndpoint,
   rawItems: readonly unknown[],
   sha256Hex: (input: string) => string,
   derivePseudonym: (rawId: string) => string,
   rowIndexOffset = 0,
-): AssignmentsValidationResult {
-  const schema = ASSIGNMENTS_SCHEMA;
+): PersonKeyedValidationResult {
+  const config = PERSON_KEYED_CONFIGS[endpoint];
+  const { schema } = config;
   const diagnostics: PreviewDiagnostic[] = [];
 
   if (rawItems.length === 0) {
@@ -431,7 +483,7 @@ export function validateAndProjectAssignmentsRows(
       diagnostics: [
         {
           code: 'INCOMPLETE_SNAPSHOT',
-          message: 'ThaiPHC assignments batch returned zero rows.',
+          message: `ThaiPHC ${endpoint} batch returned zero rows.`,
         },
       ],
     };
@@ -443,14 +495,14 @@ export function validateAndProjectAssignmentsRows(
       diagnostics: [
         {
           code: 'ROW_LIMIT_EXCEEDED',
-          message: `Source row count (${rawItems.length}) exceeds maximum safe limit (${schema.maxRows}) for assignments.`,
+          message: `Source row count (${rawItems.length}) exceeds maximum safe limit (${schema.maxRows}) for ${endpoint}.`,
         },
       ],
     };
   }
 
   const seenRawIds = new Set<string>();
-  const projectedRows: ProjectedAssignmentsRow[] = [];
+  const projectedRows: ProjectedPersonKeyedRow[] = [];
   const subdistrictAgg = new Map<
     string,
     { groupCode: string; groupLabel: string; rowCount: number; reviewCount: number }
@@ -462,7 +514,7 @@ export function validateAndProjectAssignmentsRows(
       rawItems[i],
       globalRowIndex,
       schema.keyField,
-      ASSIGNMENTS_ALLOWED_SOURCE_FIELDS,
+      config.allowedSourceFields,
       seenRawIds,
     );
     if (!preamble.ok) {
@@ -473,8 +525,8 @@ export function validateAndProjectAssignmentsRows(
 
     let rowFailed = false;
 
-    // Validate remaining 7 RESTRICTED_DEFAULT_OMIT fields without retaining or echoing values
-    for (const restrictedName of ASSIGNMENTS_NON_KEY_RESTRICTED_FIELDS) {
+    // Validate remaining RESTRICTED_DEFAULT_OMIT fields without retaining or echoing values
+    for (const restrictedName of config.nonKeyRestrictedFields) {
       if (!hasOwn(raw, restrictedName)) continue;
       try {
         assertSafeString(raw[restrictedName], restrictedName);
@@ -495,10 +547,10 @@ export function validateAndProjectAssignmentsRows(
     }
     if (rowFailed) continue;
 
-    // Validate and extract strictly the 17 ALLOW_ONLY_IF_DATASET_APPROVED columns
+    // Validate and extract strictly ALLOW_ONLY_IF_DATASET_APPROVED columns
     const values: Array<string | number | boolean | null> = [];
     const presence: Record<string, FieldPresence> = {};
-    const approvedByName = new Map<string, string | boolean | null>();
+    const approvedByName = new Map<string, string | number | boolean | null>();
 
     for (const field of schema.fields) {
       if (field.kind === 'boolean') {
@@ -527,6 +579,29 @@ export function validateAndProjectAssignmentsRows(
       }
 
       const rawVal = raw[field.name];
+      if (field.kind === 'integer' || field.kind === 'integer_or_null') {
+        if (field.kind === 'integer_or_null' && rawVal === null) {
+          values.push(null);
+          presence[field.name] = 'NULL';
+          approvedByName.set(field.name, null);
+          continue;
+        }
+        if (!isNonNegativeSafeInteger(rawVal)) {
+          diagnostics.push({
+            code: 'TYPE_MISMATCH',
+            message: `Row #${globalRowIndex + 1} field "${field.name}" must be a non-negative integer${field.kind === 'integer_or_null' ? ' or null' : ''}.`,
+            field: field.name,
+            rowIndex: globalRowIndex,
+          });
+          rowFailed = true;
+          break;
+        }
+        values.push(rawVal);
+        presence[field.name] = 'VALUE';
+        approvedByName.set(field.name, rawVal);
+        continue;
+      }
+
       if (field.kind === 'string_or_null' && rawVal === null) {
         values.push(null);
         presence[field.name] = 'NULL';
@@ -556,10 +631,38 @@ export function validateAndProjectAssignmentsRows(
     }
     if (rowFailed) continue;
 
-    if (!isWithinAssignmentsScope(raw)) {
+    // Hard Geographic Scope gate on province 54 and district 5406 for all datasets
+    if (raw.provinceCode !== '54' || raw.districtCode !== '5406') {
       diagnostics.push({
         code: 'OUT_OF_GEOGRAPHIC_SCOPE',
-        message: `Row #${globalRowIndex + 1} falls outside Geographic Scope (54 / 5406) for assignments.`,
+        message: `Row #${globalRowIndex + 1} falls outside Geographic Scope (54 / 5406) for ${endpoint}.`,
+        rowIndex: globalRowIndex,
+      });
+      continue;
+    }
+
+    const reviewReasons: ReviewReasonCode[] = [];
+    if (config.hasVillageCode) {
+      if (hasLowerLevelLocalityMismatch(raw)) {
+        if (schema.preserveSourceLocality === true) {
+          // Preserve Source Locality: keep original ThaiPHC locality fields unaltered and flag REVIEW
+          reviewReasons.push('LOCALITY_MISMATCH');
+        } else {
+          diagnostics.push({
+            code: 'OUT_OF_GEOGRAPHIC_SCOPE',
+            message: `Row #${globalRowIndex + 1} falls outside Geographic Scope (54 / 5406) for ${endpoint}.`,
+            rowIndex: globalRowIndex,
+          });
+          continue;
+        }
+      }
+    } else if (
+      typeof raw.subdistrictCode !== 'string' ||
+      !SUBDISTRICT_PATTERN.test(raw.subdistrictCode)
+    ) {
+      diagnostics.push({
+        code: 'OUT_OF_GEOGRAPHIC_SCOPE',
+        message: `Row #${globalRowIndex + 1} falls outside Geographic Scope (54 / 5406) for ${endpoint}.`,
         rowIndex: globalRowIndex,
       });
       continue;
@@ -572,54 +675,49 @@ export function validateAndProjectAssignmentsRows(
     const rowDigest = sha256Hex(JSON.stringify([values, presence]));
 
     const subdistrictCode = String(approvedByName.get('subdistrictCode') ?? '');
-    const subdistrictNameTh = String(approvedByName.get('subdistrictNameTh') ?? subdistrictCode);
+    const rawSubName = approvedByName.get(config.subdistrictNameField);
+    const subdistrictName =
+      typeof rawSubName === 'string' && rawSubName.length > 0 ? rawSubName : subdistrictCode;
     const villageNo = String(approvedByName.get('villageNo') ?? '');
     const rawVillageName = approvedByName.get('villageName');
     const villageName = typeof rawVillageName === 'string' ? rawVillageName : null;
+    const rawVillageCode = config.hasVillageCode ? approvedByName.get('villageCode') : undefined;
+    const villageCode =
+      typeof rawVillageCode === 'string' && rawVillageCode.length > 0 ? rawVillageCode : undefined;
 
-    const scopeLabel = formatAssignmentsScopeLabel({
+    const scopeLabel = formatExtendedScopeLabel({
       subdistrictCode,
-      subdistrictNameTh,
+      subdistrictName,
       villageNo,
       villageName,
+      villageCode,
     });
 
-    const isActiveVal = approvedByName.get('isActive');
-    const minimizedAttributes: ExtendedMinimizedAttribute[] = [
-      { field: 'isActive', value: typeof isActiveVal === 'boolean' ? String(isActiveVal) : null },
-      {
-        field: 'status',
-        value:
-          typeof approvedByName.get('status') === 'string'
-            ? (approvedByName.get('status') as string)
-            : null,
+    const minimizedAttributes: ExtendedMinimizedAttribute[] = schema.summaryFieldNames.map(
+      (fieldName) => {
+        const val = approvedByName.get(fieldName);
+        return {
+          field: fieldName,
+          value: val === null || val === undefined ? null : String(val),
+        };
       },
-      {
-        field: 'approvalStatus',
-        value:
-          typeof approvedByName.get('approvalStatus') === 'string'
-            ? (approvedByName.get('approvalStatus') as string)
-            : null,
-      },
-      {
-        field: 'volunteerStatus',
-        value:
-          typeof approvedByName.get('volunteerStatus') === 'string'
-            ? (approvedByName.get('volunteerStatus') as string)
-            : null,
-      },
-      { field: 'villageName', value: villageName },
-    ];
+    );
 
-    const groupEntry = subdistrictAgg.get(subdistrictCode);
+    const groupCode = subdistrictCode.length > 0 ? subdistrictCode : 'UNSPECIFIED';
+    const groupLabel = subdistrictName.length > 0 ? subdistrictName : groupCode;
+    const hasReview = reviewReasons.length > 0;
+    const groupEntry = subdistrictAgg.get(groupCode);
     if (groupEntry) {
       groupEntry.rowCount += 1;
+      if (hasReview) {
+        groupEntry.reviewCount += 1;
+      }
     } else {
-      subdistrictAgg.set(subdistrictCode, {
-        groupCode: subdistrictCode,
-        groupLabel: subdistrictNameTh,
+      subdistrictAgg.set(groupCode, {
+        groupCode,
+        groupLabel,
         rowCount: 1,
-        reviewCount: 0,
+        reviewCount: hasReview ? 1 : 0,
       });
     }
 
@@ -630,9 +728,9 @@ export function validateAndProjectAssignmentsRows(
       rowDigest,
       scopeLabel,
       subdistrictCode,
-      subdistrictName: subdistrictNameTh,
+      subdistrictName,
       minimizedAttributes,
-      reviewReasons: [],
+      reviewReasons,
     });
   }
 

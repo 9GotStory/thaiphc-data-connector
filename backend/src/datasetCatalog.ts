@@ -18,7 +18,15 @@ export interface DatasetDescriptor {
 }
 
 export type DatasetFieldKind =
-  'string' | 'string_or_null' | 'integer' | 'number' | 'boolean' | 'null_only' | 'object' | 'array';
+  | 'string'
+  | 'string_or_null'
+  | 'integer'
+  | 'integer_or_null'
+  | 'number'
+  | 'boolean'
+  | 'null_only'
+  | 'object'
+  | 'array';
 
 export type ReferenceFieldKind = DatasetFieldKind;
 
@@ -34,6 +42,7 @@ export interface KeyedDatasetSchemaSpec<TEndpoint extends DatasetEndpoint = Data
   readonly displayNameField: string;
   readonly summaryFieldNames: readonly string[];
   readonly maxRows: number;
+  readonly preserveSourceLocality?: boolean;
   readonly fields: readonly DatasetFieldSpec[];
 }
 
@@ -308,10 +317,112 @@ export const ASSIGNMENTS_SCHEMA: KeyedDatasetSchemaSpec<'assignments'> = {
   ],
 };
 
+/**
+ * Exact 4 RESTRICTED_DEFAULT_OMIT direct personal identifier fields on `resigned-volunteers`
+ * (docs/sheets-schema.json). Always stripped server-side before preview or storage.
+ */
+export const RESIGNED_VOLUNTEERS_RESTRICTED_SOURCE_FIELDS = [
+  'id',
+  'citizenId',
+  'firstName',
+  'lastName',
+] as const;
+
+/**
+ * Exact 14 ALLOW_ONLY_IF_DATASET_APPROVED columns on `ResignedVolunteers`
+ * (docs/sheets-schema.json and apps-script/ReportReceiver.gs), paired with the uniform
+ * 8 trailing Keyed Upsert metadata columns (22 columns total).
+ */
+export const RESIGNED_VOLUNTEERS_SCHEMA: KeyedDatasetSchemaSpec<'resigned-volunteers'> = {
+  endpoint: 'resigned-volunteers',
+  tab: 'ResignedVolunteers',
+  keyField: 'id',
+  displayNameField: 'subdistrictName',
+  summaryFieldNames: [
+    'retirementDate',
+    'retirementReason',
+    'osmStatus',
+    'volunteerStatus',
+    'approvalStatus',
+  ],
+  maxRows: 2500,
+  preserveSourceLocality: true,
+  fields: [
+    { name: 'retirementDate', kind: 'string' },
+    { name: 'retirementReason', kind: 'string_or_null' },
+    { name: 'osmStatus', kind: 'string' },
+    { name: 'volunteerStatus', kind: 'string' },
+    { name: 'approvalStatus', kind: 'string' },
+    { name: 'provinceCode', kind: 'string' },
+    { name: 'provinceName', kind: 'string' },
+    { name: 'districtCode', kind: 'string' },
+    { name: 'districtName', kind: 'string' },
+    { name: 'subdistrictCode', kind: 'string' },
+    { name: 'subdistrictName', kind: 'string' },
+    { name: 'villageCode', kind: 'string' },
+    { name: 'villageNo', kind: 'string' },
+    { name: 'villageName', kind: 'string' },
+  ],
+};
+
+/**
+ * Exact 5 RESTRICTED_DEFAULT_OMIT direct personal identifier fields on `volunteer-tenure`
+ * (docs/sheets-schema.json). Always stripped server-side before preview or storage.
+ */
+export const VOLUNTEER_TENURE_RESTRICTED_SOURCE_FIELDS = [
+  'id',
+  'citizenId',
+  'osmCode',
+  'firstName',
+  'lastName',
+] as const;
+
+/**
+ * Exact 16 ALLOW_ONLY_IF_DATASET_APPROVED columns on `VolunteerTenure`
+ * (docs/sheets-schema.json and apps-script/ReportReceiver.gs), paired with the uniform
+ * 8 trailing Keyed Upsert metadata columns (24 columns total).
+ */
+export const VOLUNTEER_TENURE_SCHEMA: KeyedDatasetSchemaSpec<'volunteer-tenure'> = {
+  endpoint: 'volunteer-tenure',
+  tab: 'VolunteerTenure',
+  keyField: 'id',
+  displayNameField: 'subdistrictName',
+  summaryFieldNames: [
+    'startYear',
+    'tenureYears',
+    'osmYear',
+    'approvalDate',
+    'retirementDate',
+    'retirementReason',
+    'osmStatus',
+  ],
+  maxRows: 2500,
+  fields: [
+    { name: 'startYear', kind: 'integer_or_null' },
+    { name: 'tenureYears', kind: 'integer_or_null' },
+    { name: 'osmYear', kind: 'integer_or_null' },
+    { name: 'approvalDate', kind: 'string_or_null' },
+    { name: 'retirementDate', kind: 'string_or_null' },
+    { name: 'retirementReason', kind: 'string_or_null' },
+    { name: 'osmStatus', kind: 'string_or_null' },
+    { name: 'provinceCode', kind: 'string' },
+    { name: 'provinceName', kind: 'string' },
+    { name: 'districtCode', kind: 'string' },
+    { name: 'districtName', kind: 'string' },
+    { name: 'subdistrictCode', kind: 'string' },
+    { name: 'subdistrictName', kind: 'string' },
+    { name: 'villageCode', kind: 'string' },
+    { name: 'villageNo', kind: 'string' },
+    { name: 'villageName', kind: 'string' },
+  ],
+};
+
 export const LARGE_KEYED_SCHEMAS: Readonly<
   Record<LargeKeyedDatasetEndpoint, KeyedDatasetSchemaSpec<LargeKeyedDatasetEndpoint>>
 > = {
   assignments: ASSIGNMENTS_SCHEMA,
+  'resigned-volunteers': RESIGNED_VOLUNTEERS_SCHEMA,
+  'volunteer-tenure': VOLUNTEER_TENURE_SCHEMA,
 };
 
 export function isReferenceEndpoint(endpoint: string): endpoint is ReferenceDatasetEndpoint {
@@ -323,7 +434,11 @@ export function isSmallKeyedEndpoint(endpoint: string): endpoint is SmallKeyedDa
 }
 
 export function isLargeKeyedEndpoint(endpoint: string): endpoint is LargeKeyedDatasetEndpoint {
-  return endpoint === 'assignments';
+  return (
+    endpoint === 'assignments' ||
+    endpoint === 'resigned-volunteers' ||
+    endpoint === 'volunteer-tenure'
+  );
 }
 
 export function getDatasetDescriptor(endpoint: DatasetEndpoint): DatasetDescriptor {

@@ -39,6 +39,8 @@ type DiffFilter = 'ALL' | DiffKind;
 
 const REVIEW_EXPLANATIONS: Record<ReviewReasonCode, string> = {
   MISSING_IN_SOURCE: 'พบในชีตเดิมแต่ไม่พบในต้นทาง — ระบบจะคงแถวเดิมไว้ ไม่ลบอัตโนมัติ',
+  LOCALITY_MISMATCH:
+    'รหัสตำบล/หมู่บ้านไม่ตรงฐานอ้างอิงภายใน อ.สอง 5406 — คงค่าต้นทางตามกฎ Preserve Source Locality',
   PLACEHOLDER_COORDS: 'พบพิกัด (0, 0) ซึ่งเป็นค่าตัวแทน (คงค่าไว้ในชีต ห้ามนำไปปักหมุดแผนที่)',
   SMALL_CELL_SUPPRESSED:
     'ปิดบังค่าจำนวน 1–4 เป็น null ตามกฎ Complementary Small-Cell Suppression (ปิดบังทั้ง male และ female และปิดบัง total เมื่อน้อยกว่า 5)',

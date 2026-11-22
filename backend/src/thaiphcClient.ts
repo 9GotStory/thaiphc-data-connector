@@ -1,8 +1,13 @@
 import { hasAsciiControlChar } from './cellValidation.ts';
-import { ASSIGNMENTS_SCHEMA, VOLUNTEER_GENDER_SCHEMA } from './datasetCatalog.ts';
+import {
+  ASSIGNMENTS_SCHEMA,
+  LARGE_KEYED_SCHEMAS,
+  VOLUNTEER_GENDER_SCHEMA,
+} from './datasetCatalog.ts';
 import type {
   HttpFetchOptions,
   HttpFetchResponse,
+  LargeKeyedDatasetEndpoint,
   PreviewStopCode,
   ReferenceDatasetEndpoint,
   SmallKeyedDatasetEndpoint,
@@ -130,17 +135,23 @@ export function buildReferenceRequestUrl(
   ]);
 }
 
+export type ReportPaginatedEndpoint =
+  'volunteer-gender' | 'resigned-volunteers' | 'volunteer-tenure';
+
 export function buildReportRequestUrl(
-  endpoint: 'volunteer-gender',
+  endpoint: ReportPaginatedEndpoint,
   page = 1,
   pageSize = DEFAULT_PAGE_SIZE,
 ): string {
-  return buildAllowlistedUrl(`/api/v1/reports/${endpoint}`, [
+  const pairs: Array<readonly [string, string]> = [
     ['page', String(page)],
     ['pageSize', String(pageSize)],
-    ['province', GEO_SCOPE_PROVINCE],
-    ['district', GEO_SCOPE_DISTRICT],
-  ]);
+  ];
+  if (endpoint === 'resigned-volunteers' || endpoint === 'volunteer-tenure') {
+    pairs.push(['provinceCode', GEO_SCOPE_PROVINCE], ['districtCode', GEO_SCOPE_DISTRICT]);
+  }
+  pairs.push(['province', GEO_SCOPE_PROVINCE], ['district', GEO_SCOPE_DISTRICT]);
+  return buildAllowlistedUrl(`/api/v1/reports/${endpoint}`, pairs);
 }
 
 export function buildAssignmentRequestUrl(page = 1, pageSize = DEFAULT_PAGE_SIZE): string {
@@ -157,7 +168,17 @@ export function buildAssignmentRequestUrl(page = 1, pageSize = DEFAULT_PAGE_SIZE
   ]);
 }
 
-export type AssignmentBatchFetchResult =
+export interface BatchFetchParams {
+  token: string;
+  fetchUrl: FetchUrlFn;
+  startPage: number;
+  batchPages?: number;
+  pageSize?: number;
+  expectedSourceTotal?: number | null;
+  maxRows?: number;
+}
+
+export type LargeBatchFetchResult =
   | {
       ok: true;
       items: unknown[];
@@ -186,15 +207,120 @@ export type AssignmentBatchFetchResult =
       observedSourceTotal?: number;
     };
 
-export function fetchAssignmentBatch(params: {
-  token: string;
-  fetchUrl: FetchUrlFn;
-  startPage: number;
-  batchPages?: number;
-  pageSize?: number;
-  expectedSourceTotal?: number | null;
-  maxRows?: number;
-}): AssignmentBatchFetchResult {
+type PageEnvelopeValidationResult =
+  | { ok: true; items: unknown[]; total: number; totalPages: number }
+  | { ok: false; code: PreviewStopCode; message: string; observedSourceTotal?: number };
+
+function validateAssignmentPageEnvelope(
+  data: unknown,
+  page: number,
+  pageSize: number,
+  maxRows: number,
+  expectedTotal: number | null,
+): PageEnvelopeValidationResult {
+  const offset = (page - 1) * pageSize;
+  if (
+    !hasExactKeys(data, ['provinces', 'items', 'pagination']) ||
+    !Array.isArray(data.provinces) ||
+    !Array.isArray(data.items) ||
+    !hasExactKeys(data.pagination, ['page', 'limit', 'total', 'pages'])
+  ) {
+    return {
+      ok: false,
+      code: 'INVALID_ENVELOPE',
+      message:
+        'ThaiPHC assignments pagination envelope did not match { provinces[], items[], pagination{ page, limit, total, pages } }.',
+    };
+  }
+
+  const p = data.pagination;
+  const pPage = p.page;
+  const pLimit = p.limit;
+  const pTotal = p.total;
+  const pPages = p.pages;
+  if (
+    !Number.isSafeInteger(pPage) ||
+    pPage !== page ||
+    !Number.isSafeInteger(pLimit) ||
+    pLimit !== pageSize ||
+    !Number.isSafeInteger(pTotal) ||
+    (pTotal as number) < 0 ||
+    !Number.isSafeInteger(pPages) ||
+    (pPages as number) < 0
+  ) {
+    return {
+      ok: false,
+      code: 'INVALID_ENVELOPE',
+      message: 'ThaiPHC assignments pagination fields did not match requested page and pageSize.',
+    };
+  }
+
+  const total = pTotal as number;
+  const pages = pPages as number;
+  const validPages =
+    total === 0 ? pages === 0 || pages === 1 : pages === Math.ceil(total / pageSize);
+  if (!validPages) {
+    return {
+      ok: false,
+      code: 'INVALID_ENVELOPE',
+      message: 'ThaiPHC assignments pagination.pages does not match ceil(total / limit).',
+    };
+  }
+
+  if (total > maxRows) {
+    return {
+      ok: false,
+      code: 'ROW_LIMIT_EXCEEDED',
+      message: `ThaiPHC assignments total (${total}) exceeds maximum safe row limit (${maxRows}).`,
+    };
+  }
+
+  if (expectedTotal !== null && total !== expectedTotal) {
+    return {
+      ok: false,
+      code: 'SOURCE_TOTAL_CHANGED',
+      message: 'ThaiPHC assignments source total changed mid-fetch between pages or batches.',
+      observedSourceTotal: total,
+    };
+  }
+
+  if (total === 0 || page > pages) {
+    return {
+      ok: false,
+      code: 'INCOMPLETE_SNAPSHOT',
+      message:
+        'ThaiPHC assignments snapshot returned zero rows or requested page beyond total pages.',
+    };
+  }
+
+  const expectedCount = Math.min(pageSize, Math.max(0, total - offset));
+  if (data.items.length !== expectedCount) {
+    return {
+      ok: false,
+      code: 'INCOMPLETE_SNAPSHOT',
+      message: 'ThaiPHC assignments page item count did not match reported total and pageSize.',
+    };
+  }
+
+  return { ok: true, items: data.items, total, totalPages: pages };
+}
+
+function fetchPaginatedBatch(
+  params: BatchFetchParams,
+  strategy: {
+    endpointLabel: string;
+    maxPages: number;
+    defaultMaxRows: number;
+    buildUrl: (page: number, pageSize: number) => string;
+    validateEnvelope: (
+      data: unknown,
+      page: number,
+      pageSize: number,
+      maxRows: number,
+      expectedTotal: number | null,
+    ) => PageEnvelopeValidationResult;
+  },
+): LargeBatchFetchResult {
   const pageSize =
     params.pageSize !== undefined &&
     Number.isSafeInteger(params.pageSize) &&
@@ -209,18 +335,18 @@ export function fetchAssignmentBatch(params: {
     params.batchPages <= MAX_BATCH_PAGES
       ? params.batchPages
       : DEFAULT_BATCH_PAGES;
-  const maxRows = params.maxRows ?? ASSIGNMENTS_SCHEMA.maxRows;
+  const maxRows = params.maxRows ?? strategy.defaultMaxRows;
 
   if (
     !Number.isSafeInteger(params.startPage) ||
     params.startPage < 1 ||
-    params.startPage > MAX_ASSIGNMENT_PAGES
+    params.startPage > strategy.maxPages
   ) {
     return {
       ok: false,
       authFailed: false,
       code: 'INCOMPLETE_SNAPSHOT',
-      message: 'Requested assignments startPage is out of valid range.',
+      message: `Requested ${strategy.endpointLabel} startPage is out of valid range.`,
       pagesFetchedInBatch: 0,
     };
   }
@@ -233,11 +359,11 @@ export function fetchAssignmentBatch(params: {
   let totalPages = 0;
   let pagesFetchedInBatch = 0;
   let lastPageFetched = params.startPage - 1;
-  const maxEndPage = Math.min(params.startPage + batchPages - 1, MAX_ASSIGNMENT_PAGES);
+  const maxEndPage = Math.min(params.startPage + batchPages - 1, strategy.maxPages);
 
   for (let page = params.startPage; page <= maxEndPage; page++) {
     const offset = (page - 1) * pageSize;
-    const url = buildAssignmentRequestUrl(page, pageSize);
+    const url = strategy.buildUrl(page, pageSize);
     const res = executeAllowlistedGet(url, params.token, params.fetchUrl);
     pagesFetchedInBatch += 1;
 
@@ -248,114 +374,22 @@ export function fetchAssignmentBatch(params: {
       return { ...res, pagesFetchedInBatch, pageOffset: offset };
     }
 
-    const data = res.data;
-    if (
-      !hasExactKeys(data, ['provinces', 'items', 'pagination']) ||
-      !Array.isArray(data.provinces) ||
-      !Array.isArray(data.items) ||
-      !hasExactKeys(data.pagination, ['page', 'limit', 'total', 'pages'])
-    ) {
+    const validated = strategy.validateEnvelope(res.data, page, pageSize, maxRows, expectedTotal);
+    if (!validated.ok) {
       return {
         ok: false,
         authFailed: false,
-        code: 'INVALID_ENVELOPE',
-        message:
-          'ThaiPHC assignments pagination envelope did not match { provinces[], items[], pagination{ page, limit, total, pages } }.',
+        code: validated.code,
+        message: validated.message,
         pagesFetchedInBatch,
         pageOffset: offset,
+        observedSourceTotal: validated.observedSourceTotal,
       };
     }
 
-    const p = data.pagination;
-    const pPage = p.page;
-    const pLimit = p.limit;
-    const pTotal = p.total;
-    const pPages = p.pages;
-    if (
-      !Number.isSafeInteger(pPage) ||
-      pPage !== page ||
-      !Number.isSafeInteger(pLimit) ||
-      pLimit !== pageSize ||
-      !Number.isSafeInteger(pTotal) ||
-      (pTotal as number) < 0 ||
-      !Number.isSafeInteger(pPages) ||
-      (pPages as number) < 0
-    ) {
-      return {
-        ok: false,
-        authFailed: false,
-        code: 'INVALID_ENVELOPE',
-        message: 'ThaiPHC assignments pagination fields did not match requested page and pageSize.',
-        pagesFetchedInBatch,
-        pageOffset: offset,
-      };
-    }
-
-    const total = pTotal as number;
-    const pages = pPages as number;
-    const validPages =
-      total === 0 ? pages === 0 || pages === 1 : pages === Math.ceil(total / pageSize);
-    if (!validPages) {
-      return {
-        ok: false,
-        authFailed: false,
-        code: 'INVALID_ENVELOPE',
-        message: 'ThaiPHC assignments pagination.pages does not match ceil(total / limit).',
-        pagesFetchedInBatch,
-        pageOffset: offset,
-      };
-    }
-
-    if (total > maxRows) {
-      return {
-        ok: false,
-        authFailed: false,
-        code: 'ROW_LIMIT_EXCEEDED',
-        message: `ThaiPHC assignments total (${total}) exceeds maximum safe row limit (${maxRows}).`,
-        pagesFetchedInBatch,
-        pageOffset: offset,
-      };
-    }
-
-    if (expectedTotal !== null && total !== expectedTotal) {
-      return {
-        ok: false,
-        authFailed: false,
-        code: 'SOURCE_TOTAL_CHANGED',
-        message: 'ThaiPHC assignments source total changed mid-fetch between pages or batches.',
-        pagesFetchedInBatch,
-        pageOffset: offset,
-        observedSourceTotal: total,
-      };
-    }
-    expectedTotal = total;
-    totalPages = pages;
-
-    if (total === 0 || page > totalPages) {
-      return {
-        ok: false,
-        authFailed: false,
-        code: 'INCOMPLETE_SNAPSHOT',
-        message:
-          'ThaiPHC assignments snapshot returned zero rows or requested page beyond total pages.',
-        pagesFetchedInBatch,
-        pageOffset: offset,
-      };
-    }
-
-    const expectedCount = Math.min(pageSize, Math.max(0, total - offset));
-    if (data.items.length !== expectedCount) {
-      return {
-        ok: false,
-        authFailed: false,
-        code: 'INCOMPLETE_SNAPSHOT',
-        message: 'ThaiPHC assignments page item count did not match reported total and pageSize.',
-        pagesFetchedInBatch,
-        pageOffset: offset,
-      };
-    }
-
-    items.push(...data.items);
+    expectedTotal = validated.total;
+    totalPages = validated.totalPages;
+    items.push(...validated.items);
     lastPageFetched = page;
     if (page >= totalPages) {
       break;
@@ -367,7 +401,7 @@ export function fetchAssignmentBatch(params: {
       ok: false,
       authFailed: false,
       code: 'INCOMPLETE_SNAPSHOT',
-      message: 'ThaiPHC assignments batch ended without valid pagination metadata.',
+      message: `ThaiPHC ${strategy.endpointLabel} batch ended without valid pagination metadata.`,
       pagesFetchedInBatch,
     };
   }
@@ -384,6 +418,16 @@ export function fetchAssignmentBatch(params: {
     hasMore,
     nextPage: hasMore ? lastPageFetched + 1 : null,
   };
+}
+
+export function fetchAssignmentBatch(params: BatchFetchParams): LargeBatchFetchResult {
+  return fetchPaginatedBatch(params, {
+    endpointLabel: 'assignments',
+    maxPages: MAX_ASSIGNMENT_PAGES,
+    defaultMaxRows: ASSIGNMENTS_SCHEMA.maxRows,
+    buildUrl: buildAssignmentRequestUrl,
+    validateEnvelope: validateAssignmentPageEnvelope,
+  });
 }
 
 type SingleGetOutcome =
@@ -494,6 +538,101 @@ function executeAllowlistedGet(url: string, token: string, fetchUrl: FetchUrlFn)
   }
 }
 
+function validateReportPageEnvelope(
+  endpoint: ReportPaginatedEndpoint,
+  data: unknown,
+  page: number,
+  pageSize: number,
+  maxRows: number,
+  expectedTotal: number | null,
+):
+  | { ok: true; items: unknown[]; total: number; totalPages: number }
+  | { ok: false; code: PreviewStopCode; message: string; observedSourceTotal?: number } {
+  const offset = (page - 1) * pageSize;
+  if (
+    !hasExactKeys(data, ['success', 'message', 'items', 'total', 'page', 'pageSize']) ||
+    data.success !== true ||
+    typeof data.message !== 'string' ||
+    data.message.length > 256 ||
+    hasAsciiControlChar(data.message) ||
+    !Array.isArray(data.items) ||
+    !Number.isSafeInteger(data.total) ||
+    (data.total as number) < 0 ||
+    !Number.isSafeInteger(data.page) ||
+    data.page !== page ||
+    !Number.isSafeInteger(data.pageSize) ||
+    data.pageSize !== pageSize
+  ) {
+    return {
+      ok: false,
+      code: 'INVALID_ENVELOPE',
+      message:
+        'ThaiPHC report pagination envelope did not match { success: true, message, items, total, page, pageSize }.',
+    };
+  }
+
+  const total = data.total as number;
+  if (total > maxRows) {
+    return {
+      ok: false,
+      code: 'ROW_LIMIT_EXCEEDED',
+      message: `ThaiPHC report total (${total}) exceeds maximum safe row limit (${maxRows}) for ${endpoint}.`,
+    };
+  }
+
+  if (expectedTotal !== null && total !== expectedTotal) {
+    return {
+      ok: false,
+      code: 'SOURCE_TOTAL_CHANGED',
+      message: `ThaiPHC ${endpoint} source total changed mid-fetch between pages or batches.`,
+      observedSourceTotal: total,
+    };
+  }
+
+  const totalPages = total === 0 ? 0 : Math.ceil(total / pageSize);
+  if (total === 0 || page > totalPages) {
+    return {
+      ok: false,
+      code: 'INCOMPLETE_SNAPSHOT',
+      message: `ThaiPHC report snapshot returned zero rows or requested page beyond total pages for ${endpoint}.`,
+    };
+  }
+
+  const expectedCount = Math.min(pageSize, Math.max(0, total - offset));
+  if (data.items.length !== expectedCount) {
+    return {
+      ok: false,
+      code: 'INCOMPLETE_SNAPSHOT',
+      message: 'ThaiPHC report page item count did not match reported total and pageSize.',
+    };
+  }
+
+  return { ok: true, items: data.items, total, totalPages };
+}
+
+export function fetchReportBatch(
+  params: BatchFetchParams & { endpoint: Exclude<ReportPaginatedEndpoint, 'volunteer-gender'> },
+): LargeBatchFetchResult {
+  return fetchPaginatedBatch(params, {
+    endpointLabel: params.endpoint,
+    maxPages: MAX_REPORT_PAGES,
+    defaultMaxRows: 2500,
+    buildUrl: (page, pageSize) => buildReportRequestUrl(params.endpoint, page, pageSize),
+    validateEnvelope: (data, page, pageSize, maxRows, expectedTotal) =>
+      validateReportPageEnvelope(params.endpoint, data, page, pageSize, maxRows, expectedTotal),
+  });
+}
+
+export function fetchLargeKeyedBatch(
+  params: BatchFetchParams & { endpoint: LargeKeyedDatasetEndpoint },
+): LargeBatchFetchResult {
+  const maxRows = params.maxRows ?? LARGE_KEYED_SCHEMAS[params.endpoint].maxRows;
+  if (params.endpoint === 'assignments') {
+    return fetchAssignmentBatch({ ...params, maxRows });
+  }
+  return fetchReportBatch({ ...params, endpoint: params.endpoint, maxRows });
+}
+
 function fetchReportPaginatedDataset(
   endpoint: 'volunteer-gender',
   token: string,
@@ -518,81 +657,28 @@ function fetchReportPaginatedDataset(
       return { ...res, pagesFetched, pageOffset: offset };
     }
 
-    const data = res.data;
-    if (
-      !hasExactKeys(data, ['success', 'message', 'items', 'total', 'page', 'pageSize']) ||
-      data.success !== true ||
-      typeof data.message !== 'string' ||
-      data.message.length > 256 ||
-      hasAsciiControlChar(data.message) ||
-      !Array.isArray(data.items) ||
-      !Number.isSafeInteger(data.total) ||
-      (data.total as number) < 0 ||
-      !Number.isSafeInteger(data.page) ||
-      data.page !== page ||
-      !Number.isSafeInteger(data.pageSize) ||
-      data.pageSize !== pageSize
-    ) {
+    const validated = validateReportPageEnvelope(
+      endpoint,
+      res.data,
+      page,
+      pageSize,
+      maxRows,
+      expectedTotal,
+    );
+    if (!validated.ok) {
       return {
         ok: false,
         authFailed: false,
-        code: 'INVALID_ENVELOPE',
-        message:
-          'ThaiPHC report pagination envelope did not match { success: true, message, items, total, page, pageSize }.',
+        code: validated.code,
+        message: validated.message,
         pagesFetched,
         pageOffset: offset,
       };
     }
 
-    const total = data.total as number;
-    if (total > maxRows) {
-      return {
-        ok: false,
-        authFailed: false,
-        code: 'ROW_LIMIT_EXCEEDED',
-        message: `ThaiPHC report total (${total}) exceeds maximum safe row limit (${maxRows}) for ${endpoint}.`,
-        pagesFetched,
-        pageOffset: offset,
-      };
-    }
-
-    if (expectedTotal !== null && total !== expectedTotal) {
-      return {
-        ok: false,
-        authFailed: false,
-        code: 'SOURCE_TOTAL_CHANGED',
-        message: 'ThaiPHC report source total changed mid-fetch between pages.',
-        pagesFetched,
-        pageOffset: offset,
-      };
-    }
-    expectedTotal = total;
-
-    if (total === 0) {
-      return {
-        ok: false,
-        authFailed: false,
-        code: 'INCOMPLETE_SNAPSHOT',
-        message: `ThaiPHC report snapshot returned zero rows for ${endpoint}.`,
-        pagesFetched,
-        pageOffset: offset,
-      };
-    }
-
-    const expectedCount = Math.min(pageSize, Math.max(0, total - offset));
-    if (data.items.length !== expectedCount) {
-      return {
-        ok: false,
-        authFailed: false,
-        code: 'INCOMPLETE_SNAPSHOT',
-        message: 'ThaiPHC report page item count did not match reported total and pageSize.',
-        pagesFetched,
-        pageOffset: offset,
-      };
-    }
-
-    items.push(...data.items);
-    if (items.length >= total) {
+    expectedTotal = validated.total;
+    items.push(...validated.items);
+    if (items.length >= expectedTotal) {
       break;
     }
   }

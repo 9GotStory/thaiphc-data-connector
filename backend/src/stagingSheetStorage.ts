@@ -5,6 +5,7 @@ import {
   type FieldPresence,
 } from './cellValidation.ts';
 import type { KeyedDatasetSchemaSpec } from './datasetCatalog.ts';
+import { hasLowerLevelLocalityMismatch } from './extendedReportProjection.ts';
 import {
   applyTextFormatsToRange,
   type CellScalar,
@@ -14,6 +15,7 @@ import { PSEUDONYMOUS_KEY_PATTERN, SHA256_HEX_PATTERN } from './pseudonymizer.ts
 import type {
   AppEnvironment,
   LargeKeyedDatasetEndpoint,
+  ReviewReasonCode,
   WritableSheetHandle,
   WritableSpreadsheetHandle,
 } from './types.ts';
@@ -226,6 +228,10 @@ export function reconstructAndVerifyStagedRows(
   const digestColIdx = fieldCount + 2;
   const chunkColIdx = fieldCount + 3;
 
+  const subCodeIdx = schema.fields.findIndex((f) => f.name === 'subdistrictCode');
+  const villageCodeIdx = schema.fields.findIndex((f) => f.name === 'villageCode');
+  const villageNoIdx = schema.fields.findIndex((f) => f.name === 'villageNo');
+
   const rawRows = sheet.getValues(3, 1, meta.stagedRowCount, totalCols);
   const seenKeys = new Set<string>();
   const reconstructedRows: ProjectedKeyedRowBase[] = [];
@@ -328,6 +334,15 @@ export function reconstructAndVerifyStagedRows(
           };
         }
         values.push(cell);
+      } else if (field.kind === 'integer' || field.kind === 'integer_or_null') {
+        if (typeof cell !== 'number' || !Number.isSafeInteger(cell) || cell < 0) {
+          return {
+            ok: false,
+            code: 'STAGING_DIGEST_MISMATCH',
+            message: `Staged row #${i + 1} integer cell "${field.name}" failed type verification.`,
+          };
+        }
+        values.push(cell);
       } else {
         if (typeof cell !== 'string') {
           return {
@@ -356,12 +371,22 @@ export function reconstructAndVerifyStagedRows(
       rowsByChunk.set(chunkOrdinal, [{ key, rowDigest: recomputedDigest }]);
     }
 
+    const reviewReasons: ReviewReasonCode[] =
+      schema.preserveSourceLocality === true &&
+      hasLowerLevelLocalityMismatch({
+        subdistrictCode: subCodeIdx >= 0 ? values[subCodeIdx] : undefined,
+        villageCode: villageCodeIdx >= 0 ? values[villageCodeIdx] : undefined,
+        villageNo: villageNoIdx >= 0 ? values[villageNoIdx] : undefined,
+      })
+        ? ['LOCALITY_MISMATCH']
+        : [];
+
     reconstructedRows.push({
       key,
       values,
       presence,
       rowDigest: recomputedDigest,
-      reviewReasons: [],
+      reviewReasons,
     });
   }
 

@@ -8,10 +8,12 @@ import type {
   ExtendedSampleCandidate,
   FinalizeLargeDatasetCommitRequest,
   FinalizePreviewRequest,
+  LargeKeyedDatasetEndpoint,
   PreviewDatasetBatchRequest,
   PreviewDatasetRequest,
   ReferenceDatasetEndpoint,
   ReferencePreviewRow,
+  ReviewReasonCode,
   SmallKeyedDatasetEndpoint,
   StageLargeDatasetBatchRequest,
 } from './types';
@@ -21,6 +23,7 @@ export type MockScenario =
   | 'sandbox-writable'
   | 'sandbox-report-writable'
   | 'sandbox-assignments-legacy'
+  | 'sandbox-report-legacy'
   | 'production-unresolved'
   | 'production-writable'
   | 'production-report-writable'
@@ -231,14 +234,19 @@ export function buildMockDashboardEnvelope(scenario: MockScenario): unknown {
     scenario === 'sandbox-writable' ||
     scenario === 'sandbox-report-writable' ||
     scenario === 'sandbox-assignments-legacy' ||
+    scenario === 'sandbox-report-legacy' ||
     scenario === 'same-workbook-unapproved-writable';
   const personWritableSandbox =
     scenario === 'sandbox-report-writable' ||
     scenario === 'sandbox-assignments-legacy' ||
+    scenario === 'sandbox-report-legacy' ||
     scenario === 'same-workbook-unapproved-writable';
   const separateSandboxReport =
-    scenario === 'sandbox-report-writable' || scenario === 'sandbox-assignments-legacy';
+    scenario === 'sandbox-report-writable' ||
+    scenario === 'sandbox-assignments-legacy' ||
+    scenario === 'sandbox-report-legacy';
   const assignmentsLegacyMode = scenario === 'sandbox-assignments-legacy';
+  const reportLegacyMode = scenario === 'sandbox-report-legacy';
   const sandboxData: DashboardStatusData = {
     env: 'SANDBOX',
     scope: { provinceCode: '54', districtCode: '5406' },
@@ -355,13 +363,13 @@ export function buildMockDashboardEnvelope(scenario: MockScenario): unknown {
         syncMode: 'KEYED_UPSERT',
         paginationProtocol: 'report',
         destinationTab: 'ResignedVolunteers',
-        rowCount: 1152,
-        lastRunId: 'run_20261121_1045_res_s6',
-        lastSyncedAtUtc: '2026-11-21T03:45:00.000Z',
-        lastStatus: 'COMMITTED_VERIFIED',
+        rowCount: reportLegacyMode ? null : 1152,
+        lastRunId: reportLegacyMode ? null : 'run_20261121_1045_res_s6',
+        lastSyncedAtUtc: reportLegacyMode ? null : '2026-11-21T03:45:00.000Z',
+        lastStatus: reportLegacyMode ? 'NEVER_SYNCED' : 'COMMITTED_VERIFIED',
         publicationPointerActive: false,
-        legacySnapshotPresent: false,
-        legacySnapshotTab: null,
+        legacySnapshotPresent: reportLegacyMode,
+        legacySnapshotTab: reportLegacyMode ? 'RResign_f010_20261119' : null,
       },
       {
         endpoint: 'volunteer-tenure',
@@ -374,8 +382,8 @@ export function buildMockDashboardEnvelope(scenario: MockScenario): unknown {
         lastSyncedAtUtc: null,
         lastStatus: 'NEVER_SYNCED',
         publicationPointerActive: false,
-        legacySnapshotPresent: false,
-        legacySnapshotTab: null,
+        legacySnapshotPresent: reportLegacyMode,
+        legacySnapshotTab: reportLegacyMode ? 'RTenure_f010_20261119' : null,
       },
     ],
   };
@@ -975,11 +983,17 @@ export function buildMockCommitEnvelope(
   };
 }
 
-const ASSIGNMENTS_MOCK_TOTAL = 1571;
+function isSupportedLargeKeyed(endpoint: string): endpoint is LargeKeyedDatasetEndpoint {
+  return (
+    endpoint === 'assignments' ||
+    endpoint === 'resigned-volunteers' ||
+    endpoint === 'volunteer-tenure'
+  );
+}
 
-function makeMockH1Key(index: number): string {
+function makeMockH1Key(index: number, prefix = 'a1b2c3d4e5f60718'): string {
   const hex = index.toString(16).padStart(8, '0');
-  return `h1_${hex}${'a1b2c3d4e5f60718'.repeat(3)}90abcdef`;
+  return `h1_${hex}${prefix.repeat(3)}90abcdef`;
 }
 
 function makeMockRowDigest(index: number): string {
@@ -987,70 +1001,219 @@ function makeMockRowDigest(index: number): string {
   return `${hex}${'1122334455667788'.repeat(3)}deadbeef`;
 }
 
-const ASSIGNMENTS_MOCK_AGGREGATES: ExtendedAggregateGroup[] = [
-  { groupCode: '540601', groupLabel: 'บ้านหนุน', rowCount: 221, reviewCount: 0 },
-  { groupCode: '540602', groupLabel: 'บ้านกลาง', rowCount: 248, reviewCount: 0 },
-  { groupCode: '540603', groupLabel: 'ห้วยหม้าย', rowCount: 312, reviewCount: 0 },
-  { groupCode: '540604', groupLabel: 'เตาปูน', rowCount: 194, reviewCount: 0 },
-  { groupCode: '540605', groupLabel: 'หัวเมือง', rowCount: 176, reviewCount: 0 },
-  { groupCode: '540606', groupLabel: 'ทุ่งน้าว', rowCount: 145, reviewCount: 0 },
-  { groupCode: '540607', groupLabel: 'แดนชุมพล', rowCount: 152, reviewCount: 0 },
-  { groupCode: '540608', groupLabel: 'สะเอียบ', rowCount: 123, reviewCount: 0 },
-];
+interface LargeKeyedMockProfile {
+  readonly destinationTab: string;
+  readonly paginationProtocol: 'assignment' | 'report';
+  readonly sourceTotal: number;
+  readonly runSlug: string;
+  readonly digestSlug: string;
+  readonly h1Salt: string;
+  readonly legacyBaselineTab: string;
+  readonly localityMismatchCount: number;
+  readonly aggregates: ExtendedAggregateGroup[];
+  readonly sampleCandidates: ExtendedSampleCandidate[];
+  readonly missingSampleScopeLabel: string;
+}
 
-const ASSIGNMENTS_MOCK_SAMPLE_CANDIDATES: ExtendedSampleCandidate[] = [
-  {
-    sourceKey: makeMockH1Key(1),
-    rowDigest: makeMockRowDigest(1),
-    scopeLabel: '54 / 5406 · 540603 ห้วยหม้าย · หมู่ 7',
-    minimizedAttributes: [
-      { field: 'isActive', value: 'true' },
-      { field: 'status', value: 'ใช้งาน' },
-      { field: 'approvalStatus', value: 'approved' },
-      { field: 'volunteerStatus', value: 'already_volunteer' },
-      { field: 'villageName', value: null },
+const LARGE_KEYED_MOCK_PROFILES: Readonly<
+  Record<LargeKeyedDatasetEndpoint, LargeKeyedMockProfile>
+> = {
+  assignments: {
+    destinationTab: 'Assignments',
+    paginationProtocol: 'assignment',
+    sourceTotal: 1571,
+    runSlug: 'assign',
+    digestSlug: 'assign00',
+    h1Salt: 'a1b2c3d4e5f60718',
+    legacyBaselineTab: 'RAssign_f010_20261119',
+    localityMismatchCount: 0,
+    aggregates: [
+      { groupCode: '540601', groupLabel: 'บ้านหนุน', rowCount: 221, reviewCount: 0 },
+      { groupCode: '540602', groupLabel: 'บ้านกลาง', rowCount: 248, reviewCount: 0 },
+      { groupCode: '540603', groupLabel: 'ห้วยหม้าย', rowCount: 312, reviewCount: 0 },
+      { groupCode: '540604', groupLabel: 'เตาปูน', rowCount: 194, reviewCount: 0 },
+      { groupCode: '540605', groupLabel: 'หัวเมือง', rowCount: 176, reviewCount: 0 },
+      { groupCode: '540606', groupLabel: 'ทุ่งน้าว', rowCount: 145, reviewCount: 0 },
+      { groupCode: '540607', groupLabel: 'แดนชุมพล', rowCount: 152, reviewCount: 0 },
+      { groupCode: '540608', groupLabel: 'สะเอียบ', rowCount: 123, reviewCount: 0 },
     ],
-    reviewReasons: [],
-  },
-  {
-    sourceKey: makeMockH1Key(2),
-    rowDigest: makeMockRowDigest(2),
-    scopeLabel: '54 / 5406 · 540601 บ้านหนุน · หมู่ 1 หนุนเหนือ',
-    minimizedAttributes: [
-      { field: 'isActive', value: 'true' },
-      { field: 'status', value: 'ใช้งาน' },
-      { field: 'approvalStatus', value: 'approved' },
-      { field: 'volunteerStatus', value: 'not_interested' },
-      { field: 'villageName', value: 'หนุนเหนือ' },
+    sampleCandidates: [
+      {
+        sourceKey: makeMockH1Key(1, 'a1b2c3d4e5f60718'),
+        rowDigest: makeMockRowDigest(1),
+        scopeLabel: '54 / 5406 · 540603 ห้วยหม้าย · หมู่ 7',
+        minimizedAttributes: [
+          { field: 'isActive', value: 'true' },
+          { field: 'status', value: 'ใช้งาน' },
+          { field: 'approvalStatus', value: 'approved' },
+          { field: 'volunteerStatus', value: 'already_volunteer' },
+          { field: 'villageName', value: null },
+        ],
+        reviewReasons: [],
+      },
+      {
+        sourceKey: makeMockH1Key(2, 'a1b2c3d4e5f60718'),
+        rowDigest: makeMockRowDigest(2),
+        scopeLabel: '54 / 5406 · 540601 บ้านหนุน · หมู่ 1 หนุนเหนือ',
+        minimizedAttributes: [
+          { field: 'isActive', value: 'true' },
+          { field: 'status', value: 'ใช้งาน' },
+          { field: 'approvalStatus', value: 'approved' },
+          { field: 'volunteerStatus', value: 'not_interested' },
+          { field: 'villageName', value: 'หนุนเหนือ' },
+        ],
+        reviewReasons: [],
+      },
+      {
+        sourceKey: makeMockH1Key(3, 'a1b2c3d4e5f60718'),
+        rowDigest: makeMockRowDigest(3),
+        scopeLabel: '54 / 5406 · 540602 บ้านกลาง · หมู่ 5 กลาง',
+        minimizedAttributes: [
+          { field: 'isActive', value: 'true' },
+          { field: 'status', value: 'ใช้งาน' },
+          { field: 'approvalStatus', value: 'approved' },
+          { field: 'volunteerStatus', value: 'already_volunteer' },
+          { field: 'villageName', value: null },
+        ],
+        reviewReasons: [],
+      },
     ],
-    reviewReasons: [],
+    missingSampleScopeLabel: '54 / 5406 · 540608 สะเอียบ · หมู่ 2',
   },
-  {
-    sourceKey: makeMockH1Key(3),
-    rowDigest: makeMockRowDigest(3),
-    scopeLabel: '54 / 5406 · 540602 บ้านกลาง · หมู่ 5 กลาง',
-    minimizedAttributes: [
-      { field: 'isActive', value: 'true' },
-      { field: 'status', value: 'ใช้งาน' },
-      { field: 'approvalStatus', value: 'approved' },
-      { field: 'volunteerStatus', value: 'already_volunteer' },
-      { field: 'villageName', value: null },
+  'resigned-volunteers': {
+    destinationTab: 'ResignedVolunteers',
+    paginationProtocol: 'report',
+    sourceTotal: 1152,
+    runSlug: 'resign',
+    digestSlug: 'resign00',
+    h1Salt: 'b2c3d4e5f6071829',
+    legacyBaselineTab: 'RResign_f010_20261119',
+    localityMismatchCount: 2,
+    aggregates: [
+      { groupCode: '540210', groupLabel: 'ตำบลต้นทางนอกเขตย่อย', rowCount: 1, reviewCount: 1 },
+      { groupCode: '540601', groupLabel: 'บ้านหนุน', rowCount: 412, reviewCount: 1 },
+      { groupCode: '540606', groupLabel: 'สะเอียบ', rowCount: 739, reviewCount: 0 },
     ],
-    reviewReasons: [],
+    sampleCandidates: [
+      {
+        sourceKey: makeMockH1Key(1, 'b2c3d4e5f6071829'),
+        rowDigest: makeMockRowDigest(101),
+        scopeLabel: '54 / 5406 · 540210 ตำบลต้นทางนอกเขตย่อย · หมู่ 6 บ้านตัวอย่าง (540603006)',
+        minimizedAttributes: [
+          { field: 'retirementDate', value: '2019-06-01' },
+          { field: 'retirementReason', value: 'resigned' },
+          { field: 'osmStatus', value: '0' },
+          { field: 'volunteerStatus', value: 'already_volunteer' },
+          { field: 'approvalStatus', value: 'approved' },
+        ],
+        reviewReasons: ['LOCALITY_MISMATCH'],
+      },
+      {
+        sourceKey: makeMockH1Key(2, 'b2c3d4e5f6071829'),
+        rowDigest: makeMockRowDigest(102),
+        scopeLabel: '54 / 5406 · 540601 บ้านหนุน · หมู่ 10 หนุนเหนือ (540303004)',
+        minimizedAttributes: [
+          { field: 'retirementDate', value: '2022-03-15' },
+          { field: 'retirementReason', value: null },
+          { field: 'osmStatus', value: '0' },
+          { field: 'volunteerStatus', value: 'already_volunteer' },
+          { field: 'approvalStatus', value: 'approved' },
+        ],
+        reviewReasons: ['LOCALITY_MISMATCH'],
+      },
+      {
+        sourceKey: makeMockH1Key(3, 'b2c3d4e5f6071829'),
+        rowDigest: makeMockRowDigest(103),
+        scopeLabel: '54 / 5406 · 540606 สะเอียบ · หมู่ 9 บ้านดอนชัยสักทอง (540606009)',
+        minimizedAttributes: [
+          { field: 'retirementDate', value: '2024-01-15' },
+          { field: 'retirementReason', value: 'died' },
+          { field: 'osmStatus', value: '0' },
+          { field: 'volunteerStatus', value: 'already_volunteer' },
+          { field: 'approvalStatus', value: 'approved' },
+        ],
+        reviewReasons: [],
+      },
+    ],
+    missingSampleScopeLabel: '54 / 5406 · 540606 สะเอียบ · หมู่ 1 (540606001)',
   },
-];
+  'volunteer-tenure': {
+    destinationTab: 'VolunteerTenure',
+    paginationProtocol: 'report',
+    sourceTotal: 1571,
+    runSlug: 'tenure',
+    digestSlug: 'tenure00',
+    h1Salt: 'c3d4e5f60718293a',
+    legacyBaselineTab: 'RTenure_f010_20261119',
+    localityMismatchCount: 0,
+    aggregates: [
+      { groupCode: '540601', groupLabel: 'บ้านหนุน', rowCount: 520, reviewCount: 0 },
+      { groupCode: '540605', groupLabel: 'หัวเมือง', rowCount: 540, reviewCount: 0 },
+      { groupCode: '540607', groupLabel: 'แดนชุมพล', rowCount: 511, reviewCount: 0 },
+    ],
+    sampleCandidates: [
+      {
+        sourceKey: makeMockH1Key(1, 'c3d4e5f60718293a'),
+        rowDigest: makeMockRowDigest(201),
+        scopeLabel: '54 / 5406 · 540605 หัวเมือง · หมู่ 3 ดงเจริญ (540605003)',
+        minimizedAttributes: [
+          { field: 'startYear', value: '2545' },
+          { field: 'tenureYears', value: '24' },
+          { field: 'osmYear', value: '2545' },
+          { field: 'approvalDate', value: '2025-12-17' },
+          { field: 'retirementDate', value: null },
+          { field: 'retirementReason', value: null },
+          { field: 'osmStatus', value: '' },
+        ],
+        reviewReasons: [],
+      },
+      {
+        sourceKey: makeMockH1Key(2, 'c3d4e5f60718293a'),
+        rowDigest: makeMockRowDigest(202),
+        scopeLabel: '54 / 5406 · 540601 บ้านหนุน · หมู่ 1 หนุนเหนือ (540601001)',
+        minimizedAttributes: [
+          { field: 'startYear', value: null },
+          { field: 'tenureYears', value: null },
+          { field: 'osmYear', value: null },
+          { field: 'approvalDate', value: null },
+          { field: 'retirementDate', value: '2026-01-02' },
+          { field: 'retirementReason', value: 'resigned' },
+          { field: 'osmStatus', value: null },
+        ],
+        reviewReasons: [],
+      },
+      {
+        sourceKey: makeMockH1Key(3, 'c3d4e5f60718293a'),
+        rowDigest: makeMockRowDigest(203),
+        scopeLabel: '54 / 5406 · 540607 แดนชุมพล · หมู่ 2 แดนชุมพล (540607002)',
+        minimizedAttributes: [
+          { field: 'startYear', value: '2569' },
+          { field: 'tenureYears', value: '0' },
+          { field: 'osmYear', value: '2569' },
+          { field: 'approvalDate', value: '2026-01-10' },
+          { field: 'retirementDate', value: null },
+          { field: 'retirementReason', value: null },
+          { field: 'osmStatus', value: '' },
+        ],
+        reviewReasons: [],
+      },
+    ],
+    missingSampleScopeLabel: '54 / 5406 · 540607 แดนชุมพล · หมู่ 4 (540607004)',
+  },
+};
 
 export function buildMockPreviewBatchEnvelope(
   request: PreviewDatasetBatchRequest,
   scenario: MockScenario,
   outcome: MockPreviewOutcome = 'ready',
 ): unknown {
-  if (request.endpoint !== 'assignments') {
+  if (!isSupportedLargeKeyed(request.endpoint)) {
     return {
       ok: false,
       error: {
         code: 'DATASET_NOT_SUPPORTED',
-        message: 'Batched preview is currently enabled for assignments.',
+        message:
+          'Batched preview is enabled for assignments, resigned-volunteers, and volunteer-tenure.',
       },
     };
   }
@@ -1060,6 +1223,8 @@ export function buildMockPreviewBatchEnvelope(
       error: { code: 'HTTP_401', message: 'ThaiPHC authentication failed (HTTP 401).' },
     };
   }
+  const endpoint = request.endpoint;
+  const profile = LARGE_KEYED_MOCK_PROFILES[endpoint];
   const dash = buildMockDashboardEnvelope(
     scenario === 'rpc-error' ? 'sandbox-default' : scenario,
   ) as { ok: true; data: DashboardStatusData };
@@ -1070,7 +1235,7 @@ export function buildMockPreviewBatchEnvelope(
       ok: true,
       data: {
         status: 'STOP_BLOCKED',
-        endpoint: 'assignments',
+        endpoint,
         env,
         pagesFetchedInBatch: 0,
         diagnostics: [
@@ -1089,13 +1254,13 @@ export function buildMockPreviewBatchEnvelope(
       ok: true,
       data: {
         status: 'STOP_BLOCKED',
-        endpoint: 'assignments',
+        endpoint,
         env,
         pagesFetchedInBatch: 1,
         diagnostics: [
           {
             code: 'OUT_OF_GEOGRAPHIC_SCOPE',
-            message: 'Row #1 falls outside Geographic Scope (54 / 5406) for assignments.',
+            message: `Row #1 falls outside Geographic Scope (54 / 5406) for ${endpoint}.`,
             rowIndex: 0,
           },
         ],
@@ -1111,38 +1276,44 @@ export function buildMockPreviewBatchEnvelope(
     request.batchPages !== undefined && request.batchPages >= 1 && request.batchPages <= 20
       ? request.batchPages
       : 10;
-  const totalPages = Math.ceil(ASSIGNMENTS_MOCK_TOTAL / pageSize);
+  const totalPages = Math.ceil(profile.sourceTotal / pageSize);
   const startPage = Math.max(1, request.startPage);
   const lastPageFetched = Math.min(totalPages, startPage + batchPages - 1);
   const pagesFetchedInBatch = Math.max(0, lastPageFetched - startPage + 1);
   const startOffset = (startPage - 1) * pageSize;
-  const endOffset = Math.min(ASSIGNMENTS_MOCK_TOTAL, lastPageFetched * pageSize);
+  const endOffset = Math.min(profile.sourceTotal, lastPageFetched * pageSize);
   const rowsInBatch = Math.max(0, endOffset - startOffset);
   const hasMore = lastPageFetched < totalPages;
 
-  // Keep mock payload fast in unit tests while honoring exact batch progress counts
-  const rowDigests = Array.from({ length: Math.min(rowsInBatch, 5) }, (_, idx) => ({
-    key: makeMockH1Key(startOffset + idx + 1),
-    rowDigest: makeMockRowDigest(startOffset + idx + 1),
-  }));
+  // Keep mock payload fast in unit tests while honoring exact batch progress counts & LOCALITY_MISMATCH
+  const rowDigests = Array.from({ length: Math.min(rowsInBatch, 5) }, (_, idx) => {
+    const base = {
+      key: makeMockH1Key(startOffset + idx + 1, profile.h1Salt),
+      rowDigest: makeMockRowDigest(startOffset + idx + 1),
+    };
+    if (startPage === 1 && idx < profile.localityMismatchCount) {
+      return { ...base, reviewReasons: ['LOCALITY_MISMATCH' as const] };
+    }
+    return base;
+  });
 
   return {
     ok: true,
     data: {
       status: 'BATCH_OK',
-      endpoint: 'assignments',
+      endpoint,
       env,
       startPage,
       lastPageFetched,
       pagesFetchedInBatch,
       totalPages,
-      sourceTotal: ASSIGNMENTS_MOCK_TOTAL,
+      sourceTotal: profile.sourceTotal,
       rowsInBatch,
       hasMore,
       nextPage: hasMore ? lastPageFetched + 1 : null,
       rowDigests,
-      aggregateSummary: startPage === 1 ? ASSIGNMENTS_MOCK_AGGREGATES : [],
-      sampleCandidates: startPage === 1 ? ASSIGNMENTS_MOCK_SAMPLE_CANDIDATES : [],
+      aggregateSummary: startPage === 1 ? profile.aggregates : [],
+      sampleCandidates: startPage === 1 ? profile.sampleCandidates : [],
     },
   };
 }
@@ -1152,80 +1323,94 @@ export function buildMockFinalizePreviewEnvelope(
   scenario: MockScenario,
   outcome: MockPreviewOutcome = 'ready',
 ): unknown {
-  if (request.endpoint !== 'assignments') {
+  if (!isSupportedLargeKeyed(request.endpoint)) {
     return {
       ok: false,
       error: {
         code: 'DATASET_NOT_SUPPORTED',
-        message: 'Finalize preview is currently enabled for assignments.',
+        message:
+          'Finalize preview is enabled for assignments, resigned-volunteers, and volunteer-tenure.',
       },
     };
   }
+  const endpoint = request.endpoint;
+  const profile = LARGE_KEYED_MOCK_PROFILES[endpoint];
   const dash = buildMockDashboardEnvelope(
     scenario === 'rpc-error' ? 'sandbox-default' : scenario,
   ) as { ok: true; data: DashboardStatusData };
   const env = dash.data.env;
-  const dsMeta = dash.data.datasets.find((d) => d.endpoint === 'assignments');
-  const unresolved = dash.data.unresolvedRuns.find((r) => r.endpoint === 'assignments') ?? null;
-  const guard = evaluateMockWriteGuard('assignments', dash.data);
+  const dsMeta = dash.data.datasets.find((d) => d.endpoint === endpoint);
+  const unresolved = dash.data.unresolvedRuns.find((r) => r.endpoint === endpoint) ?? null;
+  const guard = evaluateMockWriteGuard(endpoint, dash.data);
 
   const isLegacyInit = dsMeta?.legacySnapshotPresent ?? false;
+  const localityCount = outcome === 'all-unchanged' ? 0 : profile.localityMismatchCount;
+  const missingCount = outcome === 'all-unchanged' || isLegacyInit ? 0 : 2;
   const counts =
     outcome === 'all-unchanged'
       ? { insert: 0, update: 0, unchanged: request.sourceTotal, review: 0 }
       : isLegacyInit
-        ? { insert: request.sourceTotal, update: 0, unchanged: 0, review: 0 }
-        : { insert: 12, update: 5, unchanged: request.sourceTotal - 17, review: 2 };
-  const reviewBreakdown =
-    outcome === 'all-unchanged' || isLegacyInit ? {} : { MISSING_IN_SOURCE: 2 };
+        ? { insert: request.sourceTotal, update: 0, unchanged: 0, review: localityCount }
+        : {
+            insert: 12,
+            update: 5,
+            unchanged: request.sourceTotal - 17,
+            review: localityCount + missingCount,
+          };
 
-  const sampleRows: ExtendedMinimizedPreviewRow[] = ASSIGNMENTS_MOCK_SAMPLE_CANDIDATES.map(
-    (cand, idx) => ({
-      diffKind:
-        outcome === 'all-unchanged'
-          ? 'UNCHANGED'
-          : isLegacyInit
+  const reviewBreakdown: Partial<Record<ReviewReasonCode, number>> = {};
+  if (localityCount > 0) {
+    reviewBreakdown.LOCALITY_MISMATCH = localityCount;
+  }
+  if (missingCount > 0) {
+    reviewBreakdown.MISSING_IN_SOURCE = missingCount;
+  }
+
+  const sampleRows: ExtendedMinimizedPreviewRow[] = profile.sampleCandidates.map((cand, idx) => ({
+    diffKind:
+      outcome === 'all-unchanged'
+        ? 'UNCHANGED'
+        : isLegacyInit
+          ? 'INSERT'
+          : idx === 0
             ? 'INSERT'
-            : idx === 0
-              ? 'INSERT'
-              : idx === 1
-                ? 'UPDATE'
-                : 'UNCHANGED',
-      sourceKey: cand.sourceKey,
-      scopeLabel: cand.scopeLabel,
-      minimizedAttributes: cand.minimizedAttributes,
-      reviewReasons: [],
-    }),
-  );
+            : idx === 1
+              ? 'UPDATE'
+              : 'UNCHANGED',
+    sourceKey: cand.sourceKey,
+    scopeLabel: cand.scopeLabel,
+    minimizedAttributes: cand.minimizedAttributes,
+    reviewReasons: outcome === 'all-unchanged' ? [] : [...cand.reviewReasons],
+  }));
 
-  if (!isLegacyInit && outcome !== 'all-unchanged') {
+  if (missingCount > 0) {
     sampleRows.push({
       diffKind: 'REVIEW',
-      sourceKey: makeMockH1Key(9999),
-      scopeLabel: '54 / 5406 · 540608 สะเอียบ · หมู่ 2',
+      sourceKey: makeMockH1Key(9999, profile.h1Salt),
+      scopeLabel: profile.missingSampleScopeLabel,
       minimizedAttributes: [],
       reviewReasons: ['MISSING_IN_SOURCE'],
     });
   }
 
-  const datasetDigest = `assign00a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef012345678`;
-  const sheetRevisionFingerprint = `assign009f8e7d6c5b4a39281706f5e4d3c2b1a0987654321fedcba098765432`;
-  const fingerprintDigest = `assign00f1e2d3c4b5a69788796a5b4c3d2e1f00112233445566778899aabbcc`;
+  const datasetDigest = `${profile.digestSlug}a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef012345678`;
+  const sheetRevisionFingerprint = `${profile.digestSlug}9f8e7d6c5b4a39281706f5e4d3c2b1a0987654321fedcba098765432`;
+  const fingerprintDigest = `${profile.digestSlug}f1e2d3c4b5a69788796a5b4c3d2e1f00112233445566778899aabbcc`;
 
   return {
     ok: true,
     data: {
       status: 'READY',
-      endpoint: 'assignments',
+      endpoint,
       env,
       syncMode: 'KEYED_UPSERT',
-      paginationProtocol: 'assignment',
-      destinationTab: 'Assignments',
+      paginationProtocol: profile.paginationProtocol,
+      destinationTab: profile.destinationTab,
       previewedAtUtc: '2026-11-21T16:05:00.000Z',
       pagesFetched: request.pagesFetched,
       sourceTotal: request.sourceTotal,
       fingerprint: {
-        endpoint: 'assignments',
+        endpoint,
         env,
         sourceTotal: request.sourceTotal,
         datasetDigest,
@@ -1241,7 +1426,7 @@ export function buildMockFinalizePreviewEnvelope(
       writeAllowed: guard.writeAllowed,
       blockedGuardReason: guard.blockedGuardReason,
       previewMode: 'EXTENDED_MINIMIZED',
-      aggregateSummary: ASSIGNMENTS_MOCK_AGGREGATES,
+      aggregateSummary: profile.aggregates,
       sampleRows,
     },
   };
@@ -1252,7 +1437,7 @@ export function buildMockStageLargeBatchEnvelope(
   scenario: MockScenario,
   outcome: MockCommitOutcome = 'verified',
 ): unknown {
-  if (request.endpoint !== 'assignments') {
+  if (!isSupportedLargeKeyed(request.endpoint)) {
     return {
       ok: false,
       error: { code: 'DATASET_NOT_SUPPORTED', message: 'Dataset not supported for staging.' },
@@ -1264,11 +1449,13 @@ export function buildMockStageLargeBatchEnvelope(
       error: { code: 'HTTP_401', message: 'ThaiPHC authentication failed (HTTP 401).' },
     };
   }
+  const endpoint = request.endpoint;
+  const profile = LARGE_KEYED_MOCK_PROFILES[endpoint];
   const dash = buildMockDashboardEnvelope(
     scenario === 'rpc-error' ? 'sandbox-default' : scenario,
   ) as { ok: true; data: DashboardStatusData };
   const env = dash.data.env;
-  const guard = evaluateMockWriteGuard('assignments', dash.data);
+  const guard = evaluateMockWriteGuard(endpoint, dash.data);
 
   if (!guard.writeAllowed) {
     return {
@@ -1276,9 +1463,9 @@ export function buildMockStageLargeBatchEnvelope(
       data: {
         status: 'FAILED_STOP',
         runId: null,
-        endpoint: 'assignments',
+        endpoint,
         env,
-        destinationTab: 'Assignments',
+        destinationTab: profile.destinationTab,
         stopCode: guard.stopCode ?? 'WRITE_DISABLED',
         message: guard.message ?? 'Write guard blocked commit.',
         syncLogStatus: 'NOT_WRITTEN',
@@ -1287,36 +1474,35 @@ export function buildMockStageLargeBatchEnvelope(
     };
   }
 
-  if (env === 'PRODUCTION' && request.confirmationPhrase !== 'PRODUCTION 5406 assignments') {
+  if (env === 'PRODUCTION' && request.confirmationPhrase !== `PRODUCTION 5406 ${endpoint}`) {
     return {
       ok: true,
       data: {
         status: 'FAILED_STOP',
         runId: null,
-        endpoint: 'assignments',
+        endpoint,
         env,
-        destinationTab: 'Assignments',
+        destinationTab: profile.destinationTab,
         stopCode: 'PRODUCTION_CONFIRMATION_REQUIRED',
-        message:
-          'Production commit requires exact confirmation phrase "PRODUCTION 5406 assignments".',
+        message: `Production commit requires exact confirmation phrase "PRODUCTION 5406 ${endpoint}".`,
         syncLogStatus: 'NOT_WRITTEN',
         stagingTabRetained: null,
       },
     };
   }
 
-  const unresolved = dash.data.unresolvedRuns.find((r) => r.endpoint === 'assignments');
+  const unresolved = dash.data.unresolvedRuns.find((r) => r.endpoint === endpoint);
   if (unresolved && request.acknowledgeUnresolvedRunId !== unresolved.runId) {
     return {
       ok: true,
       data: {
         status: 'FAILED_STOP',
         runId: null,
-        endpoint: 'assignments',
+        endpoint,
         env,
-        destinationTab: 'Assignments',
+        destinationTab: profile.destinationTab,
         stopCode: 'UNRESOLVED_PREVIOUS_RUN',
-        message: `Dataset "assignments" has an unresolved previous run (${unresolved.runId}).`,
+        message: `Dataset "${endpoint}" has an unresolved previous run (${unresolved.runId}).`,
         syncLogStatus: 'NOT_WRITTEN',
         stagingTabRetained: null,
       },
@@ -1339,17 +1525,17 @@ export function buildMockStageLargeBatchEnvelope(
     lastPageStaged * pageSize,
   );
   const hasMore = lastPageStaged < totalPages;
-  const runId = request.runId ?? 'run_20261121_1606_assign_s1';
-  const stagingTabName = `_Stage_assignments_${runId}`;
+  const runId = request.runId ?? `run_20261121_1606_${profile.runSlug}_s1`;
+  const stagingTabName = `_Stage_${endpoint}_${runId}`;
 
   return {
     ok: true,
     data: {
       status: 'BATCH_STAGED',
       runId,
-      endpoint: 'assignments',
+      endpoint,
       env,
-      destinationTab: 'Assignments',
+      destinationTab: profile.destinationTab,
       stagingTabName,
       lastPageStaged,
       totalPages,
@@ -1366,7 +1552,7 @@ export function buildMockFinalizeLargeCommitEnvelope(
   scenario: MockScenario,
   outcome: MockCommitOutcome = 'verified',
 ): unknown {
-  if (request.endpoint !== 'assignments') {
+  if (!isSupportedLargeKeyed(request.endpoint)) {
     return {
       ok: false,
       error: {
@@ -1375,20 +1561,23 @@ export function buildMockFinalizeLargeCommitEnvelope(
       },
     };
   }
+  const endpoint = request.endpoint;
+  const profile = LARGE_KEYED_MOCK_PROFILES[endpoint];
   const dash = buildMockDashboardEnvelope(
     scenario === 'rpc-error' ? 'sandbox-default' : scenario,
   ) as { ok: true; data: DashboardStatusData };
   const env = dash.data.env;
-  const stageTabName = `_Stage_assignments_${request.runId}`;
+  const dsMeta = dash.data.datasets.find((d) => d.endpoint === endpoint);
+  const stageTabName = `_Stage_${endpoint}_${request.runId}`;
 
   if (outcome === 'preview-stale') {
     return {
       ok: true,
       data: {
         status: 'PREVIEW_STALE_RECONFIRM_REQUIRED',
-        endpoint: 'assignments',
+        endpoint,
         env,
-        destinationTab: 'Assignments',
+        destinationTab: profile.destinationTab,
         driftReason: 'SOURCE_CHANGED',
         expectedFingerprint: request.expectedFingerprint,
         currentSourceTotal: request.expectedFingerprint.sourceTotal,
@@ -1404,9 +1593,9 @@ export function buildMockFinalizeLargeCommitEnvelope(
       data: {
         status: 'UNKNOWN_OUTCOME_STOP',
         runId: request.runId,
-        endpoint: 'assignments',
+        endpoint,
         env,
-        destinationTab: 'Assignments',
+        destinationTab: profile.destinationTab,
         stopCode: 'WRITE_FAILED_UNKNOWN',
         message:
           'Sheet write or flush stopped with an unknown outcome. Hidden staging tab retained for inspection.',
@@ -1422,9 +1611,9 @@ export function buildMockFinalizeLargeCommitEnvelope(
       data: {
         status: 'FAILED_STOP',
         runId: request.runId,
-        endpoint: 'assignments',
+        endpoint,
         env,
-        destinationTab: 'Assignments',
+        destinationTab: profile.destinationTab,
         stopCode: 'READBACK_MISMATCH',
         message:
           'Destination Readback detected a mismatch after write. Hidden staging tab retained for inspection.',
@@ -1435,28 +1624,32 @@ export function buildMockFinalizeLargeCommitEnvelope(
   }
 
   const fp = request.expectedFingerprint;
-  const expectedRowCount = fp.sourceTotal + fp.counts.review;
+  const isLegacyInit = dsMeta?.legacySnapshotPresent ?? false;
+  const missingInSourceCount = isLegacyInit
+    ? 0
+    : Math.max(0, fp.counts.review - profile.localityMismatchCount);
+  const expectedRowCount = fp.sourceTotal + missingInSourceCount;
   return {
     ok: true,
     data: {
       status: 'COMMITTED_VERIFIED',
       runId: request.runId,
-      endpoint: 'assignments',
+      endpoint,
       env,
       syncMode: 'KEYED_UPSERT',
-      destinationTab: 'Assignments',
+      destinationTab: profile.destinationTab,
       completedAtUtc: '2026-11-21T16:07:00.000Z',
       counts: fp.counts,
       fingerprint: fp,
       readback: {
         verified: true,
-        destinationTab: 'Assignments',
+        destinationTab: profile.destinationTab,
         expectedRowCount,
         actualRowCount: expectedRowCount,
         uniqueKeysVerified: true,
         rowDigestsVerified: true,
         unrelatedTabsPreserved: true,
-        baselineTabsChecked: ['ชีต1', '_ThaiPHCReportCurrent', 'RAssign_f010_20261119'],
+        baselineTabsChecked: ['ชีต1', '_ThaiPHCReportCurrent', profile.legacyBaselineTab],
         stagingTabCleaned: true,
       },
       syncLogStatus: 'COMMITTED_VERIFIED',

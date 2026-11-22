@@ -54,14 +54,14 @@ export const DATASET_DISPLAY_META: Readonly<Record<DatasetEndpoint, DatasetDispl
   'resigned-volunteers': {
     thaiName: 'อสม. ที่ลาออก',
     policyTag: 'Preserve Source Locality',
-    supportedInWorkspace: false,
+    supportedInWorkspace: true,
     usesBatchedSync: true,
     usesHmacPseudonym: true,
   },
   'volunteer-tenure': {
     thaiName: 'อายุงาน อสม.',
     policyTag: 'Pseudonymous Key (h1_)',
-    supportedInWorkspace: false,
+    supportedInWorkspace: true,
     usesBatchedSync: true,
     usesHmacPseudonym: true,
   },

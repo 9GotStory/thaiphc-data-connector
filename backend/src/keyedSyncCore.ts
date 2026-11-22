@@ -411,19 +411,34 @@ export function verifyPreviewFingerprintIntegrity(
 }
 
 export function countKeyedDiffByDigest(
-  incomingEntries: ReadonlyArray<{ key: string; rowDigest: string }>,
+  incomingEntries: ReadonlyArray<{
+    key: string;
+    rowDigest: string;
+    reviewReasons?: readonly ReviewReasonCode[];
+  }>,
   dest: DestinationState,
 ): {
   counts: DiffCounts;
+  reviewBreakdown: Partial<Record<ReviewReasonCode, number>>;
   incomingDiffKindByKey: Map<string, 'INSERT' | 'UPDATE' | 'UNCHANGED'>;
   missingKeys: string[];
 } {
   let insert = 0;
   let update = 0;
   let unchanged = 0;
+  let incomingReviewCount = 0;
+  const reviewBreakdown: Partial<Record<ReviewReasonCode, number>> = {};
   const incomingDiffKindByKey = new Map<string, 'INSERT' | 'UPDATE' | 'UNCHANGED'>();
 
   for (const entry of incomingEntries) {
+    const reasons = entry.reviewReasons ?? [];
+    if (reasons.length > 0) {
+      incomingReviewCount += 1;
+      for (const reason of reasons) {
+        reviewBreakdown[reason] = (reviewBreakdown[reason] ?? 0) + 1;
+      }
+    }
+
     const existing = dest.byKey.get(entry.key);
     if (!existing) {
       insert += 1;
@@ -444,13 +459,18 @@ export function countKeyedDiffByDigest(
     }
   }
 
+  if (missingKeys.length > 0) {
+    reviewBreakdown.MISSING_IN_SOURCE = missingKeys.length;
+  }
+
   return {
     counts: {
       insert,
       update,
       unchanged,
-      review: missingKeys.length,
+      review: missingKeys.length + incomingReviewCount,
     },
+    reviewBreakdown,
     incomingDiffKindByKey,
     missingKeys,
   };
@@ -672,7 +692,11 @@ export function buildSheetRowValues(
 ): CellScalar[] {
   const sourceCells: CellScalar[] = row.values.map((v) => (v === null ? '' : v));
   const qualityStatus =
-    isExtendedReport && row.reviewReasons.includes('SMALL_CELL_SUPPRESSED') ? 'WARNING' : 'VALID';
+    isExtendedReport &&
+    (row.reviewReasons.includes('SMALL_CELL_SUPPRESSED') ||
+      row.reviewReasons.includes('LOCALITY_MISMATCH'))
+      ? 'WARNING'
+      : 'VALID';
   return [
     ...sourceCells,
     SCHEMA_VERSION,

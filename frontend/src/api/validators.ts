@@ -85,6 +85,7 @@ const VALID_BLOCKED_GUARD_REASONS: ReadonlySet<string> = new Set<BlockedGuardRea
 ]);
 const VALID_REVIEW_REASONS: ReadonlySet<string> = new Set<ReviewReasonCode>([
   'MISSING_IN_SOURCE',
+  'LOCALITY_MISMATCH',
   'PLACEHOLDER_COORDS',
   'SMALL_CELL_SUPPRESSED',
 ]);
@@ -796,10 +797,17 @@ function parseRowDigestEntry(value: unknown, index: number): PreviewRowDigestEnt
   if (!isRecord(value)) {
     invalidResponse(`Invalid rowDigests[${index}]`);
   }
-  return {
+  const entry: PreviewRowDigestEntry = {
     key: assertNonEmptyString(value.key, `rowDigests[${index}].key`),
     rowDigest: assertNonEmptyString(value.rowDigest, `rowDigests[${index}].rowDigest`),
   };
+  if (value.reviewReasons !== undefined) {
+    entry.reviewReasons = parseReviewReasons(
+      value.reviewReasons,
+      `rowDigests[${index}].reviewReasons`,
+    );
+  }
+  return entry;
 }
 
 function parseExtendedSampleCandidate(value: unknown, index: number): ExtendedSampleCandidate {

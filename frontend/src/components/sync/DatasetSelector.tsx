@@ -212,13 +212,15 @@ export function DatasetSelector({
             />
             <span>
               ชุดข้อมูลรายงานขยาย (<code className="font-mono">{selectedEndpoint}</code>)
-              อยู่ระหว่างการเปิดใช้งานในรอบงานถัดไป (Tickets 06–07) — ในรอบนี้สามารถรัน Preview และ
-              Repeatable Sync ได้ครบทั้ง 3 Reference Datasets (
+              อยู่ระหว่างการเปิดใช้งานในรอบงานถัดไป (Ticket 07 · Complete Snapshot) — ในรอบนี้สามารถรัน
+              Preview และ Keyed Upsert Repeatable Sync ได้ครบทั้ง 7 ชุดข้อมูล (
               <code className="font-mono">subdistricts</code>,{' '}
               <code className="font-mono">villages</code>,{' '}
-              <code className="font-mono">health-services</code>),{' '}
-              <code className="font-mono">volunteer-gender</code>, และ{' '}
-              <code className="font-mono">assignments</code> (Mode B · Minimized Projection)
+              <code className="font-mono">health-services</code>,{' '}
+              <code className="font-mono">volunteer-gender</code>,{' '}
+              <code className="font-mono">assignments</code>,{' '}
+              <code className="font-mono">resigned-volunteers</code>, และ{' '}
+              <code className="font-mono">volunteer-tenure</code>)
             </span>
           </div>
         )}

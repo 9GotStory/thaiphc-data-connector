@@ -748,4 +748,116 @@ describe('Reference Datasets Repeatable Sync (Frontend GasRpcTransport Seam)', (
       within(stopAlert).queryByRole('button', { name: /Retry|ลองเขียนซ้ำ/i }),
     ).not.toBeInTheDocument();
   });
+
+  it('completes resigned-volunteers Mode B Preview with LOCALITY_MISMATCH REVIEW (Preserve Source Locality), LEGACY_F010_SNAPSHOT_PRESENT (RResign_*), zero PII, and multi-batch _Stage_* Keyed Upsert commit', async () => {
+    const user = userEvent.setup();
+    const mock = new MockGasTransport({ scenario: 'sandbox-report-legacy' });
+    const stageSpy = vi.spyOn(mock, 'stageLargeDatasetBatch');
+    const finalizeSpy = vi.spyOn(mock, 'finalizeLargeDatasetCommit');
+
+    renderApp(mock);
+    await openSyncWorkspace(user);
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+
+    const resignRadio = screen.getByRole('radio', { name: /อสม\. ที่ลาออก/ });
+    await user.click(resignRadio);
+    expect(resignRadio).toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+
+    expect(
+      await screen.findByText(/ขอบเขตคุ้มครองข้อมูลส่วนบุคคล \(Minimized Projection\)/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/LEGACY_F010_SNAPSHOT_PRESENT/)).toBeInTheDocument();
+    expect(screen.getByText(/RResign_f010_20261119/)).toBeInTheDocument();
+    expect(screen.getAllByText(/LOCALITY_MISMATCH/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/คงค่าต้นทางตามกฎ Preserve Source Locality/)).toBeInTheDocument();
+    expect(screen.getAllByText(/h1_/).length).toBeGreaterThanOrEqual(1);
+    expect(document.body.textContent).not.toMatch(/citizenId|firstName|lastName|osmCode/);
+
+    // Filter to REVIEW shows preserved source locality codes (540210 / 540303004)
+    const reviewFilter = screen.getByRole('button', { name: /REVIEW/ });
+    await user.click(reviewFilter);
+    expect(reviewFilter).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getAllByText(/540210/).length).toBeGreaterThanOrEqual(1);
+
+    await user.click(screen.getByRole('button', { name: /ตรวจสอบและยืนยันการบันทึก \(SANDBOX\)/ }));
+    await user.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: /ยืนยันบันทึกข้อมูล/ }),
+    );
+
+    expect(await screen.findByText(/ซิงก์และตรวจสอบ Destination Readback สำเร็จ/)).toBeInTheDocument();
+    expect(screen.getByText('ResignedVolunteers')).toBeInTheDocument();
+    expect(screen.getByText(/ลบแท็บพักชั่วคราว _Stage_\* หลังตรวจสอบผ่านเรียบร้อย/)).toBeInTheDocument();
+    expect(stageSpy).toHaveBeenCalledTimes(2);
+    expect(finalizeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('hard-blocks volunteer-tenure on OUT_OF_GEOGRAPHIC_SCOPE STOP/BLOCKED and completes READY Mode B Preview (RTenure_* legacy + nullable attributes) with PRODUCTION THAIPHC_HMAC_KEY_B64 reminder and typed confirmation', async () => {
+    const user = userEvent.setup();
+
+    // 1. Subdistrict/village mismatch on volunteer-tenure triggers hard STOP/BLOCKED and locks Confirmation Gate
+    const blockedRender = renderApp(
+      new MockGasTransport({
+        scenario: 'sandbox-report-legacy',
+        previewOutcome: 'stop-blocked',
+      }),
+    );
+    await openSyncWorkspace(user);
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole('radio', { name: /อายุงาน อสม\./ }));
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+
+    const stopAlert = await screen.findByRole('alert');
+    expect(within(stopAlert).getByText(/OUT_OF_GEOGRAPHIC_SCOPE/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /ยืนยันการบันทึกถูกปิดใช้งาน/ })).toBeDisabled();
+    blockedRender.unmount();
+
+    // 2. READY preview in SANDBOX legacy mode surfaces RTenure_* and nullable attributes
+    const legacyRender = renderApp(new MockGasTransport({ scenario: 'sandbox-report-legacy' }));
+    await openSyncWorkspace(user);
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole('radio', { name: /อายุงาน อสม\./ }));
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+
+    expect(
+      await screen.findByText(/ขอบเขตคุ้มครองข้อมูลส่วนบุคคล \(Minimized Projection\)/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/LEGACY_F010_SNAPSHOT_PRESENT/)).toBeInTheDocument();
+    expect(screen.getByText(/RTenure_f010_20261119/)).toBeInTheDocument();
+    expect(screen.getAllByText('null').length).toBeGreaterThanOrEqual(2);
+    expect(document.body.textContent).not.toMatch(/citizenId|firstName|lastName|osmCode/);
+    legacyRender.unmount();
+
+    // 3. PRODUCTION report writable shows THAIPHC_HMAC_KEY_B64 continuity reminder and enforces exact phrase "PRODUCTION 5406 volunteer-tenure"
+    renderApp(new MockGasTransport({ scenario: 'production-report-writable' }));
+    await openSyncWorkspace(user);
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole('radio', { name: /อายุงาน อสม\./ }));
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+
+    await screen.findByText(/ขอบเขตคุ้มครองข้อมูลส่วนบุคคล \(Minimized Projection\)/);
+    expect(screen.getAllByText(/THAIPHC_HMAC_KEY_B64/).length).toBeGreaterThanOrEqual(1);
+    await user.click(screen.getByRole('button', { name: /ดำเนินการยืนยันการบันทึก \(PRODUCTION\)/ }));
+
+    const prodDialog = screen.getByRole('alertdialog');
+    const confirmAction = within(prodDialog).getByRole('button', {
+      name: /ยืนยันบันทึกข้อมูลลง PRODUCTION/,
+    });
+    expect(confirmAction).toBeDisabled();
+
+    await user.type(
+      within(prodDialog).getByLabelText(/พิมพ์ข้อความด้านบนให้ตรงทุกตัวอักษร/),
+      'PRODUCTION 5406 volunteer-tenure',
+    );
+    expect(confirmAction).toBeEnabled();
+    await user.click(confirmAction);
+
+    expect(await screen.findByText(/ซิงก์และตรวจสอบ Destination Readback สำเร็จ/)).toBeInTheDocument();
+    expect(screen.getByText('VolunteerTenure')).toBeInTheDocument();
+  });
 });

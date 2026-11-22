@@ -185,8 +185,10 @@ export function SyncWorkspace({
             endpoint: batchRes.endpoint,
             env: batchRes.env,
             syncMode: selectedDataset?.syncMode ?? 'KEYED_UPSERT',
-            paginationProtocol: selectedDataset?.paginationProtocol ?? 'assignment',
-            destinationTab: selectedDataset?.destinationTab ?? 'Assignments',
+            paginationProtocol:
+              selectedDataset?.paginationProtocol ??
+              (input.endpoint === 'assignments' ? 'assignment' : 'report'),
+            destinationTab: selectedDataset?.destinationTab ?? input.endpoint,
             previewedAtUtc: new Date().toISOString(),
             pagesFetched: pagesFetched + batchRes.pagesFetchedInBatch,
             diagnostics: batchRes.diagnostics,

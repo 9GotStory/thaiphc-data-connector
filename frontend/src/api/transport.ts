@@ -263,6 +263,7 @@ const VALID_MOCK_SCENARIOS: ReadonlySet<string> = new Set<MockScenario>([
   'sandbox-writable',
   'sandbox-report-writable',
   'sandbox-assignments-legacy',
+  'sandbox-report-legacy',
   'production-unresolved',
   'production-writable',
   'production-report-writable',

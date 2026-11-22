@@ -411,4 +411,158 @@ describe('GasRpcTransport Seam', () => {
       }),
     ).rejects.toMatchObject({ code: 'INVALID_RPC_RESPONSE' });
   });
+
+  it('validates multi-batch resigned-volunteers (LOCALITY_MISMATCH + RResign_*) and volunteer-tenure (nullable fields + RTenure_* + STOP_BLOCKED) envelopes at the GasRpcTransport boundary', async () => {
+    const legacyMock = new MockGasTransport({ scenario: 'sandbox-report-legacy' });
+
+    // 1. resigned-volunteers: Preserve Source Locality (LOCALITY_MISMATCH) + RResign_* legacy + multi-batch staging
+    const rb1 = await legacyMock.previewDatasetBatch({
+      endpoint: 'resigned-volunteers',
+      token: 'synthetic_token_for_resign_test',
+      startPage: 1,
+      batchPages: 10,
+      pageSize: 100,
+    });
+    expect(rb1.status).toBe('BATCH_OK');
+    if (rb1.status !== 'BATCH_OK') throw new Error('Expected BATCH_OK for resigned-volunteers');
+    expect(rb1.hasMore).toBe(true);
+    expect(rb1.totalPages).toBe(12);
+    expect(rb1.sourceTotal).toBe(1152);
+    expect(rb1.rowDigests[0].key).toMatch(/^h1_[a-f0-9]{64}$/);
+    expect(rb1.rowDigests.some((entry) => entry.reviewReasons?.includes('LOCALITY_MISMATCH'))).toBe(
+      true,
+    );
+    expect(JSON.stringify(rb1)).not.toMatch(/citizenId|firstName|lastName|osmCode/);
+
+    const rb2 = await legacyMock.previewDatasetBatch({
+      endpoint: 'resigned-volunteers',
+      token: 'synthetic_token_for_resign_test',
+      startPage: 11,
+      batchPages: 10,
+      pageSize: 100,
+      expectedSourceTotal: rb1.sourceTotal,
+    });
+    expect(rb2.status).toBe('BATCH_OK');
+    if (rb2.status !== 'BATCH_OK') throw new Error('Expected BATCH_OK batch 2');
+    expect(rb2.hasMore).toBe(false);
+
+    const resignPreview = await legacyMock.finalizePreview({
+      endpoint: 'resigned-volunteers',
+      sourceTotal: rb1.sourceTotal,
+      pagesFetched: rb1.pagesFetchedInBatch + rb2.pagesFetchedInBatch,
+      rowDigests: [...rb1.rowDigests, ...rb2.rowDigests],
+      aggregateSummary: [...rb1.aggregateSummary, ...rb2.aggregateSummary],
+      sampleCandidates: [...rb1.sampleCandidates, ...rb2.sampleCandidates],
+    });
+    expect(resignPreview.status).toBe('READY');
+    if (resignPreview.status !== 'READY' || resignPreview.previewMode !== 'EXTENDED_MINIMIZED') {
+      throw new Error('Expected READY EXTENDED_MINIMIZED for resigned-volunteers');
+    }
+    expect(resignPreview.destinationTab).toBe('ResignedVolunteers');
+    expect(resignPreview.paginationProtocol).toBe('report');
+    expect(resignPreview.legacySnapshotPresent).toBe(true);
+    expect(resignPreview.legacySnapshotTab).toBe('RResign_f010_20261119');
+    expect(resignPreview.reviewBreakdown.LOCALITY_MISMATCH).toBeGreaterThan(0);
+
+    const rs1 = await legacyMock.stageLargeDatasetBatch({
+      endpoint: 'resigned-volunteers',
+      token: 'synthetic_token_for_resign_test',
+      expectedFingerprint: resignPreview.fingerprint,
+      startPage: 1,
+      batchPages: 10,
+      pageSize: 100,
+    });
+    expect(rs1.status).toBe('BATCH_STAGED');
+    if (rs1.status !== 'BATCH_STAGED') throw new Error('Expected BATCH_STAGED');
+    expect(rs1.stagingTabName).toMatch(/^_Stage_resigned-volunteers_/);
+
+    const rFin = await legacyMock.finalizeLargeDatasetCommit({
+      endpoint: 'resigned-volunteers',
+      expectedFingerprint: resignPreview.fingerprint,
+      runId: rs1.runId,
+    });
+    expect(rFin.status).toBe('COMMITTED_VERIFIED');
+    if (rFin.status === 'COMMITTED_VERIFIED') {
+      expect(rFin.destinationTab).toBe('ResignedVolunteers');
+      // LOCALITY_MISMATCH is an incoming review reason and must not be double-counted in expectedRowCount
+      expect(rFin.readback.expectedRowCount).toBe(resignPreview.sourceTotal);
+      expect(rFin.readback.stagingTabCleaned).toBe(true);
+    }
+
+    // 2. volunteer-tenure: strict scope STOP_BLOCKED + READY nullable attributes + RTenure_* legacy
+    const stopMock = new MockGasTransport({
+      scenario: 'sandbox-report-legacy',
+      previewOutcome: 'stop-blocked',
+    });
+    const tenureStop = await stopMock.previewDatasetBatch({
+      endpoint: 'volunteer-tenure',
+      token: 'synthetic_token_for_tenure_test',
+      startPage: 1,
+      batchPages: 10,
+      pageSize: 100,
+    });
+    expect(tenureStop.status).toBe('STOP_BLOCKED');
+    if (tenureStop.status === 'STOP_BLOCKED') {
+      expect(tenureStop.diagnostics[0].code).toBe('OUT_OF_GEOGRAPHIC_SCOPE');
+    }
+
+    const tb1 = await legacyMock.previewDatasetBatch({
+      endpoint: 'volunteer-tenure',
+      token: 'synthetic_token_for_tenure_test',
+      startPage: 1,
+      batchPages: 10,
+      pageSize: 100,
+    });
+    expect(tb1.status).toBe('BATCH_OK');
+    if (tb1.status !== 'BATCH_OK') throw new Error('Expected BATCH_OK for volunteer-tenure');
+    expect(tb1.sourceTotal).toBe(1571);
+    expect(tb1.totalPages).toBe(16);
+
+    const tenurePreview = await legacyMock.finalizePreview({
+      endpoint: 'volunteer-tenure',
+      sourceTotal: tb1.sourceTotal,
+      pagesFetched: 16,
+      rowDigests: tb1.rowDigests,
+      aggregateSummary: tb1.aggregateSummary,
+      sampleCandidates: tb1.sampleCandidates,
+    });
+    expect(tenurePreview.status).toBe('READY');
+    if (tenurePreview.status !== 'READY' || tenurePreview.previewMode !== 'EXTENDED_MINIMIZED') {
+      throw new Error('Expected READY EXTENDED_MINIMIZED for volunteer-tenure');
+    }
+    expect(tenurePreview.destinationTab).toBe('VolunteerTenure');
+    expect(tenurePreview.legacySnapshotPresent).toBe(true);
+    expect(tenurePreview.legacySnapshotTab).toBe('RTenure_f010_20261119');
+    expect(
+      tenurePreview.sampleRows.some((r) =>
+        r.minimizedAttributes.some((a) => a.field === 'startYear' && a.value === null),
+      ),
+    ).toBe(true);
+
+    // 3. GoogleScriptRunTransport rejects unknown reviewReasons inside rowDigests
+    const badReasonTransport = new GoogleScriptRunTransport(() =>
+      createFakeRunner((onSuccess) =>
+        onSuccess({
+          ok: true,
+          data: {
+            ...rb1,
+            rowDigests: [
+              {
+                key: rb1.rowDigests[0].key,
+                rowDigest: rb1.rowDigests[0].rowDigest,
+                reviewReasons: ['INVENTED_REASON'],
+              },
+            ],
+          },
+        }),
+      ),
+    );
+    await expect(
+      badReasonTransport.previewDatasetBatch({
+        endpoint: 'resigned-volunteers',
+        token: 'synthetic_token_for_resign_test',
+        startPage: 1,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_RPC_RESPONSE' });
+  });
 });

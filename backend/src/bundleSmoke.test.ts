@@ -247,6 +247,69 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
       pagination: { page: 1, limit: 100, total: 1, pages: 1 },
     });
 
+    const mockResignedPayload = JSON.stringify({
+      success: true,
+      message: 'Success',
+      items: [
+        {
+          id: 'SYNTHETIC-UUID-0001',
+          citizenId: '1540600000001',
+          firstName: 'PRIVATE_VM_RESIGN_FIRST',
+          lastName: 'PRIVATE_VM_RESIGN_LAST',
+          retirementDate: '2024-01-15',
+          retirementReason: null,
+          osmStatus: '0',
+          volunteerStatus: 'already_volunteer',
+          approvalStatus: 'approved',
+          provinceCode: '54',
+          provinceName: 'แพร่',
+          districtCode: '5406',
+          districtName: 'สอง',
+          subdistrictCode: '540210',
+          subdistrictName: 'ตำบลต้นทาง',
+          villageCode: '540603006',
+          villageNo: '6',
+          villageName: 'บ้านตัวอย่าง',
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 100,
+    });
+
+    const mockTenurePayload = JSON.stringify({
+      success: true,
+      message: 'Success',
+      items: [
+        {
+          id: 'SYNTHETIC-UUID-0001',
+          citizenId: '1540600000001',
+          osmCode: '99990000000001',
+          firstName: 'PRIVATE_VM_TENURE_FIRST',
+          lastName: 'PRIVATE_VM_TENURE_LAST',
+          startYear: 2569,
+          tenureYears: 0,
+          osmYear: null,
+          approvalDate: null,
+          retirementDate: null,
+          retirementReason: null,
+          osmStatus: '',
+          provinceCode: '54',
+          provinceName: 'แพร่',
+          districtCode: '5406',
+          districtName: 'สอง',
+          subdistrictCode: '540601',
+          subdistrictName: 'บ้านหนุน',
+          villageCode: '540601001',
+          villageNo: '1',
+          villageName: 'หนุนเหนือ',
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 100,
+    });
+
     const sandbox = {
       HtmlService: {
         XFrameOptionsMode: { DEFAULT: 'DEFAULT', ALLOWALL: 'ALLOWALL' },
@@ -317,9 +380,13 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
         fetch: (url: string) => {
           const payload = url.includes('/dashboard/assignments')
             ? mockAssignmentsPayload
-            : url.includes('/reports/volunteer-gender')
-              ? mockGenderPayload
-              : mockSubdistrictPayload;
+            : url.includes('/reports/resigned-volunteers')
+              ? mockResignedPayload
+              : url.includes('/reports/volunteer-tenure')
+                ? mockTenurePayload
+                : url.includes('/reports/volunteer-gender')
+                  ? mockGenderPayload
+                  : mockSubdistrictPayload;
           return {
             getResponseCode: () => 200,
             getAllHeaders: () => ({ 'Content-Type': 'application/json' }),
@@ -519,6 +586,141 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
     expect(assignCommit.data.readback.stagingTabCleaned).toBe(true);
     expect(sheets.some((s) => s.getName() === assignStage.data.stagingTabName)).toBe(false);
 
+    // Smoke-verify bundled resigned-volunteers (Preserve Source Locality -> LOCALITY_MISMATCH REVIEW + F010 h1_ parity + _Stage_* cleanup) in node:vm
+    const resignBatch = JSON.parse(
+      JSON.stringify(
+        context.previewDatasetBatch({
+          endpoint: 'resigned-volunteers',
+          token: 'synthetic_vm_token_1234567890',
+          startPage: 1,
+          batchPages: 10,
+          pageSize: 100,
+        }),
+      ),
+    );
+    expect(resignBatch.ok).toBe(true);
+    expect(resignBatch.data.status).toBe('BATCH_OK');
+    expect(resignBatch.data.rowDigests[0].key).toBe(
+      'h1_94cbfd42e553f1f6601ffb2b901651695dd1ce7f0809229599e0e0ed0002125f',
+    );
+    expect(resignBatch.data.rowDigests[0].reviewReasons).toEqual(['LOCALITY_MISMATCH']);
+    expect(JSON.stringify(resignBatch)).not.toMatch(
+      /PRIVATE_VM_RESIGN_FIRST|1540600000001|SYNTHETIC-UUID-0001/,
+    );
+
+    const resignPreview = JSON.parse(
+      JSON.stringify(
+        context.finalizePreview({
+          endpoint: 'resigned-volunteers',
+          sourceTotal: resignBatch.data.sourceTotal,
+          pagesFetched: resignBatch.data.pagesFetchedInBatch,
+          rowDigests: resignBatch.data.rowDigests,
+          aggregateSummary: resignBatch.data.aggregateSummary,
+          sampleCandidates: resignBatch.data.sampleCandidates,
+        }),
+      ),
+    );
+    expect(resignPreview.ok).toBe(true);
+    expect(resignPreview.data.status).toBe('READY');
+    expect(resignPreview.data.reviewBreakdown).toEqual({ LOCALITY_MISMATCH: 1 });
+
+    const resignStage = JSON.parse(
+      JSON.stringify(
+        context.stageLargeDatasetBatch({
+          endpoint: 'resigned-volunteers',
+          token: 'synthetic_vm_token_1234567890',
+          expectedFingerprint: resignPreview.data.fingerprint,
+          startPage: 1,
+          batchPages: 10,
+          pageSize: 100,
+        }),
+      ),
+    );
+    expect(resignStage.ok).toBe(true);
+    expect(resignStage.data.status).toBe('BATCH_STAGED');
+
+    const resignCommit = JSON.parse(
+      JSON.stringify(
+        context.finalizeLargeDatasetCommit({
+          endpoint: 'resigned-volunteers',
+          expectedFingerprint: resignPreview.data.fingerprint,
+          runId: resignStage.data.runId,
+        }),
+      ),
+    );
+    expect(resignCommit.ok).toBe(true);
+    expect(resignCommit.data.status).toBe('COMMITTED_VERIFIED');
+    expect(resignCommit.data.destinationTab).toBe('ResignedVolunteers');
+    expect(resignCommit.data.counts.review).toBe(1);
+    expect(resignCommit.data.readback.verified).toBe(true);
+    expect(resignCommit.data.readback.stagingTabCleaned).toBe(true);
+
+    // Smoke-verify bundled volunteer-tenure (nullable integers/strings + F010 h1_ parity + _Stage_* cleanup) in node:vm
+    const tenureBatch = JSON.parse(
+      JSON.stringify(
+        context.previewDatasetBatch({
+          endpoint: 'volunteer-tenure',
+          token: 'synthetic_vm_token_1234567890',
+          startPage: 1,
+          batchPages: 10,
+          pageSize: 100,
+        }),
+      ),
+    );
+    expect(tenureBatch.ok).toBe(true);
+    expect(tenureBatch.data.status).toBe('BATCH_OK');
+    expect(tenureBatch.data.rowDigests[0].key).toBe(
+      'h1_66126a00e8b2fc885553b574702c7b19f069a6455edaa9d650d62ff9b528b4b0',
+    );
+    expect(JSON.stringify(tenureBatch)).not.toMatch(
+      /PRIVATE_VM_TENURE_FIRST|1540600000001|99990000000001|SYNTHETIC-UUID-0001/,
+    );
+
+    const tenurePreview = JSON.parse(
+      JSON.stringify(
+        context.finalizePreview({
+          endpoint: 'volunteer-tenure',
+          sourceTotal: tenureBatch.data.sourceTotal,
+          pagesFetched: tenureBatch.data.pagesFetchedInBatch,
+          rowDigests: tenureBatch.data.rowDigests,
+          aggregateSummary: tenureBatch.data.aggregateSummary,
+          sampleCandidates: tenureBatch.data.sampleCandidates,
+        }),
+      ),
+    );
+    expect(tenurePreview.ok).toBe(true);
+    expect(tenurePreview.data.status).toBe('READY');
+
+    const tenureStage = JSON.parse(
+      JSON.stringify(
+        context.stageLargeDatasetBatch({
+          endpoint: 'volunteer-tenure',
+          token: 'synthetic_vm_token_1234567890',
+          expectedFingerprint: tenurePreview.data.fingerprint,
+          startPage: 1,
+          batchPages: 10,
+          pageSize: 100,
+        }),
+      ),
+    );
+    expect(tenureStage.ok).toBe(true);
+    expect(tenureStage.data.status).toBe('BATCH_STAGED');
+
+    const tenureCommit = JSON.parse(
+      JSON.stringify(
+        context.finalizeLargeDatasetCommit({
+          endpoint: 'volunteer-tenure',
+          expectedFingerprint: tenurePreview.data.fingerprint,
+          runId: tenureStage.data.runId,
+        }),
+      ),
+    );
+    expect(tenureCommit.ok).toBe(true);
+    expect(tenureCommit.data.status).toBe('COMMITTED_VERIFIED');
+    expect(tenureCommit.data.destinationTab).toBe('VolunteerTenure');
+    expect(tenureCommit.data.readback.verified).toBe(true);
+    expect(tenureCommit.data.readback.stagingTabCleaned).toBe(true);
+
     expect(propertyMutations).toEqual([]);
     expect(JSON.stringify(result)).not.toContain(VALID_HMAC_KEY);
     expect(JSON.stringify(commitRes)).not.toContain('synthetic_vm_token_1234567890');
@@ -526,5 +728,7 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
     expect(JSON.stringify(assignCommit)).not.toContain(VALID_HMAC_KEY);
     expect(JSON.stringify(assignCommit)).not.toContain('synthetic_vm_token_1234567890');
     expect(JSON.stringify(assignCommit)).not.toContain('PRIVATE_VM_FIRST');
+    expect(JSON.stringify(resignCommit)).not.toContain('PRIVATE_VM_RESIGN_FIRST');
+    expect(JSON.stringify(tenureCommit)).not.toContain('PRIVATE_VM_TENURE_FIRST');
   });
 });

@@ -8,8 +8,8 @@ import {
   type KeyedDatasetSchemaSpec,
 } from './datasetCatalog.ts';
 import {
-  formatAssignmentsScopeLabel,
-  validateAndProjectAssignmentsRows,
+  formatExtendedScopeLabel,
+  validateAndProjectLargeKeyedRows,
 } from './extendedReportProjection.ts';
 import {
   computePreviewFingerprint,
@@ -46,7 +46,7 @@ import {
   writeStagingBatch,
   type StagingMetadata,
 } from './stagingSheetStorage.ts';
-import { DEFAULT_PAGE_SIZE, fetchAssignmentBatch, isValidBearerToken } from './thaiphcClient.ts';
+import { DEFAULT_PAGE_SIZE, fetchLargeKeyedBatch, isValidBearerToken } from './thaiphcClient.ts';
 import type {
   AppEnvironment,
   CommitDatasetResponse,
@@ -191,7 +191,11 @@ function mergeAggregateSummary(
   );
 }
 
-function buildAssignmentsMissingSampleRow(
+const VALID_INCOMING_REVIEW_REASONS: ReadonlySet<string> = new Set<ReviewReasonCode>([
+  'LOCALITY_MISMATCH',
+]);
+
+function buildExtendedMissingSampleRow(
   schema: KeyedDatasetSchemaSpec,
   dest: DestinationState,
   existingKey: string,
@@ -199,18 +203,23 @@ function buildAssignmentsMissingSampleRow(
   const existing = dest.byKey.get(existingKey);
   if (!existing) return null;
   const subCodeIdx = schema.fields.findIndex((f) => f.name === 'subdistrictCode');
-  const subNameIdx = schema.fields.findIndex((f) => f.name === 'subdistrictNameTh');
+  const subNameIdx = schema.fields.findIndex(
+    (f) => f.name === 'subdistrictNameTh' || f.name === 'subdistrictName',
+  );
+  const villageCodeIdx = schema.fields.findIndex((f) => f.name === 'villageCode');
   const villageNoIdx = schema.fields.findIndex((f) => f.name === 'villageNo');
   const villageNameIdx = schema.fields.findIndex((f) => f.name === 'villageName');
   const rawVillageName = villageNameIdx >= 0 ? cellToString(existing.cells[villageNameIdx]) : '';
+  const rawVillageCode = villageCodeIdx >= 0 ? cellToString(existing.cells[villageCodeIdx]) : '';
   return {
     diffKind: 'REVIEW',
     sourceKey: existing.key,
-    scopeLabel: formatAssignmentsScopeLabel({
+    scopeLabel: formatExtendedScopeLabel({
       subdistrictCode: subCodeIdx >= 0 ? cellToString(existing.cells[subCodeIdx]) : '',
-      subdistrictNameTh: subNameIdx >= 0 ? cellToString(existing.cells[subNameIdx]) : '',
+      subdistrictName: subNameIdx >= 0 ? cellToString(existing.cells[subNameIdx]) : '',
       villageNo: villageNoIdx >= 0 ? cellToString(existing.cells[villageNoIdx]) : '',
       villageName: rawVillageName.length > 0 ? rawVillageName : null,
+      villageCode: rawVillageCode.length > 0 ? rawVillageCode : undefined,
     }),
     minimizedAttributes: [],
     reviewReasons: ['MISSING_IN_SOURCE'],
@@ -222,19 +231,21 @@ function selectPrioritizedPreviewSamples(
   dest: DestinationState,
   candidates: readonly ExtendedSampleCandidate[],
   incomingDiffKindByKey: ReadonlyMap<string, 'INSERT' | 'UPDATE' | 'UNCHANGED'>,
+  incomingReviewReasonsByKey: ReadonlyMap<string, readonly ReviewReasonCode[]>,
   missingKeys: readonly string[],
 ): ExtendedMinimizedPreviewRow[] {
-  const reviewRows: ExtendedMinimizedPreviewRow[] = [];
+  const incomingReviewRows: ExtendedMinimizedPreviewRow[] = [];
+  const missingReviewRows: ExtendedMinimizedPreviewRow[] = [];
   const updateRows: ExtendedMinimizedPreviewRow[] = [];
   const insertRows: ExtendedMinimizedPreviewRow[] = [];
   const unchangedRows: ExtendedMinimizedPreviewRow[] = [];
   const seenSampleKeys = new Set<string>();
 
   for (const missingKey of missingKeys) {
-    if (reviewRows.length >= MAX_FINAL_PREVIEW_SAMPLES) break;
-    const missingRow = buildAssignmentsMissingSampleRow(schema, dest, missingKey);
+    if (missingReviewRows.length >= MAX_FINAL_PREVIEW_SAMPLES) break;
+    const missingRow = buildExtendedMissingSampleRow(schema, dest, missingKey);
     if (missingRow) {
-      reviewRows.push(missingRow);
+      missingReviewRows.push(missingRow);
     }
   }
 
@@ -250,6 +261,7 @@ function selectPrioritizedPreviewSamples(
     const diffKind = incomingDiffKindByKey.get(cand.sourceKey);
     if (!diffKind) continue;
     seenSampleKeys.add(cand.sourceKey);
+    const verifiedReasons = [...(incomingReviewReasonsByKey.get(cand.sourceKey) ?? [])];
     const row: ExtendedMinimizedPreviewRow = {
       diffKind,
       sourceKey: cand.sourceKey,
@@ -260,15 +272,32 @@ function selectPrioritizedPreviewSamples(
               a && typeof a.field === 'string' && (a.value === null || typeof a.value === 'string'),
           )
         : [],
-      reviewReasons: [],
+      reviewReasons: verifiedReasons,
     };
-    if (diffKind === 'UPDATE') updateRows.push(row);
+    if (verifiedReasons.length > 0) incomingReviewRows.push(row);
+    else if (diffKind === 'UPDATE') updateRows.push(row);
     else if (diffKind === 'INSERT') insertRows.push(row);
     else unchangedRows.push(row);
   }
 
-  // Prioritize REVIEW (MISSING_IN_SOURCE), UPDATE, and INSERT before UNCHANGED so actionable rows are never starved
-  return [...reviewRows, ...updateRows, ...insertRows, ...unchangedRows].slice(
+  // Balance incoming REVIEW (LOCALITY_MISMATCH) and destination REVIEW (MISSING_IN_SOURCE)
+  // so neither category can starve the other out of the capped 50-row preview sample
+  const halfBudget = Math.floor(MAX_FINAL_PREVIEW_SAMPLES / 2);
+  const incomingReviewBudget = Math.min(
+    incomingReviewRows.length,
+    Math.max(halfBudget, MAX_FINAL_PREVIEW_SAMPLES - missingReviewRows.length),
+  );
+  const missingReviewBudget = Math.min(
+    missingReviewRows.length,
+    MAX_FINAL_PREVIEW_SAMPLES - incomingReviewBudget,
+  );
+  const balancedReviewRows = [
+    ...incomingReviewRows.slice(0, incomingReviewBudget),
+    ...missingReviewRows.slice(0, missingReviewBudget),
+  ];
+
+  // Prioritize REVIEW (LOCALITY_MISMATCH & MISSING_IN_SOURCE), UPDATE, and INSERT before UNCHANGED
+  return [...balancedReviewRows, ...updateRows, ...insertRows, ...unchangedRows].slice(
     0,
     MAX_FINAL_PREVIEW_SAMPLES,
   );
@@ -295,7 +324,7 @@ export function previewDatasetBatchWithPlatform(
     const base = validateLargeContext(
       request.endpoint,
       platform,
-      'Batched preview is currently enabled for assignments.',
+      'Batched preview is enabled for assignments, resigned-volunteers, and volunteer-tenure.',
     );
     if (!base.ok) {
       return batchPreviewRpcError(base.code, base.message);
@@ -335,7 +364,8 @@ export function previewDatasetBatchWithPlatform(
         ? request.pageSize
         : DEFAULT_PAGE_SIZE;
 
-    const fetchResult = fetchAssignmentBatch({
+    const fetchResult = fetchLargeKeyedBatch({
+      endpoint: ctx.endpoint,
       token: request.token,
       fetchUrl: platform.fetchUrl,
       startPage: request.startPage,
@@ -367,7 +397,8 @@ export function previewDatasetBatchWithPlatform(
     }
 
     const rowIndexOffset = (fetchResult.startPage - 1) * effectivePageSize;
-    const projected = validateAndProjectAssignmentsRows(
+    const projected = validateAndProjectLargeKeyedRows(
+      ctx.endpoint,
       fetchResult.items,
       platform.sha256Hex,
       (rawId) => pseudoInit.pseudonymizer.deriveKey(ctx.endpoint, rawId),
@@ -386,12 +417,17 @@ export function previewDatasetBatchWithPlatform(
       };
     }
 
-    const rowDigests = projected.rows.map((r) => ({
-      key: r.key,
-      rowDigest: r.rowDigest,
-    }));
+    const rowDigests = projected.rows.map((r) =>
+      r.reviewReasons.length > 0
+        ? { key: r.key, rowDigest: r.rowDigest, reviewReasons: r.reviewReasons }
+        : { key: r.key, rowDigest: r.rowDigest },
+    );
 
-    const sampleCandidates: ExtendedSampleCandidate[] = projected.rows
+    const prioritizedBatchRows = [
+      ...projected.rows.filter((r) => r.reviewReasons.length > 0),
+      ...projected.rows.filter((r) => r.reviewReasons.length === 0),
+    ];
+    const sampleCandidates: ExtendedSampleCandidate[] = prioritizedBatchRows
       .slice(0, MAX_SAMPLE_CANDIDATES_PER_BATCH)
       .map((r) => ({
         sourceKey: r.key,
@@ -446,7 +482,7 @@ export function finalizePreviewWithPlatform(
     const base = validateLargeContext(
       request.endpoint,
       platform,
-      'Finalize preview is currently enabled for assignments.',
+      'Finalize preview is enabled for assignments, resigned-volunteers, and volunteer-tenure.',
     );
     if (!base.ok) {
       return finalizePreviewRpcError(base.code, base.message);
@@ -514,7 +550,13 @@ export function finalizePreviewWithPlatform(
 
     // Validate every accumulated (h1_key, sha256) pair and enforce cross-batch key uniqueness
     const seenKeys = new Set<string>();
-    const validDigests: Array<{ key: string; rowDigest: string }> = [];
+    const validDigests: Array<{
+      key: string;
+      rowDigest: string;
+      reviewReasons: ReviewReasonCode[];
+    }> = [];
+    const incomingReviewReasonsByKey = new Map<string, readonly ReviewReasonCode[]>();
+
     for (let i = 0; i < request.rowDigests.length; i++) {
       const entry = request.rowDigests[i];
       if (
@@ -538,6 +580,35 @@ export function finalizePreviewWithPlatform(
           logSummary.unresolvedRun,
         );
       }
+
+      const rowReviewReasons: ReviewReasonCode[] = [];
+      if (entry.reviewReasons !== undefined) {
+        const allowIncomingLocalityReview = ctx.schema.preserveSourceLocality === true;
+        if (
+          !Array.isArray(entry.reviewReasons) ||
+          (!allowIncomingLocalityReview && entry.reviewReasons.length > 0) ||
+          entry.reviewReasons.some(
+            (r) => typeof r !== 'string' || !VALID_INCOMING_REVIEW_REASONS.has(r),
+          )
+        ) {
+          return makeBlockedFinalizePreview(
+            ctx,
+            previewedAtUtc,
+            pagesFetched,
+            [
+              {
+                code: 'TYPE_MISMATCH',
+                message: `Malformed reviewReasons entry at row #${i + 1}.`,
+                rowIndex: i,
+              },
+            ],
+            logSummary.unresolvedRun,
+          );
+        }
+        const uniqueReasons = [...new Set(entry.reviewReasons as ReviewReasonCode[])];
+        rowReviewReasons.push(...uniqueReasons);
+      }
+
       if (seenKeys.has(entry.key)) {
         return makeBlockedFinalizePreview(
           ctx,
@@ -555,7 +626,14 @@ export function finalizePreviewWithPlatform(
         );
       }
       seenKeys.add(entry.key);
-      validDigests.push({ key: entry.key, rowDigest: entry.rowDigest });
+      if (rowReviewReasons.length > 0) {
+        incomingReviewReasonsByKey.set(entry.key, rowReviewReasons);
+      }
+      validDigests.push({
+        key: entry.key,
+        rowDigest: entry.rowDigest,
+        reviewReasons: rowReviewReasons,
+      });
     }
 
     const destResult = readDestinationState(spreadsheet, ctx.schema);
@@ -570,21 +648,17 @@ export function finalizePreviewWithPlatform(
     }
 
     const dest = destResult.state;
-    const { counts, incomingDiffKindByKey, missingKeys } = countKeyedDiffByDigest(
+    const { counts, reviewBreakdown, incomingDiffKindByKey, missingKeys } = countKeyedDiffByDigest(
       validDigests,
       dest,
     );
-
-    const reviewBreakdown: Partial<Record<ReviewReasonCode, number>> = {};
-    if (missingKeys.length > 0) {
-      reviewBreakdown.MISSING_IN_SOURCE = missingKeys.length;
-    }
 
     const sampleRows = selectPrioritizedPreviewSamples(
       ctx.schema,
       dest,
       Array.isArray(request.sampleCandidates) ? request.sampleCandidates : [],
       incomingDiffKindByKey,
+      incomingReviewReasonsByKey,
       missingKeys,
     );
 
@@ -673,7 +747,7 @@ export function stageLargeDatasetBatchWithPlatform(
     const base = validateLargeContext(
       request.endpoint,
       platform,
-      'Multi-batch staging commit is currently enabled for assignments.',
+      'Multi-batch staging commit is enabled for assignments, resigned-volunteers, and volunteer-tenure.',
     );
     if (!base.ok) {
       return { ok: false, error: { code: base.code, message: base.message } };
@@ -806,7 +880,8 @@ export function stageLargeDatasetBatchWithPlatform(
             ? request.pageSize
             : DEFAULT_PAGE_SIZE);
 
-        const fetchResult = fetchAssignmentBatch({
+        const fetchResult = fetchLargeKeyedBatch({
+          endpoint: ctx.endpoint,
           token: request.token,
           fetchUrl: platform.fetchUrl,
           startPage: request.startPage,
@@ -842,7 +917,8 @@ export function stageLargeDatasetBatchWithPlatform(
         }
 
         const rowIndexOffset = (fetchResult.startPage - 1) * effectivePageSize;
-        const projected = validateAndProjectAssignmentsRows(
+        const projected = validateAndProjectLargeKeyedRows(
+          ctx.endpoint,
           fetchResult.items,
           platform.sha256Hex,
           (rawId) => pseudonymizer!.deriveKey(ctx.endpoint, rawId),
@@ -853,7 +929,7 @@ export function stageLargeDatasetBatchWithPlatform(
           return makeCommitStop(
             ctx,
             first?.code ?? 'TYPE_MISMATCH',
-            first?.message ?? 'Re-fetched assignments batch failed schema validation.',
+            first?.message ?? `Re-fetched ${ctx.endpoint} batch failed schema validation.`,
             { runId: request.runId ?? null, stagingTabRetained: existingStageTabName },
           );
         }
@@ -983,7 +1059,7 @@ export function finalizeLargeDatasetCommitWithPlatform(
     const base = validateLargeContext(
       request.endpoint,
       platform,
-      'Multi-batch commit finalization is currently enabled for assignments.',
+      'Multi-batch commit finalization is enabled for assignments, resigned-volunteers, and volunteer-tenure.',
     );
     if (!base.ok) {
       return { ok: false, error: { code: base.code, message: base.message } };
@@ -1085,16 +1161,22 @@ export function finalizeLargeDatasetCommitWithPlatform(
           logSummary,
           platform.sha256Hex,
         );
+        const { counts: diffCounts } = countKeyedDiffByDigest(verifiedStage.rows, destResult.state);
+        const countsChanged =
+          diffCounts.insert !== expectedFp.counts.insert ||
+          diffCounts.update !== expectedFp.counts.update ||
+          diffCounts.unchanged !== expectedFp.counts.unchanged ||
+          diffCounts.review !== expectedFp.counts.review;
         const sourceChanged =
           verifiedStage.rows.length !== expectedFp.sourceTotal ||
           verifiedStage.datasetDigest !== expectedFp.datasetDigest;
         const destChanged = currentSheetRevision !== expectedFp.sheetRevisionFingerprint;
 
-        if (sourceChanged || destChanged) {
+        if (sourceChanged || destChanged || countsChanged) {
           const driftReason: StaleDriftReason =
-            sourceChanged && destChanged
+            (sourceChanged || countsChanged) && destChanged
               ? 'BOTH_CHANGED'
-              : sourceChanged
+              : sourceChanged || countsChanged
                 ? 'SOURCE_CHANGED'
                 : 'DESTINATION_CHANGED';
           return {
@@ -1112,8 +1194,6 @@ export function finalizeLargeDatasetCommitWithPlatform(
             },
           };
         }
-
-        const { counts: diffCounts } = countKeyedDiffByDigest(verifiedStage.rows, destResult.state);
 
         return executeVerifiedKeyedWrite({
           ctx,

@@ -14,7 +14,7 @@ export type ReferenceDatasetEndpoint = 'subdistricts' | 'villages' | 'health-ser
 
 export type SmallKeyedDatasetEndpoint = ReferenceDatasetEndpoint | 'volunteer-gender';
 
-export type LargeKeyedDatasetEndpoint = 'assignments';
+export type LargeKeyedDatasetEndpoint = 'assignments' | 'resigned-volunteers' | 'volunteer-tenure';
 
 export type DatasetGroup = 'reference' | 'extended_report';
 
@@ -48,7 +48,8 @@ export type SyncRpcErrorCode =
 
 export type DiffKind = 'INSERT' | 'UPDATE' | 'UNCHANGED' | 'REVIEW';
 
-export type ReviewReasonCode = 'MISSING_IN_SOURCE' | 'PLACEHOLDER_COORDS' | 'SMALL_CELL_SUPPRESSED';
+export type ReviewReasonCode =
+  'MISSING_IN_SOURCE' | 'LOCALITY_MISMATCH' | 'PLACEHOLDER_COORDS' | 'SMALL_CELL_SUPPRESSED';
 
 export type PreviewStopCode =
   | 'HTTP_403'
@@ -273,6 +274,7 @@ export type PreviewDatasetResponse =
 export interface PreviewRowDigestEntry {
   key: string;
   rowDigest: string;
+  reviewReasons?: ReviewReasonCode[];
 }
 
 export interface ExtendedSampleCandidate {

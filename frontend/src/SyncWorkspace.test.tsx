@@ -281,7 +281,11 @@ describe('Reference Datasets Repeatable Sync (Frontend GasRpcTransport Seam)', (
         new Promise((resolve) => {
           resolveDeferredPreview = resolve;
         }),
+      previewDatasetBatch: (req) => baseMock.previewDatasetBatch(req),
+      finalizePreview: (req) => baseMock.finalizePreview(req),
       commitSmallDataset: (req) => baseMock.commitSmallDataset(req),
+      stageLargeDatasetBatch: (req) => baseMock.stageLargeDatasetBatch(req),
+      finalizeLargeDatasetCommit: (req) => baseMock.finalizeLargeDatasetCommit(req),
     };
 
     const cancelRender = renderApp(deferredPreviewTransport);
@@ -327,10 +331,14 @@ describe('Reference Datasets Repeatable Sync (Frontend GasRpcTransport Seam)', (
       mode: 'mock',
       getDashboardStatus: () => baseMock.getDashboardStatus(),
       previewDataset: async () => unresolvedPreview,
+      previewDatasetBatch: (req) => baseMock.previewDatasetBatch(req),
+      finalizePreview: (req) => baseMock.finalizePreview(req),
       commitSmallDataset: async (req) => {
         commitCalls.push({ acknowledgeUnresolvedRunId: req.acknowledgeUnresolvedRunId });
         return baseMock.commitSmallDataset(req);
       },
+      stageLargeDatasetBatch: (req) => baseMock.stageLargeDatasetBatch(req),
+      finalizeLargeDatasetCommit: (req) => baseMock.finalizeLargeDatasetCommit(req),
     };
 
     renderApp(unresolvedTransport);
@@ -520,5 +528,224 @@ describe('Reference Datasets Repeatable Sync (Frontend GasRpcTransport Seam)', (
     await user.click(confirmAction);
 
     expect(await screen.findByText(/ซิงก์และตรวจสอบ Destination Readback สำเร็จ/)).toBeInTheDocument();
+  });
+
+  it('orchestrates sequential multi-batch assignments Preview with live role="status" progress, supports immediate Cancel Preview mid-batch with zero writes, renders LEGACY_F010_SNAPSHOT_PRESENT (RAssign_*) & minimized h1_ samples, and commits via hidden _Stage_* cleanup', async () => {
+    const user = userEvent.setup();
+    const baseMock = new MockGasTransport({ scenario: 'sandbox-assignments-legacy' });
+
+    // 1. Mid-batch Cancel Preview: pause batch 1 -> resolve batch 1 (updating role="status" progress) -> pause batch 2 -> click Cancel Preview -> zero further calls and zero finalize/commit!
+    let resolveBatch1:
+      ((val: Awaited<ReturnType<GasRpcTransport['previewDatasetBatch']>>) => void) | null = null;
+    let resolveBatch2:
+      ((val: Awaited<ReturnType<GasRpcTransport['previewDatasetBatch']>>) => void) | null = null;
+    const batchCalls: number[] = [];
+    const finalizePreviewSpy = vi.fn(baseMock.finalizePreview.bind(baseMock));
+    const stageSpy = vi.fn(baseMock.stageLargeDatasetBatch.bind(baseMock));
+
+    const cancelBatchTransport: GasRpcTransport = {
+      mode: 'mock',
+      getDashboardStatus: () => baseMock.getDashboardStatus(),
+      previewDataset: (req) => baseMock.previewDataset(req),
+      previewDatasetBatch: (req) => {
+        batchCalls.push(req.startPage);
+        if (req.startPage === 1) {
+          return new Promise((resolve) => {
+            resolveBatch1 = resolve;
+          });
+        }
+        return new Promise((resolve) => {
+          resolveBatch2 = resolve;
+        });
+      },
+      finalizePreview: finalizePreviewSpy,
+      commitSmallDataset: (req) => baseMock.commitSmallDataset(req),
+      stageLargeDatasetBatch: stageSpy,
+      finalizeLargeDatasetCommit: (req) => baseMock.finalizeLargeDatasetCommit(req),
+    };
+
+    const cancelRender = renderApp(cancelBatchTransport);
+    await openSyncWorkspace(user);
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole('radio', { name: /การมอบหมายงาน อสม\./ }));
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+
+    await waitFor(() => expect(batchCalls).toEqual([1]));
+    const realBatch1 = await baseMock.previewDatasetBatch({
+      endpoint: 'assignments',
+      token: VALID_TOKEN,
+      startPage: 1,
+      batchPages: 10,
+      pageSize: 100,
+    });
+    await act(async () => {
+      resolveBatch1!(realBatch1);
+    });
+
+    // Live contextual role="status" updates after batch 1 completes (pages 10 / 16 · 1,000 / 1,571 rows)
+    expect(await screen.findByText(/หน้า 10 \/ 16 · ดึงแล้ว 1,000 \/ 1,571 แถว/)).toBeInTheDocument();
+    await waitFor(() => expect(batchCalls).toEqual([1, 11]));
+
+    // Click Cancel Preview mid-batch -> immediately cancels with zero finalize & zero Sheets writes
+    await user.click(screen.getByRole('button', { name: /ยกเลิก Preview/ }));
+    expect(
+      screen.getByText(/ยกเลิก Preview แล้ว — ไม่มีการเปลี่ยนแปลงใน Google Sheets/),
+    ).toBeInTheDocument();
+
+    // Immediately restart Preview BEFORE cancelled batch 2 resolves -> stale batch 2 settlement must NOT clear the restarted preview's progress!
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+    await waitFor(() => expect(batchCalls).toEqual([1, 11, 1]));
+
+    const realBatch2 = await baseMock.previewDatasetBatch({
+      endpoint: 'assignments',
+      token: VALID_TOKEN,
+      startPage: 11,
+      batchPages: 10,
+      pageSize: 100,
+      expectedSourceTotal: 1571,
+    });
+    await act(async () => {
+      resolveBatch2!(realBatch2);
+    });
+    expect(screen.getByText(/กำลังดึงข้อมูล assignments \(Batch ที่ 1\)/)).toBeInTheDocument();
+    expect(finalizePreviewSpy).not.toHaveBeenCalled();
+    expect(stageSpy).not.toHaveBeenCalled();
+
+    // Unmounting SyncWorkspace mid-preview (e.g., navigating back to Dashboard) aborts further batch calls
+    cancelRender.unmount();
+    await act(async () => {
+      resolveBatch1!(realBatch1);
+    });
+    expect(batchCalls).toEqual([1, 11, 1]);
+    expect(finalizePreviewSpy).not.toHaveBeenCalled();
+
+    // 2. Full end-to-end assignments batched preview -> LEGACY_F010_SNAPSHOT_PRESENT (RAssign_*) -> multi-batch _Stage_* commit -> COMMITTED_VERIFIED with _Stage_* cleaned checklist item
+    const fullMock = new MockGasTransport({ scenario: 'sandbox-assignments-legacy' });
+    const stageCallSpy = vi.spyOn(fullMock, 'stageLargeDatasetBatch');
+    const finalizeCommitSpy = vi.spyOn(fullMock, 'finalizeLargeDatasetCommit');
+
+    renderApp(fullMock);
+    await openSyncWorkspace(user);
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole('radio', { name: /การมอบหมายงาน อสม\./ }));
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+
+    expect(
+      await screen.findByText(/ขอบเขตคุ้มครองข้อมูลส่วนบุคคล \(Minimized Projection\)/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/LEGACY_F010_SNAPSHOT_PRESENT/)).toBeInTheDocument();
+    expect(screen.getByText(/RAssign_f010_20261119/)).toBeInTheDocument();
+    // Strictly minimized h1_ pseudonym shown, zero raw PII
+    expect(screen.getAllByText(/h1_/).length).toBeGreaterThanOrEqual(1);
+    expect(document.body.textContent).not.toMatch(/citizenId|firstName|lastName|fullName|osmCode/);
+
+    await user.click(screen.getByRole('button', { name: /ตรวจสอบและยืนยันการบันทึก \(SANDBOX\)/ }));
+    await user.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: /ยืนยันบันทึกข้อมูล/ }),
+    );
+
+    expect(await screen.findByText(/ซิงก์และตรวจสอบ Destination Readback สำเร็จ/)).toBeInTheDocument();
+    expect(screen.getByText(/ลบแท็บพักชั่วคราว _Stage_\* หลังตรวจสอบผ่านเรียบร้อย/)).toBeInTheDocument();
+    expect(stageCallSpy).toHaveBeenCalledTimes(2);
+    expect(finalizeCommitSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('displays F010 THAIPHC_HMAC_KEY_B64 continuity reminder in PRODUCTION Confirmation Gate, handles UNRESOLVED_PREVIOUS_RUN recovery, PREVIEW_STALE_RECONFIRM_REQUIRED, and retains _Stage_* tab on UNKNOWN_OUTCOME_STOP', async () => {
+    const user = userEvent.setup();
+
+    // 1. PRODUCTION with UNRESOLVED_PREVIOUS_RUN on assignments -> F010 THAIPHC_HMAC_KEY_B64 continuity reminder + unresolved ack + typed phrase -> COMMITTED_VERIFIED
+    const prodUnresolvedMock = new MockGasTransport({ scenario: 'production-unresolved' });
+    const stageSpy = vi.spyOn(prodUnresolvedMock, 'stageLargeDatasetBatch');
+    const first = renderApp(prodUnresolvedMock);
+
+    // Navigate from Dashboard priority UNRESOLVED_PREVIOUS_RUN alert directly to assignments
+    const dashAlert = await screen.findByRole('alert');
+    await user.click(within(dashAlert).getByRole('button', { name: /เปิดชุดข้อมูลในพื้นที่ซิงก์/ }));
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+
+    expect(
+      await screen.findByText(/พบรอบซิงก์ก่อนหน้าค้างอยู่ \(UNRESOLVED_PREVIOUS_RUN\)/),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/THAIPHC_HMAC_KEY_B64/).length).toBeGreaterThanOrEqual(1);
+
+    const openProdBtn = screen.getByRole('button', {
+      name: /ดำเนินการยืนยันการบันทึก \(PRODUCTION\)/,
+    });
+    expect(openProdBtn).toBeDisabled();
+    await user.click(screen.getByRole('checkbox'));
+    expect(openProdBtn).toBeEnabled();
+
+    await user.click(openProdBtn);
+    const prodDialog = screen.getByRole('alertdialog');
+    // Continuity reminder visible inside PRODUCTION dialog before typed confirmation
+    expect(within(prodDialog).getByText(/THAIPHC_HMAC_KEY_B64/)).toBeInTheDocument();
+    const confirmAction = within(prodDialog).getByRole('button', {
+      name: /ยืนยันบันทึกข้อมูลลง PRODUCTION/,
+    });
+    expect(confirmAction).toBeDisabled();
+
+    await user.type(
+      within(prodDialog).getByLabelText(/พิมพ์ข้อความด้านบนให้ตรงทุกตัวอักษร/),
+      'PRODUCTION 5406 assignments',
+    );
+    expect(confirmAction).toBeEnabled();
+    await user.click(confirmAction);
+
+    expect(await screen.findByText(/ซิงก์และตรวจสอบ Destination Readback สำเร็จ/)).toBeInTheDocument();
+    expect(stageSpy.mock.calls[0][0].acknowledgeUnresolvedRunId).toBe(
+      'run_20261121_0915_assign_7c9a2e',
+    );
+    first.unmount();
+
+    // 2. PREVIEW_STALE_RECONFIRM_REQUIRED on assignments commit finalize
+    const staleRender = renderApp(
+      new MockGasTransport({
+        scenario: 'sandbox-assignments-legacy',
+        commitOutcome: 'preview-stale',
+      }),
+    );
+    await openSyncWorkspace(user);
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole('radio', { name: /การมอบหมายงาน อสม\./ }));
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+    await screen.findByRole('heading', { level: 2, name: /Preview Fingerprint/ });
+
+    await user.click(screen.getByRole('button', { name: /ตรวจสอบและยืนยันการบันทึก \(SANDBOX\)/ }));
+    await user.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: /ยืนยันบันทึกข้อมูล/ }),
+    );
+    const staleAlert = await screen.findByRole('alert');
+    expect(within(staleAlert).getByText(/PREVIEW_STALE_RECONFIRM_REQUIRED/)).toBeInTheDocument();
+    staleRender.unmount();
+
+    // 3. UNKNOWN_OUTCOME_STOP retains _Stage_assignments_* tab name in diagnostic panel with zero Retry Commit
+    renderApp(
+      new MockGasTransport({
+        scenario: 'sandbox-assignments-legacy',
+        commitOutcome: 'unknown-outcome',
+      }),
+    );
+    await openSyncWorkspace(user);
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole('radio', { name: /การมอบหมายงาน อสม\./ }));
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+    await screen.findByRole('heading', { level: 2, name: /Preview Fingerprint/ });
+
+    await user.click(screen.getByRole('button', { name: /ตรวจสอบและยืนยันการบันทึก \(SANDBOX\)/ }));
+    await user.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: /ยืนยันบันทึกข้อมูล/ }),
+    );
+    const stopAlert = await screen.findByRole('alert');
+    expect(within(stopAlert).getByText(/UNKNOWN_OUTCOME_STOP/)).toBeInTheDocument();
+    expect(within(stopAlert).getByText(/_Stage_assignments_/)).toBeInTheDocument();
+    expect(
+      within(stopAlert).queryByRole('button', { name: /Retry|ลองเขียนซ้ำ/i }),
+    ).not.toBeInTheDocument();
   });
 });

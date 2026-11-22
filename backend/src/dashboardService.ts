@@ -1,4 +1,5 @@
 import { DATASET_CATALOG } from './datasetCatalog.ts';
+import { isCanonicalHmacKeySyntax } from './pseudonymizer.ts';
 import {
   detectLegacySnapshot,
   isValidSpreadsheetId,
@@ -21,14 +22,8 @@ import type {
 
 export type { DashboardPlatform } from './types.ts';
 
-const HMAC_KEY_B64_PATTERN = /^[A-Za-z0-9+/]{43}=$/;
-
 function fail(code: DashboardErrorCode, message: string): DashboardStatusResponse {
   return { ok: false, error: { code, message } };
-}
-
-function isValidHmacKey(value: string | null): boolean {
-  return typeof value === 'string' && HMAC_KEY_B64_PATTERN.test(value);
 }
 
 function mapLogStatus(entry: SyncLogEntry | undefined): DatasetLastStatus {
@@ -125,7 +120,9 @@ export function getDashboardStatusWithPlatform(
     const writeEnabled = platform.getProperty('THAIPHC_WRITE_ENABLED') === 'true';
     const personDataWriteEnabled =
       platform.getProperty('THAIPHC_PERSON_DATA_WRITE_ENABLED') === 'true';
-    const hmacKeyConfigured = isValidHmacKey(platform.getProperty('THAIPHC_HMAC_KEY_B64'));
+    const hmacKeyConfigured = isCanonicalHmacKeySyntax(
+      platform.getProperty('THAIPHC_HMAC_KEY_B64'),
+    );
 
     const referenceSyncLogs = readSyncLogLatestMap(referenceSpreadsheet);
     const reportSyncLogs = usesSameSpreadsheet

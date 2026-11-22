@@ -8,7 +8,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useEffect, useRef } from 'react';
-import type { CommitSmallDatasetData, DatasetEndpoint, StaleDriftReason } from '@/api/types';
+import type { CommitDatasetData, DatasetEndpoint, StaleDriftReason } from '@/api/types';
 import { CopyableIdentifier } from '@/components/CopyableIdentifier';
 import { EnvironmentBadge } from '@/components/StatusBadges';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -17,6 +17,17 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { formatBangkokDateTime } from '@/lib/formatters';
+import { cn } from '@/lib/utils';
+
+export interface CommitBatchProgress {
+  phase: 'staging' | 'finalizing';
+  batchNumber: number;
+  pagesStaged: number;
+  totalPages: number | null;
+  rowsStaged: number;
+  sourceTotal: number;
+  stagingTabName: string | null;
+}
 
 const DRIFT_LABELS: Record<StaleDriftReason, string> = {
   SOURCE_CHANGED: 'ข้อมูลต้นทางจาก ThaiPHC (sourceTotal / datasetDigest) เปลี่ยนแปลงหลัง Preview',
@@ -25,13 +36,43 @@ const DRIFT_LABELS: Record<StaleDriftReason, string> = {
   ENV_MISMATCH: 'สภาพแวดล้อม (THAIPHC_ENV) เปลี่ยนแปลงหลัง Preview',
 };
 
-export function CommitProgressCard({ endpoint }: { endpoint: DatasetEndpoint }) {
+export function CommitProgressCard({
+  endpoint,
+  batchProgress = null,
+}: {
+  endpoint: DatasetEndpoint;
+  batchProgress?: CommitBatchProgress | null;
+}) {
   const steps = [
     '1. ตรวจ LockService & Preview Fingerprint',
-    '2. จัดเตรียมข้อมูล / เขียนปลายทาง (Keyed Upsert)',
+    batchProgress
+      ? '2. จัดเตรียมแท็บซ่อน (_Stage_*) / เขียนปลายทาง'
+      : '2. จัดเตรียมข้อมูล / เขียนปลายทาง (Keyed Upsert)',
     '3. อ่านตรวจซ้ำปลายทาง (Destination Readback)',
     '4. บันทึก _ThaiPHCSyncLog & ปิดงาน',
   ];
+
+  const progressValue =
+    batchProgress && batchProgress.phase === 'staging' && batchProgress.totalPages
+      ? Math.min(90, Math.round((batchProgress.pagesStaged / batchProgress.totalPages) * 90))
+      : null;
+
+  let statusText: string;
+  if (!batchProgress) {
+    statusText =
+      'กำลังตรวจ Preview Fingerprint ภายใต้ LockService และดำเนินการ Keyed Upsert + Destination Readback...';
+  } else if (batchProgress.phase === 'staging') {
+    const tabPart = batchProgress.stagingTabName ? ` (${batchProgress.stagingTabName})` : '';
+    if (batchProgress.totalPages !== null && batchProgress.pagesStaged > 0) {
+      statusText = `กำลังจัดเตรียมข้อมูลลงแท็บซ่อน${tabPart} — หน้า ${batchProgress.pagesStaged.toLocaleString('en-US')} / ${batchProgress.totalPages.toLocaleString('en-US')} · จัดเก็บแล้ว ${batchProgress.rowsStaged.toLocaleString('en-US')} / ${batchProgress.sourceTotal.toLocaleString('en-US')} แถว (Batch ที่ ${batchProgress.batchNumber})`;
+    } else {
+      statusText = `กำลังจัดเตรียมข้อมูลลงแท็บซ่อน _Stage_${endpoint}_* (Batch ที่ ${batchProgress.batchNumber}) ภายใต้ LockService...`;
+    }
+  } else {
+    statusText = `กำลังตรวจ Staged Digest & Preview Fingerprint ซ้ำภายใต้ LockService, ดำเนินการ Keyed Upsert ลงปลายทาง, และตรวจสอบ Destination Readback...`;
+  }
+
+  const activeStepIdx = !batchProgress ? 1 : batchProgress.phase === 'staging' ? 1 : 2;
 
   return (
     <Card className="border-primary-soft-border">
@@ -41,21 +82,29 @@ export function CommitProgressCard({ endpoint }: { endpoint: DatasetEndpoint }) 
         </h2>
 
         <ol className="grid grid-cols-1 md:grid-cols-4 gap-2 text-xs">
-          {steps.map((step) => (
+          {steps.map((step, idx) => (
             <li
               key={step}
-              className="rounded-md border border-border bg-muted/60 px-3 py-2 font-medium text-foreground"
+              className={cn(
+                'rounded-md border px-3 py-2 font-medium',
+                idx === activeStepIdx
+                  ? 'border-primary bg-primary-soft text-primary-soft-foreground'
+                  : 'border-border bg-muted/60 text-foreground',
+              )}
             >
               {step}
             </li>
           ))}
         </ol>
 
-        <Progress value={null} label={`กำลังบันทึกข้อมูล ${endpoint}`} />
+        <Progress value={progressValue} label={`กำลังบันทึกข้อมูล ${endpoint}`} />
 
-        <p role="status" aria-atomic="true" className="text-sm font-medium text-foreground">
-          กำลังตรวจ Preview Fingerprint ภายใต้ LockService และดำเนินการ Keyed Upsert + Destination
-          Readback...
+        <p
+          role="status"
+          aria-atomic="true"
+          className="font-mono text-sm font-medium tabular-nums text-foreground"
+        >
+          {statusText}
         </p>
 
         <p className="flex items-start gap-2 text-xs font-medium text-diff-review-fg">
@@ -68,7 +117,7 @@ export function CommitProgressCard({ endpoint }: { endpoint: DatasetEndpoint }) 
 }
 
 interface CommitOutcomePanelProps {
-  outcome: CommitSmallDatasetData;
+  outcome: CommitDatasetData;
   onSyncNextDataset: () => void;
   onBackToDashboard: () => void;
   onRunFreshPreview: () => void;
@@ -237,6 +286,16 @@ export function CommitOutcomePanel({
                   แท็บอื่นทั้งหมดและแท็บ <code className="font-mono">ชีต1</code> ยังอยู่ครบถ้วนไม่ถูกกระทบ
                 </span>
               </li>
+              {rb.stagingTabCleaned === true && (
+                <li className="flex items-center gap-2">
+                  <CheckCircle2
+                    className="size-4 shrink-0 text-status-verified-fg"
+                    strokeWidth={1.75}
+                    aria-hidden="true"
+                  />
+                  <span>ลบแท็บพักชั่วคราว _Stage_* หลังตรวจสอบผ่านเรียบร้อย</span>
+                </li>
+              )}
             </ul>
           </div>
 
@@ -333,6 +392,16 @@ export function CommitOutcomePanel({
           <span className="text-muted-foreground">สถานะใน _ThaiPHCSyncLog:</span>{' '}
           <code className="font-mono font-semibold">{outcome.syncLogStatus}</code>
         </p>
+        {outcome.stagingTabRetained && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-muted-foreground">แท็บพักซ่อนที่คงไว้เพื่อตรวจสอบ:</span>
+            <CopyableIdentifier
+              value={outcome.stagingTabRetained}
+              label="แท็บซ่อน _Stage_*"
+              maxWidthClass="max-w-xs"
+            />
+          </div>
+        )}
         <p className="text-xs text-muted-foreground">
           หากรอบนี้สร้างแท็บพักชั่วคราว (_Stage_*) ระบบจะคงซ่อนแท็บไว้ในสมุดงานเพื่อให้ตรวจสอบ ไม่ลบทิ้งอัตโนมัติ
         </p>

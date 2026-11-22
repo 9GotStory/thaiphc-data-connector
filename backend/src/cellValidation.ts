@@ -89,8 +89,7 @@ export function validateKeyedRowPreamble(
       ok: false,
       diagnostic: {
         code: 'UNEXPECTED_FIELD',
-        message: `Row #${rowIndex + 1} contains unexpected schema field "${unexpectedKeys[0]}".`,
-        field: unexpectedKeys[0],
+        message: `Row #${rowIndex + 1} contains an unexpected source schema field.`,
         rowIndex,
       },
     };

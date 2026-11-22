@@ -1,23 +1,35 @@
 import {
   buildMockCommitEnvelope,
   buildMockDashboardEnvelope,
+  buildMockFinalizeLargeCommitEnvelope,
+  buildMockFinalizePreviewEnvelope,
+  buildMockPreviewBatchEnvelope,
   buildMockPreviewEnvelope,
+  buildMockStageLargeBatchEnvelope,
   type MockCommitOutcome,
   type MockPreviewOutcome,
   type MockScenario,
 } from './mockFixtures';
 import {
   GasRpcClientError,
-  type CommitSmallDatasetData,
+  type CommitDatasetData,
   type CommitSmallDatasetRequest,
   type DashboardStatusData,
+  type FinalizeLargeDatasetCommitRequest,
+  type FinalizePreviewRequest,
+  type PreviewDatasetBatchData,
+  type PreviewDatasetBatchRequest,
   type PreviewDatasetData,
   type PreviewDatasetRequest,
+  type StageLargeDatasetBatchData,
+  type StageLargeDatasetBatchRequest,
 } from './types';
 import {
-  parseCommitSmallDatasetResponse,
+  parseCommitDatasetResponse,
   parseDashboardStatusResponse,
+  parsePreviewDatasetBatchResponse,
   parsePreviewDatasetResponse,
+  parseStageLargeDatasetBatchResponse,
 } from './validators';
 
 export { GasRpcClientError } from './types';
@@ -28,14 +40,26 @@ export interface GoogleScriptRunner {
   withFailureHandler(callback: (error: unknown) => void): GoogleScriptRunner;
   getDashboardStatus(): void;
   previewDataset(request: PreviewDatasetRequest): void;
+  previewDatasetBatch(request: PreviewDatasetBatchRequest): void;
+  finalizePreview(request: FinalizePreviewRequest): void;
   commitSmallDataset(request: CommitSmallDatasetRequest): void;
+  stageLargeDatasetBatch(request: StageLargeDatasetBatchRequest): void;
+  finalizeLargeDatasetCommit(request: FinalizeLargeDatasetCommitRequest): void;
 }
 
 export interface GasRpcTransport {
   readonly mode: 'gas' | 'mock';
   getDashboardStatus(): Promise<DashboardStatusData>;
   previewDataset(request: PreviewDatasetRequest): Promise<PreviewDatasetData>;
-  commitSmallDataset(request: CommitSmallDatasetRequest): Promise<CommitSmallDatasetData>;
+  previewDatasetBatch(request: PreviewDatasetBatchRequest): Promise<PreviewDatasetBatchData>;
+  finalizePreview(request: FinalizePreviewRequest): Promise<PreviewDatasetData>;
+  commitSmallDataset(request: CommitSmallDatasetRequest): Promise<CommitDatasetData>;
+  stageLargeDatasetBatch(
+    request: StageLargeDatasetBatchRequest,
+  ): Promise<StageLargeDatasetBatchData>;
+  finalizeLargeDatasetCommit(
+    request: FinalizeLargeDatasetCommitRequest,
+  ): Promise<CommitDatasetData>;
 }
 
 declare global {
@@ -105,12 +129,52 @@ export class GoogleScriptRunTransport implements GasRpcTransport {
     );
   }
 
-  commitSmallDataset(request: CommitSmallDatasetRequest): Promise<CommitSmallDatasetData> {
+  previewDatasetBatch(request: PreviewDatasetBatchRequest): Promise<PreviewDatasetBatchData> {
+    return runGasCall(
+      this.getRunner,
+      (runner) => runner.previewDatasetBatch(request),
+      parsePreviewDatasetBatchResponse,
+      'ไม่สามารถติดต่อเซิร์ฟเวอร์ Google Apps Script ระหว่าง Batched Preview ได้ (ไม่มีการเขียนชีต)',
+    );
+  }
+
+  finalizePreview(request: FinalizePreviewRequest): Promise<PreviewDatasetData> {
+    return runGasCall(
+      this.getRunner,
+      (runner) => runner.finalizePreview(request),
+      parsePreviewDatasetResponse,
+      'ไม่สามารถสรุปผล Preview จาก Google Apps Script ได้ (ไม่มีการเขียนชีต)',
+    );
+  }
+
+  commitSmallDataset(request: CommitSmallDatasetRequest): Promise<CommitDatasetData> {
     return runGasCall(
       this.getRunner,
       (runner) => runner.commitSmallDataset(request),
-      parseCommitSmallDatasetResponse,
+      parseCommitDatasetResponse,
       'การสื่อสารกับ Google Apps Script ขาดหายระหว่าง Commit (UNKNOWN_OUTCOME_STOP) กรุณาตรวจสอบชีตปลายทางและ _ThaiPHCSyncLog ห้ามกดลองซ้ำอัตโนมัติ',
+    );
+  }
+
+  stageLargeDatasetBatch(
+    request: StageLargeDatasetBatchRequest,
+  ): Promise<StageLargeDatasetBatchData> {
+    return runGasCall(
+      this.getRunner,
+      (runner) => runner.stageLargeDatasetBatch(request),
+      parseStageLargeDatasetBatchResponse,
+      'การสื่อสารกับ Google Apps Script ขาดหายระหว่างจัดเตรียมแท็บซ่อน _Stage_* (UNKNOWN_OUTCOME_STOP) กรุณาตรวจสอบสมุดงานปลายทาง ห้ามกดลองซ้ำอัตโนมัติ',
+    );
+  }
+
+  finalizeLargeDatasetCommit(
+    request: FinalizeLargeDatasetCommitRequest,
+  ): Promise<CommitDatasetData> {
+    return runGasCall(
+      this.getRunner,
+      (runner) => runner.finalizeLargeDatasetCommit(request),
+      parseCommitDatasetResponse,
+      'การสื่อสารกับ Google Apps Script ขาดหายระหว่าง Finalize Commit (UNKNOWN_OUTCOME_STOP) กรุณาตรวจสอบแท็บปลายทาง, แท็บซ่อน _Stage_*, และ _ThaiPHCSyncLog ห้ามกดลองซ้ำอัตโนมัติ',
     );
   }
 }
@@ -159,10 +223,38 @@ export class MockGasTransport implements GasRpcTransport {
     return parsePreviewDatasetResponse(raw);
   }
 
-  async commitSmallDataset(request: CommitSmallDatasetRequest): Promise<CommitSmallDatasetData> {
+  async previewDatasetBatch(request: PreviewDatasetBatchRequest): Promise<PreviewDatasetBatchData> {
+    await this.waitDelay();
+    const raw = buildMockPreviewBatchEnvelope(request, this.scenario, this.previewOutcome);
+    return parsePreviewDatasetBatchResponse(raw);
+  }
+
+  async finalizePreview(request: FinalizePreviewRequest): Promise<PreviewDatasetData> {
+    await this.waitDelay();
+    const raw = buildMockFinalizePreviewEnvelope(request, this.scenario, this.previewOutcome);
+    return parsePreviewDatasetResponse(raw);
+  }
+
+  async commitSmallDataset(request: CommitSmallDatasetRequest): Promise<CommitDatasetData> {
     await this.waitDelay();
     const raw = buildMockCommitEnvelope(request, this.scenario, this.commitOutcome);
-    return parseCommitSmallDatasetResponse(raw);
+    return parseCommitDatasetResponse(raw);
+  }
+
+  async stageLargeDatasetBatch(
+    request: StageLargeDatasetBatchRequest,
+  ): Promise<StageLargeDatasetBatchData> {
+    await this.waitDelay();
+    const raw = buildMockStageLargeBatchEnvelope(request, this.scenario, this.commitOutcome);
+    return parseStageLargeDatasetBatchResponse(raw);
+  }
+
+  async finalizeLargeDatasetCommit(
+    request: FinalizeLargeDatasetCommitRequest,
+  ): Promise<CommitDatasetData> {
+    await this.waitDelay();
+    const raw = buildMockFinalizeLargeCommitEnvelope(request, this.scenario, this.commitOutcome);
+    return parseCommitDatasetResponse(raw);
   }
 }
 
@@ -170,6 +262,7 @@ const VALID_MOCK_SCENARIOS: ReadonlySet<string> = new Set<MockScenario>([
   'sandbox-default',
   'sandbox-writable',
   'sandbox-report-writable',
+  'sandbox-assignments-legacy',
   'production-unresolved',
   'production-writable',
   'production-report-writable',

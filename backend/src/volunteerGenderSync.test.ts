@@ -152,6 +152,9 @@ function createFakeMultiWorkbookEnv(opts: {
         state.frozenRows = rows;
         state.writeOps.push(`freeze:${rows}`);
       },
+      hideSheet: () => {
+        state.writeOps.push('hideSheet');
+      },
       getValues: (row: number, col: number, numRows: number, numCols: number) => {
         const out: unknown[][] = [];
         for (let r = row - 1; r < row - 1 + numRows; r++) {
@@ -217,6 +220,13 @@ function createFakeMultiWorkbookEnv(opts: {
         wb.sheetOrder.push(name);
         return wrapSheet(created);
       },
+      deleteSheetByName: (name: string) => {
+        if (!wb.sheets.has(name)) return false;
+        wb.sheets.delete(name);
+        const idx = wb.sheetOrder.indexOf(name);
+        if (idx >= 0) wb.sheetOrder.splice(idx, 1);
+        return true;
+      },
     };
   }
 
@@ -245,6 +255,11 @@ function createFakeMultiWorkbookEnv(opts: {
       return opts.fetchHandler(url, options);
     },
     sha256Hex,
+    base64Decode: (b64: string) => Array.from(Buffer.from(b64, 'base64')),
+    base64Encode: (bytes: number[]) => Buffer.from(bytes).toString('base64'),
+    hmacSha256Bytes: () => {
+      throw new Error('HMAC_NOT_USED_IN_VOLUNTEER_GENDER');
+    },
     tryScriptLock: (timeoutMs: number) => {
       lockEvents.push(`tryLock:${timeoutMs}`);
       if (opts.lockAvailable === false) return null;

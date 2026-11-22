@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -62,9 +62,11 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
         rows: rows.map((r) => [...r]),
         maxRows: Math.max(100, rows.length + 10),
         maxColumns: Math.max(26, ...rows.map((r) => r.length)),
+        hidden: false,
       };
       return {
         getName: () => name,
+        isSheetHidden: () => state.hidden,
         getLastRow: () => state.rows.length,
         getLastColumn: () => state.rows.reduce((max, r) => Math.max(max, r.length), 0),
         getMaxRows: () => state.maxRows,
@@ -76,6 +78,9 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
           state.maxRows += howMany;
         },
         setFrozenRows: () => undefined,
+        hideSheet: () => {
+          state.hidden = true;
+        },
         getRange: (row: number, col: number, numRows: number, numCols: number) => ({
           getValues: () =>
             Array.from({ length: numRows }, (_, r) =>
@@ -206,6 +211,42 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
       pageSize: 100,
     });
 
+    const mockAssignmentsPayload = JSON.stringify({
+      provinces: [
+        { provinceCode: '54', provinceNameTh: 'แพร่', provinceNameEn: 'Phrae', osmCount: 1 },
+      ],
+      items: [
+        {
+          id: 'SYNTHETIC-UUID-0001',
+          osmCode: '99990000000001',
+          citizenId: '1540600000001',
+          prefixNameTh: 'นางสาว',
+          prefixNameEn: 'Miss',
+          firstName: 'PRIVATE_VM_FIRST',
+          lastName: 'PRIVATE_VM_LAST',
+          fullName: 'นางสาว PRIVATE_VM_FIRST PRIVATE_VM_LAST',
+          provinceCode: '54',
+          provinceNameTh: 'แพร่',
+          districtCode: '5406',
+          districtNameTh: 'สอง',
+          subdistrictCode: '540601',
+          subdistrictNameTh: 'บ้านหนุน',
+          villageNo: '1',
+          villageName: null,
+          isActive: true,
+          status: 'ใช้งาน',
+          osmStatus: '',
+          osmShowbbody: '1',
+          approvalStatus: 'approved',
+          volunteerStatus: 'already_volunteer',
+          createdAt: '2025-11-10T05:36:01.776457Z',
+          requestDate: '2025-11-10T05:36:01.776457Z',
+          updatedAt: '2026-10-12T13:07:33.846207Z',
+        },
+      ],
+      pagination: { page: 1, limit: 100, total: 1, pages: 1 },
+    });
+
     const sandbox = {
       HtmlService: {
         XFrameOptionsMode: { DEFAULT: 'DEFAULT', ALLOWALL: 'ALLOWALL' },
@@ -259,6 +300,10 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
               sheets.push(s);
               return s;
             },
+            deleteSheet: (sheetToDelete: { getName: () => string }) => {
+              const idx = sheets.findIndex((s) => s.getName() === sheetToDelete.getName());
+              if (idx >= 0) sheets.splice(idx, 1);
+            },
           };
         },
       },
@@ -270,9 +315,11 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
       },
       UrlFetchApp: {
         fetch: (url: string) => {
-          const payload = url.includes('/reports/volunteer-gender')
-            ? mockGenderPayload
-            : mockSubdistrictPayload;
+          const payload = url.includes('/dashboard/assignments')
+            ? mockAssignmentsPayload
+            : url.includes('/reports/volunteer-gender')
+              ? mockGenderPayload
+              : mockSubdistrictPayload;
           return {
             getResponseCode: () => 200,
             getAllHeaders: () => ({ 'Content-Type': 'application/json' }),
@@ -284,10 +331,26 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
       Utilities: {
         DigestAlgorithm: { SHA_256: 'SHA_256' },
         newBlob: (str: string) => ({
-          getBytes: () => Array.from(Buffer.from(str, 'utf8')),
+          getBytes: () => Array.from(Buffer.from(str, 'utf8'), (b) => (b > 127 ? b - 256 : b)),
         }),
         computeDigest: (_alg: string, bytes: number[]) =>
-          Array.from(createHash('sha256').update(Buffer.from(bytes)).digest()),
+          Array.from(
+            createHash('sha256')
+              .update(Buffer.from(bytes.map((b) => ((b % 256) + 256) % 256)))
+              .digest(),
+            (b) => (b > 127 ? b - 256 : b),
+          ),
+        base64Decode: (b64: string) =>
+          Array.from(Buffer.from(b64, 'base64'), (b) => (b > 127 ? b - 256 : b)),
+        base64Encode: (bytes: number[]) =>
+          Buffer.from(bytes.map((b) => ((b % 256) + 256) % 256)).toString('base64'),
+        computeHmacSha256Signature: (valueBytes: number[], keyBytes: number[]) =>
+          Array.from(
+            createHmac('sha256', Buffer.from(keyBytes.map((b) => ((b % 256) + 256) % 256)))
+              .update(Buffer.from(valueBytes.map((b) => ((b % 256) + 256) % 256)))
+              .digest(),
+            (b) => (b > 127 ? b - 256 : b),
+          ),
         getUuid: () => '12345678-1234-1234-1234-1234567890ab',
       },
     };
@@ -298,7 +361,11 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
     expect(typeof context.doGet).toBe('function');
     expect(typeof context.getDashboardStatus).toBe('function');
     expect(typeof context.previewDataset).toBe('function');
+    expect(typeof context.previewDatasetBatch).toBe('function');
+    expect(typeof context.finalizePreview).toBe('function');
     expect(typeof context.commitSmallDataset).toBe('function');
+    expect(typeof context.stageLargeDatasetBatch).toBe('function');
+    expect(typeof context.finalizeLargeDatasetCommit).toBe('function');
 
     context.doGet();
     expect(htmlCalls).toHaveLength(1);
@@ -381,9 +448,83 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
     expect(vgCommitRes.data.destinationTab).toBe('VolunteerGender');
     expect(vgCommitRes.data.readback.verified).toBe(true);
 
+    // Smoke-verify bundled assignments Batched Preview + F010 h1_ parity + Hidden Staging Commit + cleanup in node:vm
+    const assignBatch = JSON.parse(
+      JSON.stringify(
+        context.previewDatasetBatch({
+          endpoint: 'assignments',
+          token: 'synthetic_vm_token_1234567890',
+          startPage: 1,
+          batchPages: 10,
+          pageSize: 100,
+        }),
+      ),
+    );
+    expect(assignBatch.ok).toBe(true);
+    expect(assignBatch.data.status).toBe('BATCH_OK');
+    expect(assignBatch.data.rowDigests[0].key).toBe(
+      'h1_4f10838fd01347c17a887f30804cd7ec9096af7fca7e3a42e837654f96a31da0',
+    );
+    expect(JSON.stringify(assignBatch)).not.toMatch(
+      /PRIVATE_VM_FIRST|1540600000001|99990000000001|SYNTHETIC-UUID-0001/,
+    );
+
+    const assignPreview = JSON.parse(
+      JSON.stringify(
+        context.finalizePreview({
+          endpoint: 'assignments',
+          sourceTotal: assignBatch.data.sourceTotal,
+          pagesFetched: assignBatch.data.pagesFetchedInBatch,
+          rowDigests: assignBatch.data.rowDigests,
+          aggregateSummary: assignBatch.data.aggregateSummary,
+          sampleCandidates: assignBatch.data.sampleCandidates,
+        }),
+      ),
+    );
+    expect(assignPreview.ok).toBe(true);
+    expect(assignPreview.data.status).toBe('READY');
+    expect(assignPreview.data.destinationTab).toBe('Assignments');
+
+    const assignStage = JSON.parse(
+      JSON.stringify(
+        context.stageLargeDatasetBatch({
+          endpoint: 'assignments',
+          token: 'synthetic_vm_token_1234567890',
+          expectedFingerprint: assignPreview.data.fingerprint,
+          startPage: 1,
+          batchPages: 10,
+          pageSize: 100,
+        }),
+      ),
+    );
+    expect(assignStage.ok).toBe(true);
+    expect(assignStage.data.status).toBe('BATCH_STAGED');
+    const stageSheetObj = sheets.find((s) => s.getName() === assignStage.data.stagingTabName);
+    expect(stageSheetObj).toBeDefined();
+    expect(stageSheetObj!.isSheetHidden()).toBe(true);
+
+    const assignCommit = JSON.parse(
+      JSON.stringify(
+        context.finalizeLargeDatasetCommit({
+          endpoint: 'assignments',
+          expectedFingerprint: assignPreview.data.fingerprint,
+          runId: assignStage.data.runId,
+        }),
+      ),
+    );
+    expect(assignCommit.ok).toBe(true);
+    expect(assignCommit.data.status).toBe('COMMITTED_VERIFIED');
+    expect(assignCommit.data.destinationTab).toBe('Assignments');
+    expect(assignCommit.data.readback.verified).toBe(true);
+    expect(assignCommit.data.readback.stagingTabCleaned).toBe(true);
+    expect(sheets.some((s) => s.getName() === assignStage.data.stagingTabName)).toBe(false);
+
     expect(propertyMutations).toEqual([]);
     expect(JSON.stringify(result)).not.toContain(VALID_HMAC_KEY);
     expect(JSON.stringify(commitRes)).not.toContain('synthetic_vm_token_1234567890');
     expect(JSON.stringify(vgCommitRes)).not.toContain('synthetic_vm_token_1234567890');
+    expect(JSON.stringify(assignCommit)).not.toContain(VALID_HMAC_KEY);
+    expect(JSON.stringify(assignCommit)).not.toContain('synthetic_vm_token_1234567890');
+    expect(JSON.stringify(assignCommit)).not.toContain('PRIVATE_VM_FIRST');
   });
 });

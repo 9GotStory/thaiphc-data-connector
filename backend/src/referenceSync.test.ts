@@ -109,6 +109,9 @@ function createFakeSyncEnv(opts: FakeSyncEnvOptions) {
         state.frozenRows = rows;
         state.writeOps.push(`freeze:${rows}`);
       },
+      hideSheet: () => {
+        state.writeOps.push('hideSheet');
+      },
       getValues: (row: number, col: number, numRows: number, numCols: number) => {
         const out: unknown[][] = [];
         for (let r = row - 1; r < row - 1 + numRows; r++) {
@@ -181,6 +184,13 @@ function createFakeSyncEnv(opts: FakeSyncEnvOptions) {
       sheetOrder.push(name);
       return wrapMockSheet(created);
     },
+    deleteSheetByName: (name: string) => {
+      if (!sheets.has(name)) return false;
+      sheets.delete(name);
+      const idx = sheetOrder.indexOf(name);
+      if (idx >= 0) sheetOrder.splice(idx, 1);
+      return true;
+    },
   };
 
   const properties: Record<string, string | undefined> = {
@@ -207,6 +217,11 @@ function createFakeSyncEnv(opts: FakeSyncEnvOptions) {
       return opts.fetchHandler(url, options);
     },
     sha256Hex,
+    base64Decode: (b64: string) => Array.from(Buffer.from(b64, 'base64')),
+    base64Encode: (bytes: number[]) => Buffer.from(bytes).toString('base64'),
+    hmacSha256Bytes: () => {
+      throw new Error('HMAC_NOT_USED_IN_REFERENCE_SYNC');
+    },
     tryScriptLock: (timeoutMs: number) => {
       lockEvents.push(`tryLock:${timeoutMs}`);
       if (opts.lockAvailable === false) {

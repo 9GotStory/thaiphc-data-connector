@@ -1,20 +1,33 @@
 import { getDashboardStatusWithPlatform } from './dashboardService.ts';
 import {
+  finalizeLargeDatasetCommitWithPlatform,
+  finalizePreviewWithPlatform,
+  previewDatasetBatchWithPlatform,
+  stageLargeDatasetBatchWithPlatform,
+} from './largeKeyedSyncService.ts';
+import { bytesToHex } from './pseudonymizer.ts';
+import {
   commitSmallDatasetWithPlatform,
   previewDatasetWithPlatform,
 } from './referenceSyncService.ts';
 import type {
+  CommitDatasetResponse,
   CommitSmallDatasetRequest,
-  CommitSmallDatasetResponse,
   DashboardPlatform,
   DashboardStatusResponse,
   DatasetEndpoint,
+  FinalizeLargeDatasetCommitRequest,
+  FinalizePreviewRequest,
   HttpFetchOptions,
   HttpFetchResponse,
+  PreviewDatasetBatchRequest,
+  PreviewDatasetBatchResponse,
   PreviewDatasetRequest,
   PreviewDatasetResponse,
   SheetHandle,
   SpreadsheetHandle,
+  StageLargeDatasetBatchRequest,
+  StageLargeDatasetBatchResponse,
   SyncPlatform,
   WritableSheetHandle,
   WritableSpreadsheetHandle,
@@ -44,6 +57,9 @@ function wrapWritableSheet(sheet: GoogleAppsScript.Spreadsheet.Sheet): WritableS
     },
     setFrozenRows: (rows: number) => {
       sheet.setFrozenRows(rows);
+    },
+    hideSheet: () => {
+      sheet.hideSheet();
     },
     getValues: (row: number, col: number, numRows: number, numCols: number) =>
       sheet.getRange(row, col, numRows, numCols).getValues(),
@@ -92,11 +108,13 @@ function wrapWritableSpreadsheet(
     },
     getSheetNames: () => spreadsheet.getSheets().map((sheet) => sheet.getName()),
     insertSheet: (name: string) => wrapWritableSheet(spreadsheet.insertSheet(name)),
+    deleteSheetByName: (name: string) => {
+      const sheet = spreadsheet.getSheetByName(name);
+      if (!sheet) return false;
+      spreadsheet.deleteSheet(sheet);
+      return true;
+    },
   };
-}
-
-function bytesToHex(bytes: number[]): string {
-  return bytes.map((b) => `0${((b + 256) % 256).toString(16)}`.slice(-2)).join('');
 }
 
 function utf8ByteLength(text: string): number {
@@ -171,6 +189,10 @@ function createSyncPlatform(): SyncPlatform {
       );
       return bytesToHex(digest);
     },
+    base64Decode: (b64: string) => Utilities.base64Decode(b64),
+    base64Encode: (bytes: number[]) => Utilities.base64Encode(bytes),
+    hmacSha256Bytes: (input: string, keyBytes: number[]) =>
+      Utilities.computeHmacSha256Signature(Utilities.newBlob(input).getBytes(), keyBytes),
     tryScriptLock: (timeoutMs: number) => {
       const lock = LockService.getScriptLock();
       if (!lock.tryLock(timeoutMs)) {
@@ -226,7 +248,37 @@ export function previewDataset(request: PreviewDatasetRequest): PreviewDatasetRe
   }
 }
 
-export function commitSmallDataset(request: CommitSmallDatasetRequest): CommitSmallDatasetResponse {
+export function previewDatasetBatch(
+  request: PreviewDatasetBatchRequest,
+): PreviewDatasetBatchResponse {
+  try {
+    return previewDatasetBatchWithPlatform(request, createSyncPlatform());
+  } catch {
+    return {
+      ok: false,
+      error: {
+        code: 'PREVIEW_FAILED',
+        message: 'Failed to complete batched dataset preview.',
+      },
+    };
+  }
+}
+
+export function finalizePreview(request: FinalizePreviewRequest): PreviewDatasetResponse {
+  try {
+    return finalizePreviewWithPlatform(request, createSyncPlatform());
+  } catch {
+    return {
+      ok: false,
+      error: {
+        code: 'PREVIEW_FAILED',
+        message: 'Failed to finalize read-only dataset preview.',
+      },
+    };
+  }
+}
+
+export function commitSmallDataset(request: CommitSmallDatasetRequest): CommitDatasetResponse {
   try {
     return commitSmallDatasetWithPlatform(request, createSyncPlatform());
   } catch {
@@ -235,6 +287,38 @@ export function commitSmallDataset(request: CommitSmallDatasetRequest): CommitSm
       error: {
         code: 'COMMIT_FAILED',
         message: 'Commit failed unexpectedly before completion.',
+      },
+    };
+  }
+}
+
+export function stageLargeDatasetBatch(
+  request: StageLargeDatasetBatchRequest,
+): StageLargeDatasetBatchResponse {
+  try {
+    return stageLargeDatasetBatchWithPlatform(request, createSyncPlatform());
+  } catch {
+    return {
+      ok: false,
+      error: {
+        code: 'COMMIT_FAILED',
+        message: 'Staging batch failed unexpectedly.',
+      },
+    };
+  }
+}
+
+export function finalizeLargeDatasetCommit(
+  request: FinalizeLargeDatasetCommitRequest,
+): CommitDatasetResponse {
+  try {
+    return finalizeLargeDatasetCommitWithPlatform(request, createSyncPlatform());
+  } catch {
+    return {
+      ok: false,
+      error: {
+        code: 'COMMIT_FAILED',
+        message: 'Finalize commit failed unexpectedly.',
       },
     };
   }

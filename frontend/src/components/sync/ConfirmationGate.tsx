@@ -1,4 +1,11 @@
-import { AlertTriangle, FlaskConical, OctagonAlert, ShieldAlert, ShieldOff } from 'lucide-react';
+import {
+  AlertTriangle,
+  FlaskConical,
+  KeyRound,
+  OctagonAlert,
+  ShieldAlert,
+  ShieldOff,
+} from 'lucide-react';
 import { useState } from 'react';
 import type { PreviewDatasetData, WorkbookInfo } from '@/api/types';
 import { EnvironmentBadge, SyncModeBadge } from '@/components/StatusBadges';
@@ -16,6 +23,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { DATASET_DISPLAY_META } from '@/lib/datasetMeta';
 
 interface ConfirmationGateProps {
   preview: PreviewDatasetData;
@@ -137,6 +145,8 @@ export function ConfirmationGate({
   }
 
   const isProd = preview.env === 'PRODUCTION';
+  const showHmacContinuityReminder =
+    isProd && DATASET_DISPLAY_META[preview.endpoint].usesHmacPseudonym;
   const expectedPhrase = `PRODUCTION 5406 ${preview.endpoint}`;
   const needsUnresolvedAck = preview.unresolvedPreviousRun !== null;
   const canOpenConfirm = !isCommitting && (!needsUnresolvedAck || unresolvedAck);
@@ -230,6 +240,30 @@ export function ConfirmationGate({
           </span>
         </p>
 
+        {showHmacContinuityReminder && (
+          <div
+            role="note"
+            className="flex items-start gap-2.5 rounded-md border border-status-legacy-border bg-status-legacy-bg p-3 text-xs text-foreground"
+          >
+            <KeyRound
+              className="mt-0.5 size-4 shrink-0 text-status-legacy-fg"
+              strokeWidth={1.75}
+              aria-hidden="true"
+            />
+            <div className="space-y-1">
+              <div className="font-semibold text-status-legacy-fg">
+                การตรวจสอบความต่อเนื่องของคีย์ F010 (THAIPHC_HMAC_KEY_B64)
+              </div>
+              <p>
+                ก่อนยืนยันการเขียนลง PRODUCTION กรุณาตรวจสอบว่าค่า{' '}
+                <code className="font-mono font-semibold">THAIPHC_HMAC_KEY_B64</code> ใน GAS Script
+                Properties ตรงกับคีย์ F010 เดิมทุกตัวอักษร เพื่อให้ Pseudonymous Key (
+                <code className="font-mono">h1_...</code>) ตรงกับข้อมูลเดิมและไม่เกิดแถวบุคคลซ้ำซ้อน
+              </p>
+            </div>
+          </div>
+        )}
+
         {needsUnresolvedAck && preview.unresolvedPreviousRun && (
           <label className="flex items-start gap-2.5 rounded-md border border-status-stop-border bg-status-stop-bg/70 p-3 text-xs text-foreground cursor-pointer">
             <input
@@ -307,6 +341,15 @@ export function ConfirmationGate({
 
             {isProd && (
               <div className="space-y-2.5">
+                {showHmacContinuityReminder && (
+                  <div className="rounded-md border border-status-legacy-border bg-status-legacy-bg p-2.5 text-xs text-foreground">
+                    <span className="font-semibold text-status-legacy-fg">ย้ำความต่อเนื่อง F010: </span>
+                    ยืนยันว่า <code className="font-mono font-semibold">
+                      THAIPHC_HMAC_KEY_B64
+                    </code>{' '}
+                    ตรงกับคีย์เดิมของ F010 เพื่อป้องกันรหัส <code className="font-mono">h1_...</code> ซ้ำซ้อน
+                  </div>
+                )}
                 <div className="rounded-md border border-border bg-muted p-3 font-mono text-sm font-semibold text-foreground">
                   {expectedPhrase}
                 </div>

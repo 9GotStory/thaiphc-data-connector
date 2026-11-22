@@ -2,8 +2,10 @@ import {
   GasRpcClientError,
   type AppEnvironment,
   type BlockedGuardReason,
-  type CommitSmallDatasetData,
+  type CommitDatasetData,
+  type CommitStaleData,
   type CommitStopCode,
+  type CommitStopData,
   type DashboardDatasetStatus,
   type DashboardStatusData,
   type DatasetEndpoint,
@@ -14,17 +16,21 @@ import {
   type ExtendedAggregateGroup,
   type ExtendedMinimizedAttribute,
   type ExtendedMinimizedPreviewRow,
+  type ExtendedSampleCandidate,
   type GasRpcErrorCode,
   type PaginationProtocol,
+  type PreviewDatasetBatchData,
   type PreviewDatasetData,
   type PreviewDiagnostic,
   type PreviewFingerprint,
+  type PreviewRowDigestEntry,
   type PreviewStopCode,
   type ReadbackVerification,
   type ReferenceChangedField,
   type ReferencePreviewRow,
   type ReviewReasonCode,
   type SameWorkbookPolicy,
+  type StageLargeDatasetBatchData,
   type StaleDriftReason,
   type SyncMode,
   type UnresolvedRunSummary,
@@ -107,6 +113,7 @@ const PREVIEW_STOP_CODE_LIST: readonly PreviewStopCode[] = [
   'HEADER_MISMATCH',
   'INVALID_EXISTING_KEY',
   'DESTINATION_TOO_LARGE',
+  'MISSING_HMAC_KEY',
 ];
 const VALID_PREVIEW_STOP_CODES: ReadonlySet<string> = new Set<PreviewStopCode>(
   PREVIEW_STOP_CODE_LIST,
@@ -121,6 +128,8 @@ const VALID_COMMIT_STOP_CODES: ReadonlySet<string> = new Set<CommitStopCode>([
   'LOCK_BUSY',
   'UNRESOLVED_PREVIOUS_RUN',
   'INVALID_FINGERPRINT',
+  'STAGING_STATE_INVALID',
+  'STAGING_DIGEST_MISMATCH',
   'READBACK_MISMATCH',
   'WRITE_FAILED_UNKNOWN',
 ]);
@@ -729,7 +738,194 @@ export function parsePreviewDatasetResponse(raw: unknown): PreviewDatasetData {
   invalidResponse('Unsupported previewMode.');
 }
 
-export function parseCommitSmallDatasetResponse(raw: unknown): CommitSmallDatasetData {
+function parseCommitStalePayload(
+  data: Record<string, unknown>,
+  endpoint: DatasetEndpoint,
+  env: AppEnvironment,
+  destinationTab: string,
+): CommitStaleData {
+  return {
+    status: 'PREVIEW_STALE_RECONFIRM_REQUIRED',
+    endpoint,
+    env,
+    destinationTab,
+    driftReason: assertAllowedEnum<StaleDriftReason>(
+      data.driftReason,
+      VALID_STALE_DRIFT_REASONS,
+      'driftReason',
+    ),
+    expectedFingerprint: parsePreviewFingerprint(data.expectedFingerprint, 'expectedFingerprint'),
+    currentSourceTotal: assertNonNegInt(data.currentSourceTotal, 'currentSourceTotal'),
+    currentDatasetDigest: assertNonEmptyString(data.currentDatasetDigest, 'currentDatasetDigest'),
+    currentSheetRevisionFingerprint: assertNonEmptyString(
+      data.currentSheetRevisionFingerprint,
+      'currentSheetRevisionFingerprint',
+    ),
+  };
+}
+
+function parseCommitStopPayload(
+  data: Record<string, unknown>,
+  status: 'FAILED_STOP' | 'UNKNOWN_OUTCOME_STOP',
+  endpoint: DatasetEndpoint,
+  env: AppEnvironment,
+  destinationTab: string,
+): CommitStopData {
+  const syncLogStatus = data.syncLogStatus;
+  if (
+    syncLogStatus !== 'STARTED' &&
+    syncLogStatus !== 'FAILED_STOP' &&
+    syncLogStatus !== 'NOT_WRITTEN'
+  ) {
+    invalidResponse('Invalid syncLogStatus for stop outcome.');
+  }
+  return {
+    status,
+    runId: assertNullableString(data.runId, 'runId'),
+    endpoint,
+    env,
+    destinationTab,
+    stopCode: assertAllowedEnum<CommitStopCode>(data.stopCode, VALID_COMMIT_STOP_CODES, 'stopCode'),
+    message: assertNonEmptyString(data.message, 'message'),
+    syncLogStatus,
+    stagingTabRetained: assertNullableString(data.stagingTabRetained, 'stagingTabRetained'),
+  };
+}
+
+function parseRowDigestEntry(value: unknown, index: number): PreviewRowDigestEntry {
+  if (!isRecord(value)) {
+    invalidResponse(`Invalid rowDigests[${index}]`);
+  }
+  return {
+    key: assertNonEmptyString(value.key, `rowDigests[${index}].key`),
+    rowDigest: assertNonEmptyString(value.rowDigest, `rowDigests[${index}].rowDigest`),
+  };
+}
+
+function parseExtendedSampleCandidate(value: unknown, index: number): ExtendedSampleCandidate {
+  if (!isRecord(value)) {
+    invalidResponse(`Invalid sampleCandidates[${index}]`);
+  }
+  if (!Array.isArray(value.minimizedAttributes)) {
+    invalidResponse(`Invalid sampleCandidates[${index}].minimizedAttributes`);
+  }
+  return {
+    sourceKey: assertNonEmptyString(value.sourceKey, `sampleCandidates[${index}].sourceKey`),
+    rowDigest: assertNonEmptyString(value.rowDigest, `sampleCandidates[${index}].rowDigest`),
+    scopeLabel: assertString(value.scopeLabel, `sampleCandidates[${index}].scopeLabel`),
+    minimizedAttributes: value.minimizedAttributes.map((attr, idx) =>
+      parseExtendedMinimizedAttribute(
+        attr,
+        `sampleCandidates[${index}].minimizedAttributes[${idx}]`,
+      ),
+    ),
+    reviewReasons: parseReviewReasons(
+      value.reviewReasons,
+      `sampleCandidates[${index}].reviewReasons`,
+    ),
+  };
+}
+
+export function parsePreviewDatasetBatchResponse(raw: unknown): PreviewDatasetBatchData {
+  const data = unwrapEnvelope(
+    raw,
+    ALLOWLISTED_SYNC_ERRORS,
+    'PREVIEW_FAILED',
+    'ไม่สามารถรัน Batched Preview จาก Google Apps Script ได้',
+  );
+
+  const endpoint = assertAllowedEnum<DatasetEndpoint>(data.endpoint, VALID_ENDPOINTS, 'endpoint');
+  const env = assertEnv(data.env, 'env');
+  const pagesFetchedInBatch = assertNonNegInt(data.pagesFetchedInBatch, 'pagesFetchedInBatch');
+
+  if (data.status === 'STOP_BLOCKED') {
+    if (!Array.isArray(data.diagnostics) || data.diagnostics.length === 0) {
+      invalidResponse('STOP_BLOCKED batch requires non-empty diagnostics.');
+    }
+    return {
+      status: 'STOP_BLOCKED',
+      endpoint,
+      env,
+      pagesFetchedInBatch,
+      diagnostics: data.diagnostics.map((d, idx) => parseDiagnostic(d, idx)),
+    };
+  }
+
+  if (data.status !== 'BATCH_OK') {
+    invalidResponse('Unknown preview batch status.');
+  }
+
+  if (
+    !Array.isArray(data.rowDigests) ||
+    !Array.isArray(data.aggregateSummary) ||
+    !Array.isArray(data.sampleCandidates)
+  ) {
+    invalidResponse('BATCH_OK requires rowDigests, aggregateSummary, and sampleCandidates arrays.');
+  }
+
+  return {
+    status: 'BATCH_OK',
+    endpoint,
+    env,
+    startPage: assertNonNegInt(data.startPage, 'startPage'),
+    lastPageFetched: assertNonNegInt(data.lastPageFetched, 'lastPageFetched'),
+    pagesFetchedInBatch,
+    totalPages: assertNonNegInt(data.totalPages, 'totalPages'),
+    sourceTotal: assertNonNegInt(data.sourceTotal, 'sourceTotal'),
+    rowsInBatch: assertNonNegInt(data.rowsInBatch, 'rowsInBatch'),
+    hasMore: assertBoolean(data.hasMore, 'hasMore'),
+    nextPage: assertNullableNonNegInt(data.nextPage, 'nextPage'),
+    rowDigests: data.rowDigests.map((item, idx) => parseRowDigestEntry(item, idx)),
+    aggregateSummary: data.aggregateSummary.map((group, idx) =>
+      parseExtendedAggregateGroup(group, idx),
+    ),
+    sampleCandidates: data.sampleCandidates.map((cand, idx) =>
+      parseExtendedSampleCandidate(cand, idx),
+    ),
+  };
+}
+
+export function parseStageLargeDatasetBatchResponse(raw: unknown): StageLargeDatasetBatchData {
+  const data = unwrapEnvelope(
+    raw,
+    ALLOWLISTED_SYNC_ERRORS,
+    'COMMIT_FAILED',
+    'ไม่สามารถจัดเตรียมชุดข้อมูลลงแท็บซ่อนบน Google Apps Script ได้',
+  );
+
+  const endpoint = assertAllowedEnum<DatasetEndpoint>(data.endpoint, VALID_ENDPOINTS, 'endpoint');
+  const env = assertEnv(data.env, 'env');
+  const destinationTab = assertNonEmptyString(data.destinationTab, 'destinationTab');
+
+  if (data.status === 'BATCH_STAGED') {
+    return {
+      status: 'BATCH_STAGED',
+      runId: assertNonEmptyString(data.runId, 'runId'),
+      endpoint,
+      env,
+      destinationTab,
+      stagingTabName: assertNonEmptyString(data.stagingTabName, 'stagingTabName'),
+      lastPageStaged: assertNonNegInt(data.lastPageStaged, 'lastPageStaged'),
+      totalPages: assertNonNegInt(data.totalPages, 'totalPages'),
+      stagedRowCount: assertNonNegInt(data.stagedRowCount, 'stagedRowCount'),
+      sourceTotal: assertNonNegInt(data.sourceTotal, 'sourceTotal'),
+      hasMore: assertBoolean(data.hasMore, 'hasMore'),
+      nextPage: assertNullableNonNegInt(data.nextPage, 'nextPage'),
+    };
+  }
+
+  if (data.status === 'PREVIEW_STALE_RECONFIRM_REQUIRED') {
+    return parseCommitStalePayload(data, endpoint, env, destinationTab);
+  }
+
+  if (data.status === 'FAILED_STOP' || data.status === 'UNKNOWN_OUTCOME_STOP') {
+    return parseCommitStopPayload(data, data.status, endpoint, env, destinationTab);
+  }
+
+  invalidResponse('Unknown stage batch outcome status.');
+}
+
+export function parseCommitDatasetResponse(raw: unknown): CommitDatasetData {
   const data = unwrapEnvelope(
     raw,
     ALLOWLISTED_SYNC_ERRORS,
@@ -761,50 +957,11 @@ export function parseCommitSmallDatasetResponse(raw: unknown): CommitSmallDatase
   }
 
   if (data.status === 'PREVIEW_STALE_RECONFIRM_REQUIRED') {
-    return {
-      status: 'PREVIEW_STALE_RECONFIRM_REQUIRED',
-      endpoint,
-      env,
-      destinationTab,
-      driftReason: assertAllowedEnum<StaleDriftReason>(
-        data.driftReason,
-        VALID_STALE_DRIFT_REASONS,
-        'driftReason',
-      ),
-      expectedFingerprint: parsePreviewFingerprint(data.expectedFingerprint, 'expectedFingerprint'),
-      currentSourceTotal: assertNonNegInt(data.currentSourceTotal, 'currentSourceTotal'),
-      currentDatasetDigest: assertNonEmptyString(data.currentDatasetDigest, 'currentDatasetDigest'),
-      currentSheetRevisionFingerprint: assertNonEmptyString(
-        data.currentSheetRevisionFingerprint,
-        'currentSheetRevisionFingerprint',
-      ),
-    };
+    return parseCommitStalePayload(data, endpoint, env, destinationTab);
   }
 
   if (data.status === 'FAILED_STOP' || data.status === 'UNKNOWN_OUTCOME_STOP') {
-    const syncLogStatus = data.syncLogStatus;
-    if (
-      syncLogStatus !== 'STARTED' &&
-      syncLogStatus !== 'FAILED_STOP' &&
-      syncLogStatus !== 'NOT_WRITTEN'
-    ) {
-      invalidResponse('Invalid syncLogStatus for stop outcome.');
-    }
-    return {
-      status: data.status,
-      runId: assertNullableString(data.runId, 'runId'),
-      endpoint,
-      env,
-      destinationTab,
-      stopCode: assertAllowedEnum<CommitStopCode>(
-        data.stopCode,
-        VALID_COMMIT_STOP_CODES,
-        'stopCode',
-      ),
-      message: assertNonEmptyString(data.message, 'message'),
-      syncLogStatus,
-      stagingTabRetained: assertNullableString(data.stagingTabRetained, 'stagingTabRetained'),
-    };
+    return parseCommitStopPayload(data, data.status, endpoint, env, destinationTab);
   }
 
   invalidResponse('Unknown commit outcome status.');

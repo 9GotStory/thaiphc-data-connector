@@ -1,28 +1,38 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, OctagonAlert, RotateCw } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useGasTransport } from '@/api/TransportContext';
 import {
   GasRpcClientError,
-  type CommitSmallDatasetData,
-  type CommitSmallDatasetRequest,
+  type CommitDatasetData,
   type DashboardStatusData,
   type DatasetEndpoint,
+  type ExtendedAggregateGroup,
+  type ExtendedSampleCandidate,
   type PreviewDatasetData,
-  type PreviewDatasetRequest,
+  type PreviewFingerprint,
+  type PreviewRowDigestEntry,
 } from '@/api/types';
 import { BearerTokenBar } from '@/components/sync/BearerTokenBar';
-import { CommitOutcomePanel, CommitProgressCard } from '@/components/sync/CommitOutcomePanel';
+import {
+  CommitOutcomePanel,
+  CommitProgressCard,
+  type CommitBatchProgress,
+} from '@/components/sync/CommitOutcomePanel';
 import { ConfirmationGate } from '@/components/sync/ConfirmationGate';
 import { DatasetSelector } from '@/components/sync/DatasetSelector';
 import { DiffReviewInspector } from '@/components/sync/DiffReviewInspector';
-import { PreviewProgressCard } from '@/components/sync/PreviewProgressCard';
+import {
+  PreviewProgressCard,
+  type PreviewBatchProgress,
+} from '@/components/sync/PreviewProgressCard';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { TokenSession } from '@/hooks/useTokenSession';
+import { DATASET_DISPLAY_META } from '@/lib/datasetMeta';
 import { cn } from '@/lib/utils';
 
 const STAGES = [
@@ -31,6 +41,10 @@ const STAGES = [
   { num: 3, label: 'ยืนยันและบันทึก' },
   { num: 4, label: 'ผลตรวจอ่านซ้ำ' },
 ] as const;
+
+// Gate 0–calibrated sequential batching constants for large person-level datasets
+const BATCHED_PREVIEW_PAGE_SIZE = 100;
+const BATCHED_PREVIEW_BATCH_PAGES = 10;
 
 interface BoundPreviewState {
   tokenRevision: number;
@@ -42,6 +56,21 @@ interface BoundPreviewErrorState {
   tokenRevision: number;
   endpoint: DatasetEndpoint;
   message: string;
+}
+
+interface PreviewExecutionInput {
+  endpoint: DatasetEndpoint;
+  token: string;
+  runToken: number;
+}
+
+interface CommitExecutionInput {
+  endpoint: DatasetEndpoint;
+  token: string;
+  expectedFingerprint: PreviewFingerprint;
+  destinationTab: string;
+  confirmationPhrase?: string;
+  acknowledgeUnresolvedRunId?: string;
 }
 
 interface SyncWorkspaceProps {
@@ -73,13 +102,29 @@ export function SyncWorkspace({
   const queryClient = useQueryClient();
 
   const [previewState, setPreviewState] = useState<BoundPreviewState | null>(null);
-  const [commitOutcome, setCommitOutcome] = useState<CommitSmallDatasetData | null>(null);
+  const [commitOutcome, setCommitOutcome] = useState<CommitDatasetData | null>(null);
   const [previewRpcErrorState, setPreviewRpcErrorState] = useState<BoundPreviewErrorState | null>(
     null,
   );
   const [cancelNotice, setCancelNotice] = useState<string | null>(null);
+  const [previewBatchProgress, setPreviewBatchProgress] = useState<PreviewBatchProgress | null>(
+    null,
+  );
+  const [commitBatchProgress, setCommitBatchProgress] = useState<CommitBatchProgress | null>(null);
 
   const previewRunTokenRef = useRef(0);
+  const activeStageTrackerRef = useRef<{ runId: string | null; stagingTabName: string | null }>({
+    runId: null,
+    stagingTabName: null,
+  });
+
+  // Abort any in-flight sequential Batched Preview loop when leaving Sync Workspace
+  useEffect(() => {
+    const tokenRef = previewRunTokenRef;
+    return () => {
+      tokenRef.current += 1;
+    };
+  }, []);
 
   const selectedDataset = data?.datasets.find((d) => d.endpoint === selectedEndpoint);
   const targetWorkbook =
@@ -90,17 +135,205 @@ export function SyncWorkspace({
         : data.workbooks.reference;
 
   const previewMutation = useMutation({
-    mutationFn: (request: PreviewDatasetRequest) => transport.previewDataset(request),
+    mutationFn: async (input: PreviewExecutionInput): Promise<PreviewDatasetData | null> => {
+      if (!DATASET_DISPLAY_META[input.endpoint].usesBatchedSync) {
+        setPreviewBatchProgress(null);
+        return transport.previewDataset({ endpoint: input.endpoint, token: input.token });
+      }
+
+      // Client-orchestrated sequential Batched Preview (Gate 0 calibrated: pageSize=100, batchPages=10)
+      const allRowDigests: PreviewRowDigestEntry[] = [];
+      const allAggregates: ExtendedAggregateGroup[] = [];
+      const allSampleCandidates: ExtendedSampleCandidate[] = [];
+      let nextPage: number | null = 1;
+      let batchNumber = 0;
+      let pagesFetched = 0;
+      let rowsFetched = 0;
+      let sourceTotal: number | null = null;
+      let totalPages: number | null = null;
+
+      while (nextPage !== null) {
+        if (previewRunTokenRef.current !== input.runToken) {
+          return null;
+        }
+        batchNumber += 1;
+        setPreviewBatchProgress({
+          phase: 'fetching',
+          batchNumber,
+          pagesFetched,
+          totalPages,
+          rowsFetched,
+          sourceTotal,
+        });
+
+        const batchRes = await transport.previewDatasetBatch({
+          endpoint: input.endpoint,
+          token: input.token,
+          startPage: nextPage,
+          batchPages: BATCHED_PREVIEW_BATCH_PAGES,
+          pageSize: BATCHED_PREVIEW_PAGE_SIZE,
+          expectedSourceTotal: sourceTotal ?? undefined,
+        });
+
+        if (previewRunTokenRef.current !== input.runToken) {
+          return null;
+        }
+
+        if (batchRes.status === 'STOP_BLOCKED') {
+          return {
+            status: 'STOP_BLOCKED',
+            endpoint: batchRes.endpoint,
+            env: batchRes.env,
+            syncMode: selectedDataset?.syncMode ?? 'KEYED_UPSERT',
+            paginationProtocol: selectedDataset?.paginationProtocol ?? 'assignment',
+            destinationTab: selectedDataset?.destinationTab ?? 'Assignments',
+            previewedAtUtc: new Date().toISOString(),
+            pagesFetched: pagesFetched + batchRes.pagesFetchedInBatch,
+            diagnostics: batchRes.diagnostics,
+            unresolvedPreviousRun:
+              data?.unresolvedRuns.find((r) => r.endpoint === input.endpoint) ?? null,
+          };
+        }
+
+        pagesFetched += batchRes.pagesFetchedInBatch;
+        rowsFetched += batchRes.rowsInBatch;
+        sourceTotal = batchRes.sourceTotal;
+        totalPages = batchRes.totalPages;
+        allRowDigests.push(...batchRes.rowDigests);
+        allAggregates.push(...batchRes.aggregateSummary);
+        allSampleCandidates.push(...batchRes.sampleCandidates);
+        nextPage = batchRes.hasMore ? batchRes.nextPage : null;
+
+        setPreviewBatchProgress({
+          phase: nextPage === null ? 'finalizing' : 'fetching',
+          batchNumber,
+          pagesFetched,
+          totalPages,
+          rowsFetched,
+          sourceTotal,
+        });
+      }
+
+      if (previewRunTokenRef.current !== input.runToken) {
+        return null;
+      }
+
+      return transport.finalizePreview({
+        endpoint: input.endpoint,
+        sourceTotal: sourceTotal ?? rowsFetched,
+        pagesFetched,
+        rowDigests: allRowDigests,
+        aggregateSummary: allAggregates,
+        sampleCandidates: allSampleCandidates,
+      });
+    },
     retry: false,
+    onSettled: (_data, _err, variables) => {
+      if (previewRunTokenRef.current === variables.runToken) {
+        setPreviewBatchProgress(null);
+      }
+    },
   });
 
   const commitMutation = useMutation({
-    mutationFn: (request: CommitSmallDatasetRequest) => transport.commitSmallDataset(request),
+    mutationFn: async (input: CommitExecutionInput): Promise<CommitDatasetData> => {
+      activeStageTrackerRef.current = { runId: null, stagingTabName: null };
+
+      if (!DATASET_DISPLAY_META[input.endpoint].usesBatchedSync) {
+        setCommitBatchProgress(null);
+        return transport.commitSmallDataset({
+          endpoint: input.endpoint,
+          token: input.token,
+          expectedFingerprint: input.expectedFingerprint,
+          confirmationPhrase: input.confirmationPhrase,
+          acknowledgeUnresolvedRunId: input.acknowledgeUnresolvedRunId,
+        });
+      }
+
+      // Client-orchestrated sequential Multi-Batch Staging -> LockService Finalize Commit (No Auto-Retry)
+      let nextPage: number | null = 1;
+      let batchNumber = 0;
+      let activeRunId: string | undefined;
+      let pagesStaged = 0;
+      let totalPages: number | null = null;
+      let rowsStaged = 0;
+      let stagingTabName: string | null = null;
+
+      while (nextPage !== null) {
+        batchNumber += 1;
+        setCommitBatchProgress({
+          phase: 'staging',
+          batchNumber,
+          pagesStaged,
+          totalPages,
+          rowsStaged,
+          sourceTotal: input.expectedFingerprint.sourceTotal,
+          stagingTabName,
+        });
+
+        const stageRes = await transport.stageLargeDatasetBatch({
+          endpoint: input.endpoint,
+          token: input.token,
+          expectedFingerprint: input.expectedFingerprint,
+          confirmationPhrase: input.confirmationPhrase,
+          acknowledgeUnresolvedRunId: input.acknowledgeUnresolvedRunId,
+          runId: activeRunId,
+          startPage: nextPage,
+          batchPages: BATCHED_PREVIEW_BATCH_PAGES,
+          pageSize: BATCHED_PREVIEW_PAGE_SIZE,
+        });
+
+        if (stageRes.status !== 'BATCH_STAGED') {
+          return stageRes;
+        }
+
+        activeRunId = stageRes.runId;
+        stagingTabName = stageRes.stagingTabName;
+        activeStageTrackerRef.current = { runId: activeRunId, stagingTabName };
+        pagesStaged = stageRes.lastPageStaged;
+        totalPages = stageRes.totalPages;
+        rowsStaged = stageRes.stagedRowCount;
+        nextPage = stageRes.hasMore ? stageRes.nextPage : null;
+
+        setCommitBatchProgress({
+          phase: nextPage === null ? 'finalizing' : 'staging',
+          batchNumber,
+          pagesStaged,
+          totalPages,
+          rowsStaged,
+          sourceTotal: stageRes.sourceTotal,
+          stagingTabName,
+        });
+      }
+
+      if (!activeRunId) {
+        return {
+          status: 'FAILED_STOP',
+          runId: null,
+          endpoint: input.endpoint,
+          env: input.expectedFingerprint.env,
+          destinationTab: input.destinationTab,
+          stopCode: 'STAGING_STATE_INVALID',
+          message: 'Staging did not return a valid runId before commit finalization.',
+          syncLogStatus: 'NOT_WRITTEN',
+          stagingTabRetained: stagingTabName,
+        };
+      }
+
+      return transport.finalizeLargeDatasetCommit({
+        endpoint: input.endpoint,
+        expectedFingerprint: input.expectedFingerprint,
+        runId: activeRunId,
+        confirmationPhrase: input.confirmationPhrase,
+        acknowledgeUnresolvedRunId: input.acknowledgeUnresolvedRunId,
+      });
+    },
     retry: false,
     onMutate: () => {
       onBusyChange(true);
     },
     onSettled: () => {
+      setCommitBatchProgress(null);
       onBusyChange(false);
     },
   });
@@ -159,10 +392,10 @@ export function SyncWorkspace({
     const startedTokenRevision = tokenSession.tokenRevision;
 
     previewMutation.mutate(
-      { endpoint: endpointToRun, token: tokenSession.token },
+      { endpoint: endpointToRun, token: tokenSession.token, runToken },
       {
         onSuccess: (result) => {
-          if (previewRunTokenRef.current !== runToken) {
+          if (previewRunTokenRef.current !== runToken || result === null) {
             return;
           }
           setPreviewState({
@@ -196,6 +429,7 @@ export function SyncWorkspace({
 
   function handleCancelPreview() {
     previewRunTokenRef.current += 1;
+    setPreviewBatchProgress(null);
     previewMutation.reset();
     setPreviewState(null);
     setPreviewRpcErrorState(null);
@@ -214,10 +448,11 @@ export function SyncWorkspace({
     setCommitOutcome(null);
     setPreviewRpcErrorState(null);
 
-    const request: CommitSmallDatasetRequest = {
+    const request: CommitExecutionInput = {
       endpoint: activePreviewData.endpoint,
       token: tokenSession.token,
       expectedFingerprint: activePreviewData.fingerprint,
+      destinationTab: activePreviewData.destinationTab,
       confirmationPhrase: params.confirmationPhrase,
       acknowledgeUnresolvedRunId: params.acknowledgeUnresolvedRunId,
     };
@@ -237,7 +472,7 @@ export function SyncWorkspace({
         // Unknown non-ACID transport failure during Commit -> UNKNOWN_OUTCOME_STOP (never auto-retry!)
         setCommitOutcome({
           status: 'UNKNOWN_OUTCOME_STOP',
-          runId: null,
+          runId: activeStageTrackerRef.current.runId,
           endpoint: activePreviewData.endpoint,
           env: activePreviewData.env,
           destinationTab: activePreviewData.destinationTab,
@@ -247,7 +482,7 @@ export function SyncWorkspace({
               ? mutationErr.message
               : 'การสื่อสารกับ Google Apps Script ขาดหายระหว่าง Commit กรุณาตรวจสอบชีตปลายทางและ _ThaiPHCSyncLog',
           syncLogStatus: 'STARTED',
-          stagingTabRetained: null,
+          stagingTabRetained: activeStageTrackerRef.current.stagingTabName,
         });
         void queryClient.invalidateQueries({ queryKey: ['dashboard-status'] });
       },
@@ -420,12 +655,15 @@ export function SyncWorkspace({
             <PreviewProgressCard
               endpoint={selectedDataset.endpoint}
               paginationProtocol={selectedDataset.paginationProtocol}
+              batchProgress={previewBatchProgress}
               onCancel={handleCancelPreview}
             />
           )}
 
           {/* Module 6.1: In-flight Commit Progress */}
-          {isCommitting && <CommitProgressCard endpoint={selectedEndpoint} />}
+          {isCommitting && (
+            <CommitProgressCard endpoint={selectedEndpoint} batchProgress={commitBatchProgress} />
+          )}
 
           {/* Module 6.2–6.4: Commit Outcomes */}
           {!isCommitting && commitOutcome && (

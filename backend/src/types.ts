@@ -14,6 +14,8 @@ export type ReferenceDatasetEndpoint = 'subdistricts' | 'villages' | 'health-ser
 
 export type SmallKeyedDatasetEndpoint = ReferenceDatasetEndpoint | 'volunteer-gender';
 
+export type LargeKeyedDatasetEndpoint = 'assignments';
+
 export type DatasetGroup = 'reference' | 'extended_report';
 
 export type SyncMode = 'KEYED_UPSERT' | 'COMPLETE_SNAPSHOT';
@@ -72,7 +74,8 @@ export type PreviewStopCode =
   | 'ROW_LIMIT_EXCEEDED'
   | 'HEADER_MISMATCH'
   | 'INVALID_EXISTING_KEY'
-  | 'DESTINATION_TOO_LARGE';
+  | 'DESTINATION_TOO_LARGE'
+  | 'MISSING_HMAC_KEY';
 
 export type CommitStopCode =
   | PreviewStopCode
@@ -84,6 +87,8 @@ export type CommitStopCode =
   | 'LOCK_BUSY'
   | 'UNRESOLVED_PREVIOUS_RUN'
   | 'INVALID_FINGERPRINT'
+  | 'STAGING_STATE_INVALID'
+  | 'STAGING_DIGEST_MISMATCH'
   | 'READBACK_MISMATCH'
   | 'WRITE_FAILED_UNKNOWN';
 
@@ -265,6 +270,110 @@ export type PreviewDatasetResponse =
   | { ok: true; data: PreviewDatasetData }
   | { ok: false; error: { code: SyncRpcErrorCode; message: string } };
 
+export interface PreviewRowDigestEntry {
+  key: string;
+  rowDigest: string;
+}
+
+export interface ExtendedSampleCandidate {
+  sourceKey: string;
+  rowDigest: string;
+  scopeLabel: string;
+  minimizedAttributes: ExtendedMinimizedAttribute[];
+  reviewReasons: ReviewReasonCode[];
+}
+
+export interface PreviewDatasetBatchRequest {
+  endpoint: DatasetEndpoint;
+  token: string;
+  startPage: number;
+  batchPages?: number;
+  pageSize?: number;
+  expectedSourceTotal?: number;
+}
+
+export interface PreviewDatasetBatchOkData {
+  status: 'BATCH_OK';
+  endpoint: DatasetEndpoint;
+  env: AppEnvironment;
+  startPage: number;
+  lastPageFetched: number;
+  pagesFetchedInBatch: number;
+  totalPages: number;
+  sourceTotal: number;
+  rowsInBatch: number;
+  hasMore: boolean;
+  nextPage: number | null;
+  rowDigests: PreviewRowDigestEntry[];
+  aggregateSummary: ExtendedAggregateGroup[];
+  sampleCandidates: ExtendedSampleCandidate[];
+}
+
+export interface PreviewDatasetBatchBlockedData {
+  status: 'STOP_BLOCKED';
+  endpoint: DatasetEndpoint;
+  env: AppEnvironment;
+  pagesFetchedInBatch: number;
+  diagnostics: PreviewDiagnostic[];
+}
+
+export type PreviewDatasetBatchData = PreviewDatasetBatchOkData | PreviewDatasetBatchBlockedData;
+
+export type PreviewDatasetBatchResponse =
+  | { ok: true; data: PreviewDatasetBatchData }
+  | { ok: false; error: { code: SyncRpcErrorCode; message: string } };
+
+export interface FinalizePreviewRequest {
+  endpoint: DatasetEndpoint;
+  sourceTotal: number;
+  pagesFetched: number;
+  rowDigests: PreviewRowDigestEntry[];
+  aggregateSummary: ExtendedAggregateGroup[];
+  sampleCandidates: ExtendedSampleCandidate[];
+}
+
+export interface StageLargeDatasetBatchRequest {
+  endpoint: DatasetEndpoint;
+  token: string;
+  expectedFingerprint: PreviewFingerprint;
+  confirmationPhrase?: string;
+  acknowledgeUnresolvedRunId?: string;
+  runId?: string;
+  startPage: number;
+  batchPages?: number;
+  pageSize?: number;
+}
+
+export interface StageLargeDatasetBatchStagedData {
+  status: 'BATCH_STAGED';
+  runId: string;
+  endpoint: DatasetEndpoint;
+  env: AppEnvironment;
+  destinationTab: string;
+  stagingTabName: string;
+  lastPageStaged: number;
+  totalPages: number;
+  stagedRowCount: number;
+  sourceTotal: number;
+  hasMore: boolean;
+  nextPage: number | null;
+}
+
+export type StageLargeDatasetBatchData =
+  StageLargeDatasetBatchStagedData | CommitStaleData | CommitStopData;
+
+export type StageLargeDatasetBatchResponse =
+  | { ok: true; data: StageLargeDatasetBatchData }
+  | { ok: false; error: { code: SyncRpcErrorCode; message: string } };
+
+export interface FinalizeLargeDatasetCommitRequest {
+  endpoint: DatasetEndpoint;
+  expectedFingerprint: PreviewFingerprint;
+  runId: string;
+  confirmationPhrase?: string;
+  acknowledgeUnresolvedRunId?: string;
+}
+
 export interface ReadbackVerification {
   verified: boolean;
   destinationTab: string;
@@ -318,7 +427,7 @@ export interface CommitStopData {
   stagingTabRetained: string | null;
 }
 
-export type CommitSmallDatasetData = CommitVerifiedData | CommitStaleData | CommitStopData;
+export type CommitDatasetData = CommitVerifiedData | CommitStaleData | CommitStopData;
 
 export interface CommitSmallDatasetRequest {
   endpoint: DatasetEndpoint;
@@ -329,8 +438,8 @@ export interface CommitSmallDatasetRequest {
   pageSize?: number;
 }
 
-export type CommitSmallDatasetResponse =
-  | { ok: true; data: CommitSmallDatasetData }
+export type CommitDatasetResponse =
+  | { ok: true; data: CommitDatasetData }
   | { ok: false; error: { code: SyncRpcErrorCode; message: string } };
 
 export interface SheetHandle {
@@ -346,6 +455,7 @@ export interface WritableSheetHandle extends SheetHandle {
   insertColumnsAfter(afterPosition: number, howMany: number): void;
   insertRowsAfter(afterPosition: number, howMany: number): void;
   setFrozenRows(rows: number): void;
+  hideSheet(): void;
   setValues(row: number, col: number, values: unknown[][]): void;
   setNumberFormat(row: number, col: number, numRows: number, numCols: number, format: string): void;
 }
@@ -359,6 +469,7 @@ export interface SpreadsheetHandle {
 export interface WritableSpreadsheetHandle extends SpreadsheetHandle {
   getSheetByName(name: string): WritableSheetHandle | null;
   insertSheet(name: string): WritableSheetHandle;
+  deleteSheetByName(name: string): boolean;
 }
 
 export interface HttpFetchOptions {
@@ -389,6 +500,9 @@ export interface SyncPlatform extends DashboardPlatform {
   openSpreadsheetById(id: string): WritableSpreadsheetHandle;
   fetchUrl(url: string, options: HttpFetchOptions): HttpFetchResponse;
   sha256Hex(input: string): string;
+  base64Decode(b64: string): number[];
+  base64Encode(bytes: number[]): string;
+  hmacSha256Bytes(input: string, keyBytes: number[]): number[];
   tryScriptLock(timeoutMs: number): ScriptLockHandle | null;
   flushSpreadsheet(): void;
   generateRunId(endpoint: DatasetEndpoint, now: Date): string;

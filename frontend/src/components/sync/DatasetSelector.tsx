@@ -7,21 +7,6 @@ import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/
 import { DATASET_DISPLAY_META } from '@/lib/datasetMeta';
 import { cn } from '@/lib/utils';
 
-const PSEUDONYMIZED_ENDPOINTS: ReadonlySet<DatasetEndpoint> = new Set([
-  'assignments',
-  'resigned-volunteers',
-  'volunteer-tenure',
-]);
-
-function isSupportedSyncEndpoint(endpoint: DatasetEndpoint): boolean {
-  return (
-    endpoint === 'subdistricts' ||
-    endpoint === 'villages' ||
-    endpoint === 'health-services' ||
-    endpoint === 'volunteer-gender'
-  );
-}
-
 interface DatasetSelectorProps {
   data: DashboardStatusData;
   selectedEndpoint: DatasetEndpoint;
@@ -37,7 +22,7 @@ function isWriteGuardAllowedForDataset(
   if (ds.group === 'reference') {
     return data.guards.writeEnabled;
   }
-  const requiresHmac = PSEUDONYMIZED_ENDPOINTS.has(ds.endpoint);
+  const requiresHmac = DATASET_DISPLAY_META[ds.endpoint].usesHmacPseudonym;
   return (
     data.guards.writeEnabled &&
     data.guards.personDataWriteEnabled &&
@@ -137,7 +122,7 @@ export function DatasetSelector({
 }: DatasetSelectorProps) {
   const referenceDatasets = data.datasets.filter((d) => d.group === 'reference');
   const extendedDatasets = data.datasets.filter((d) => d.group === 'extended_report');
-  const isSelectedSupported = isSupportedSyncEndpoint(selectedEndpoint);
+  const isSelectedSupported = DATASET_DISPLAY_META[selectedEndpoint].supportedInWorkspace;
 
   return (
     <Card>
@@ -227,12 +212,13 @@ export function DatasetSelector({
             />
             <span>
               ชุดข้อมูลรายงานขยาย (<code className="font-mono">{selectedEndpoint}</code>)
-              อยู่ระหว่างการเปิดใช้งานในรอบงานถัดไป (Tickets 05–07) — ในรอบนี้สามารถรัน Preview และ
+              อยู่ระหว่างการเปิดใช้งานในรอบงานถัดไป (Tickets 06–07) — ในรอบนี้สามารถรัน Preview และ
               Repeatable Sync ได้ครบทั้ง 3 Reference Datasets (
               <code className="font-mono">subdistricts</code>,{' '}
               <code className="font-mono">villages</code>,{' '}
-              <code className="font-mono">health-services</code>) และ{' '}
-              <code className="font-mono">volunteer-gender</code> (Mode B · Minimized Projection)
+              <code className="font-mono">health-services</code>),{' '}
+              <code className="font-mono">volunteer-gender</code>, และ{' '}
+              <code className="font-mono">assignments</code> (Mode B · Minimized Projection)
             </span>
           </div>
         )}

@@ -1,6 +1,7 @@
 import type {
   DatasetEndpoint,
   DatasetGroup,
+  LargeKeyedDatasetEndpoint,
   PaginationProtocol,
   ReferenceDatasetEndpoint,
   SmallKeyedDatasetEndpoint,
@@ -17,7 +18,7 @@ export interface DatasetDescriptor {
 }
 
 export type DatasetFieldKind =
-  'string' | 'string_or_null' | 'integer' | 'number' | 'null_only' | 'object' | 'array';
+  'string' | 'string_or_null' | 'integer' | 'number' | 'boolean' | 'null_only' | 'object' | 'array';
 
 export type ReferenceFieldKind = DatasetFieldKind;
 
@@ -107,8 +108,14 @@ export const DATASET_CATALOG: readonly DatasetDescriptor[] = [
 
 export const REPORT_CURRENT_TAB = '_ThaiPHCReportCurrent';
 export const SYNC_LOG_TAB = '_ThaiPHCSyncLog';
+export const STAGING_TAB_PREFIX = '_Stage_';
 export const SAME_WORKBOOK_APPROVAL_TOKEN = 'OWNER_ONLY_5406_APPROVED';
 export const SCHEMA_VERSION = '0.1.0';
+export const RUN_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
+
+export function buildStagingTabName(endpoint: DatasetEndpoint, runId: string): string {
+  return `${STAGING_TAB_PREFIX}${endpoint}_${runId}`;
+}
 
 /**
  * Exact 8 trailing metadata columns matching the deployed 111-row Historical Acceptance Baseline
@@ -253,12 +260,70 @@ export const SMALL_KEYED_SCHEMAS: Readonly<
   'volunteer-gender': VOLUNTEER_GENDER_SCHEMA,
 };
 
+/**
+ * Exact 8 RESTRICTED_DEFAULT_OMIT direct personal identifier fields on `assignments`
+ * (docs/sheets-schema.json). Always stripped server-side before preview or storage.
+ */
+export const ASSIGNMENTS_RESTRICTED_SOURCE_FIELDS = [
+  'id',
+  'osmCode',
+  'citizenId',
+  'prefixNameTh',
+  'prefixNameEn',
+  'firstName',
+  'lastName',
+  'fullName',
+] as const;
+
+/**
+ * Exact 17 ALLOW_ONLY_IF_DATASET_APPROVED columns on `Assignments`
+ * (docs/sheets-schema.json and apps-script/ReportReceiver.gs), paired with the uniform
+ * 8 trailing Keyed Upsert metadata columns (25 columns total).
+ */
+export const ASSIGNMENTS_SCHEMA: KeyedDatasetSchemaSpec<'assignments'> = {
+  endpoint: 'assignments',
+  tab: 'Assignments',
+  keyField: 'id',
+  displayNameField: 'subdistrictNameTh',
+  summaryFieldNames: ['isActive', 'status', 'approvalStatus', 'volunteerStatus', 'villageName'],
+  maxRows: 2500,
+  fields: [
+    { name: 'provinceCode', kind: 'string' },
+    { name: 'provinceNameTh', kind: 'string' },
+    { name: 'districtCode', kind: 'string' },
+    { name: 'districtNameTh', kind: 'string' },
+    { name: 'subdistrictCode', kind: 'string' },
+    { name: 'subdistrictNameTh', kind: 'string' },
+    { name: 'villageNo', kind: 'string' },
+    { name: 'villageName', kind: 'string_or_null' },
+    { name: 'isActive', kind: 'boolean' },
+    { name: 'status', kind: 'string' },
+    { name: 'osmStatus', kind: 'string' },
+    { name: 'osmShowbbody', kind: 'string' },
+    { name: 'approvalStatus', kind: 'string' },
+    { name: 'volunteerStatus', kind: 'string' },
+    { name: 'createdAt', kind: 'string' },
+    { name: 'requestDate', kind: 'string' },
+    { name: 'updatedAt', kind: 'string' },
+  ],
+};
+
+export const LARGE_KEYED_SCHEMAS: Readonly<
+  Record<LargeKeyedDatasetEndpoint, KeyedDatasetSchemaSpec<LargeKeyedDatasetEndpoint>>
+> = {
+  assignments: ASSIGNMENTS_SCHEMA,
+};
+
 export function isReferenceEndpoint(endpoint: string): endpoint is ReferenceDatasetEndpoint {
   return endpoint === 'subdistricts' || endpoint === 'villages' || endpoint === 'health-services';
 }
 
 export function isSmallKeyedEndpoint(endpoint: string): endpoint is SmallKeyedDatasetEndpoint {
   return isReferenceEndpoint(endpoint) || endpoint === 'volunteer-gender';
+}
+
+export function isLargeKeyedEndpoint(endpoint: string): endpoint is LargeKeyedDatasetEndpoint {
+  return endpoint === 'assignments';
 }
 
 export function getDatasetDescriptor(endpoint: DatasetEndpoint): DatasetDescriptor {

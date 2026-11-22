@@ -157,7 +157,11 @@ describe('ThaiPHC Data Connector Dashboard Shell (Frontend GasRpcTransport Seam)
           resolveStatus = resolve;
         }),
       previewDataset: (req) => new MockGasTransport().previewDataset(req),
+      previewDatasetBatch: (req) => new MockGasTransport().previewDatasetBatch(req),
+      finalizePreview: (req) => new MockGasTransport().finalizePreview(req),
       commitSmallDataset: (req) => new MockGasTransport().commitSmallDataset(req),
+      stageLargeDatasetBatch: (req) => new MockGasTransport().stageLargeDatasetBatch(req),
+      finalizeLargeDatasetCommit: (req) => new MockGasTransport().finalizeLargeDatasetCommit(req),
     };
 
     renderApp(deferredTransport);
@@ -192,7 +196,11 @@ describe('ThaiPHC Data Connector Dashboard Shell (Frontend GasRpcTransport Seam)
         };
       },
       previewDataset: (req) => new MockGasTransport().previewDataset(req),
+      previewDatasetBatch: (req) => new MockGasTransport().previewDatasetBatch(req),
+      finalizePreview: (req) => new MockGasTransport().finalizePreview(req),
       commitSmallDataset: (req) => new MockGasTransport().commitSmallDataset(req),
+      stageLargeDatasetBatch: (req) => new MockGasTransport().stageLargeDatasetBatch(req),
+      finalizeLargeDatasetCommit: (req) => new MockGasTransport().finalizeLargeDatasetCommit(req),
     };
 
     const originalClipboard = navigator.clipboard;
@@ -233,7 +241,11 @@ describe('ThaiPHC Data Connector Dashboard Shell (Frontend GasRpcTransport Seam)
           };
         },
         previewDataset: (req) => new MockGasTransport().previewDataset(req),
+        previewDatasetBatch: (req) => new MockGasTransport().previewDatasetBatch(req),
+        finalizePreview: (req) => new MockGasTransport().finalizePreview(req),
         commitSmallDataset: (req) => new MockGasTransport().commitSmallDataset(req),
+        stageLargeDatasetBatch: (req) => new MockGasTransport().stageLargeDatasetBatch(req),
+        finalizeLargeDatasetCommit: (req) => new MockGasTransport().finalizeLargeDatasetCommit(req),
       };
       renderApp(allWritesNoHmacTransport);
       const nav = screen.getByRole('navigation', { name: 'เมนูหลัก' });
@@ -265,7 +277,11 @@ describe('ThaiPHC Data Connector Dashboard Shell (Frontend GasRpcTransport Seam)
         return new MockGasTransport({ scenario: 'sandbox-default' }).getDashboardStatus();
       },
       previewDataset: (req) => new MockGasTransport().previewDataset(req),
+      previewDatasetBatch: (req) => new MockGasTransport().previewDatasetBatch(req),
+      finalizePreview: (req) => new MockGasTransport().finalizePreview(req),
       commitSmallDataset: (req) => new MockGasTransport().commitSmallDataset(req),
+      stageLargeDatasetBatch: (req) => new MockGasTransport().stageLargeDatasetBatch(req),
+      finalizeLargeDatasetCommit: (req) => new MockGasTransport().finalizeLargeDatasetCommit(req),
     };
 
     renderApp(flakyTransport);

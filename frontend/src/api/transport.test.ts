@@ -40,6 +40,30 @@ function createFakeRunner(
         (err) => failureCb?.(err),
       );
     },
+    previewDatasetBatch() {
+      handler(
+        (val) => successCb?.(val),
+        (err) => failureCb?.(err),
+      );
+    },
+    finalizePreview() {
+      handler(
+        (val) => successCb?.(val),
+        (err) => failureCb?.(err),
+      );
+    },
+    stageLargeDatasetBatch() {
+      handler(
+        (val) => successCb?.(val),
+        (err) => failureCb?.(err),
+      );
+    },
+    finalizeLargeDatasetCommit() {
+      handler(
+        (val) => successCb?.(val),
+        (err) => failureCb?.(err),
+      );
+    },
   };
   return runner;
 }
@@ -289,6 +313,101 @@ describe('GasRpcTransport Seam', () => {
       invalidGuardReason.previewDataset({
         endpoint: 'volunteer-gender',
         token: 'synthetic_token_for_gender_test',
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_RPC_RESPONSE' });
+  });
+
+  it('validates multi-batch previewDatasetBatch, finalizePreview, stageLargeDatasetBatch, and finalizeLargeDatasetCommit envelopes for assignments with zero PII and rejects malformed payloads', async () => {
+    const mock = new MockGasTransport({ scenario: 'sandbox-assignments-legacy' });
+    const b1 = await mock.previewDatasetBatch({
+      endpoint: 'assignments',
+      token: 'synthetic_token_for_assign_test',
+      startPage: 1,
+      batchPages: 10,
+      pageSize: 100,
+    });
+    expect(b1.status).toBe('BATCH_OK');
+    if (b1.status !== 'BATCH_OK') throw new Error('Expected BATCH_OK');
+    expect(b1.hasMore).toBe(true);
+    expect(b1.nextPage).toBe(11);
+    expect(b1.totalPages).toBe(16);
+    expect(b1.sourceTotal).toBe(1571);
+    expect(b1.rowDigests[0].key).toMatch(/^h1_[a-f0-9]{64}$/);
+    expect(JSON.stringify(b1)).not.toMatch(/citizenId|firstName|lastName|fullName|osmCode/);
+
+    const b2 = await mock.previewDatasetBatch({
+      endpoint: 'assignments',
+      token: 'synthetic_token_for_assign_test',
+      startPage: 11,
+      batchPages: 10,
+      pageSize: 100,
+      expectedSourceTotal: b1.sourceTotal,
+    });
+    expect(b2.status).toBe('BATCH_OK');
+    if (b2.status !== 'BATCH_OK') throw new Error('Expected BATCH_OK');
+    expect(b2.hasMore).toBe(false);
+    expect(b2.nextPage).toBeNull();
+
+    const preview = await mock.finalizePreview({
+      endpoint: 'assignments',
+      sourceTotal: b1.sourceTotal,
+      pagesFetched: b1.pagesFetchedInBatch + b2.pagesFetchedInBatch,
+      rowDigests: [...b1.rowDigests, ...b2.rowDigests],
+      aggregateSummary: [...b1.aggregateSummary, ...b2.aggregateSummary],
+      sampleCandidates: [...b1.sampleCandidates, ...b2.sampleCandidates],
+    });
+    expect(preview.status).toBe('READY');
+    if (preview.status !== 'READY' || preview.previewMode !== 'EXTENDED_MINIMIZED') {
+      throw new Error('Expected READY EXTENDED_MINIMIZED preview');
+    }
+    expect(preview.legacySnapshotPresent).toBe(true);
+    expect(preview.legacySnapshotTab).toBe('RAssign_f010_20261119');
+
+    const s1 = await mock.stageLargeDatasetBatch({
+      endpoint: 'assignments',
+      token: 'synthetic_token_for_assign_test',
+      expectedFingerprint: preview.fingerprint,
+      startPage: 1,
+      batchPages: 10,
+      pageSize: 100,
+    });
+    expect(s1.status).toBe('BATCH_STAGED');
+    if (s1.status !== 'BATCH_STAGED') throw new Error('Expected BATCH_STAGED');
+    expect(s1.stagingTabName).toMatch(/^_Stage_assignments_/);
+    expect(s1.hasMore).toBe(true);
+
+    const s2 = await mock.stageLargeDatasetBatch({
+      endpoint: 'assignments',
+      token: 'synthetic_token_for_assign_test',
+      expectedFingerprint: preview.fingerprint,
+      runId: s1.runId,
+      startPage: 11,
+      batchPages: 10,
+      pageSize: 100,
+    });
+    expect(s2.status).toBe('BATCH_STAGED');
+    if (s2.status !== 'BATCH_STAGED') throw new Error('Expected BATCH_STAGED');
+    expect(s2.hasMore).toBe(false);
+
+    const fin = await mock.finalizeLargeDatasetCommit({
+      endpoint: 'assignments',
+      expectedFingerprint: preview.fingerprint,
+      runId: s1.runId,
+    });
+    expect(fin.status).toBe('COMMITTED_VERIFIED');
+    if (fin.status === 'COMMITTED_VERIFIED') {
+      expect(fin.readback.stagingTabCleaned).toBe(true);
+    }
+
+    // Reject malformed previewDatasetBatch payload
+    const badBatchTransport = new GoogleScriptRunTransport(() =>
+      createFakeRunner((onSuccess) => onSuccess({ ok: true, data: { status: 'BATCH_OK' } })),
+    );
+    await expect(
+      badBatchTransport.previewDatasetBatch({
+        endpoint: 'assignments',
+        token: 'synthetic_token_for_assign_test',
+        startPage: 1,
       }),
     ).rejects.toMatchObject({ code: 'INVALID_RPC_RESPONSE' });
   });

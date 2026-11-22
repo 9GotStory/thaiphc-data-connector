@@ -2,18 +2,25 @@ import type {
   BlockedGuardReason,
   CommitSmallDatasetRequest,
   DashboardStatusData,
+  DatasetEndpoint,
   ExtendedAggregateGroup,
   ExtendedMinimizedPreviewRow,
+  ExtendedSampleCandidate,
+  FinalizeLargeDatasetCommitRequest,
+  FinalizePreviewRequest,
+  PreviewDatasetBatchRequest,
   PreviewDatasetRequest,
   ReferenceDatasetEndpoint,
   ReferencePreviewRow,
   SmallKeyedDatasetEndpoint,
+  StageLargeDatasetBatchRequest,
 } from './types';
 
 export type MockScenario =
   | 'sandbox-default'
   | 'sandbox-writable'
   | 'sandbox-report-writable'
+  | 'sandbox-assignments-legacy'
   | 'production-unresolved'
   | 'production-writable'
   | 'production-report-writable'
@@ -223,10 +230,15 @@ export function buildMockDashboardEnvelope(scenario: MockScenario): unknown {
   const writableSandbox =
     scenario === 'sandbox-writable' ||
     scenario === 'sandbox-report-writable' ||
+    scenario === 'sandbox-assignments-legacy' ||
     scenario === 'same-workbook-unapproved-writable';
   const personWritableSandbox =
-    scenario === 'sandbox-report-writable' || scenario === 'same-workbook-unapproved-writable';
-  const separateSandboxReport = scenario === 'sandbox-report-writable';
+    scenario === 'sandbox-report-writable' ||
+    scenario === 'sandbox-assignments-legacy' ||
+    scenario === 'same-workbook-unapproved-writable';
+  const separateSandboxReport =
+    scenario === 'sandbox-report-writable' || scenario === 'sandbox-assignments-legacy';
+  const assignmentsLegacyMode = scenario === 'sandbox-assignments-legacy';
   const sandboxData: DashboardStatusData = {
     env: 'SANDBOX',
     scope: { provinceCode: '54', districtCode: '5406' },
@@ -315,13 +327,13 @@ export function buildMockDashboardEnvelope(scenario: MockScenario): unknown {
         syncMode: 'KEYED_UPSERT',
         paginationProtocol: 'assignment',
         destinationTab: 'Assignments',
-        rowCount: 1571,
-        lastRunId: 'run_20261121_0930_assign_s4',
-        lastSyncedAtUtc: '2026-11-21T02:30:00.000Z',
-        lastStatus: 'COMMITTED_VERIFIED',
+        rowCount: assignmentsLegacyMode ? null : 1571,
+        lastRunId: assignmentsLegacyMode ? null : 'run_20261121_0930_assign_s4',
+        lastSyncedAtUtc: assignmentsLegacyMode ? null : '2026-11-21T02:30:00.000Z',
+        lastStatus: assignmentsLegacyMode ? 'NEVER_SYNCED' : 'COMMITTED_VERIFIED',
         publicationPointerActive: false,
-        legacySnapshotPresent: false,
-        legacySnapshotTab: null,
+        legacySnapshotPresent: assignmentsLegacyMode,
+        legacySnapshotTab: assignmentsLegacyMode ? 'RAssign_f010_20261119' : null,
       },
       {
         endpoint: 'volunteer-family',
@@ -590,7 +602,7 @@ function isSupportedSmallKeyed(endpoint: string): endpoint is SmallKeyedDatasetE
 }
 
 function evaluateMockWriteGuard(
-  endpoint: SmallKeyedDatasetEndpoint,
+  endpoint: DatasetEndpoint,
   dash: DashboardStatusData,
 ): {
   writeAllowed: boolean;
@@ -957,6 +969,495 @@ export function buildMockCommitEnvelope(
           ? ['ชีต1', '_ThaiPHCReportCurrent', 'RGender_f010_20261119']
           : ['ชีต1', 'Subdistricts', 'Villages', 'HealthServices'],
         stagingTabCleaned: null,
+      },
+      syncLogStatus: 'COMMITTED_VERIFIED',
+    },
+  };
+}
+
+const ASSIGNMENTS_MOCK_TOTAL = 1571;
+
+function makeMockH1Key(index: number): string {
+  const hex = index.toString(16).padStart(8, '0');
+  return `h1_${hex}${'a1b2c3d4e5f60718'.repeat(3)}90abcdef`;
+}
+
+function makeMockRowDigest(index: number): string {
+  const hex = index.toString(16).padStart(8, '0');
+  return `${hex}${'1122334455667788'.repeat(3)}deadbeef`;
+}
+
+const ASSIGNMENTS_MOCK_AGGREGATES: ExtendedAggregateGroup[] = [
+  { groupCode: '540601', groupLabel: 'บ้านหนุน', rowCount: 221, reviewCount: 0 },
+  { groupCode: '540602', groupLabel: 'บ้านกลาง', rowCount: 248, reviewCount: 0 },
+  { groupCode: '540603', groupLabel: 'ห้วยหม้าย', rowCount: 312, reviewCount: 0 },
+  { groupCode: '540604', groupLabel: 'เตาปูน', rowCount: 194, reviewCount: 0 },
+  { groupCode: '540605', groupLabel: 'หัวเมือง', rowCount: 176, reviewCount: 0 },
+  { groupCode: '540606', groupLabel: 'ทุ่งน้าว', rowCount: 145, reviewCount: 0 },
+  { groupCode: '540607', groupLabel: 'แดนชุมพล', rowCount: 152, reviewCount: 0 },
+  { groupCode: '540608', groupLabel: 'สะเอียบ', rowCount: 123, reviewCount: 0 },
+];
+
+const ASSIGNMENTS_MOCK_SAMPLE_CANDIDATES: ExtendedSampleCandidate[] = [
+  {
+    sourceKey: makeMockH1Key(1),
+    rowDigest: makeMockRowDigest(1),
+    scopeLabel: '54 / 5406 · 540603 ห้วยหม้าย · หมู่ 7',
+    minimizedAttributes: [
+      { field: 'isActive', value: 'true' },
+      { field: 'status', value: 'ใช้งาน' },
+      { field: 'approvalStatus', value: 'approved' },
+      { field: 'volunteerStatus', value: 'already_volunteer' },
+      { field: 'villageName', value: null },
+    ],
+    reviewReasons: [],
+  },
+  {
+    sourceKey: makeMockH1Key(2),
+    rowDigest: makeMockRowDigest(2),
+    scopeLabel: '54 / 5406 · 540601 บ้านหนุน · หมู่ 1 หนุนเหนือ',
+    minimizedAttributes: [
+      { field: 'isActive', value: 'true' },
+      { field: 'status', value: 'ใช้งาน' },
+      { field: 'approvalStatus', value: 'approved' },
+      { field: 'volunteerStatus', value: 'not_interested' },
+      { field: 'villageName', value: 'หนุนเหนือ' },
+    ],
+    reviewReasons: [],
+  },
+  {
+    sourceKey: makeMockH1Key(3),
+    rowDigest: makeMockRowDigest(3),
+    scopeLabel: '54 / 5406 · 540602 บ้านกลาง · หมู่ 5 กลาง',
+    minimizedAttributes: [
+      { field: 'isActive', value: 'true' },
+      { field: 'status', value: 'ใช้งาน' },
+      { field: 'approvalStatus', value: 'approved' },
+      { field: 'volunteerStatus', value: 'already_volunteer' },
+      { field: 'villageName', value: null },
+    ],
+    reviewReasons: [],
+  },
+];
+
+export function buildMockPreviewBatchEnvelope(
+  request: PreviewDatasetBatchRequest,
+  scenario: MockScenario,
+  outcome: MockPreviewOutcome = 'ready',
+): unknown {
+  if (request.endpoint !== 'assignments') {
+    return {
+      ok: false,
+      error: {
+        code: 'DATASET_NOT_SUPPORTED',
+        message: 'Batched preview is currently enabled for assignments.',
+      },
+    };
+  }
+  if (outcome === 'http-401') {
+    return {
+      ok: false,
+      error: { code: 'HTTP_401', message: 'ThaiPHC authentication failed (HTTP 401).' },
+    };
+  }
+  const dash = buildMockDashboardEnvelope(
+    scenario === 'rpc-error' ? 'sandbox-default' : scenario,
+  ) as { ok: true; data: DashboardStatusData };
+  const env = dash.data.env;
+
+  if (!dash.data.guards.hmacKeyConfigured) {
+    return {
+      ok: true,
+      data: {
+        status: 'STOP_BLOCKED',
+        endpoint: 'assignments',
+        env,
+        pagesFetchedInBatch: 0,
+        diagnostics: [
+          {
+            code: 'MISSING_HMAC_KEY',
+            message:
+              'THAIPHC_HMAC_KEY_B64 is missing or malformed in Google Apps Script Properties.',
+          },
+        ],
+      },
+    };
+  }
+
+  if (outcome === 'stop-blocked') {
+    return {
+      ok: true,
+      data: {
+        status: 'STOP_BLOCKED',
+        endpoint: 'assignments',
+        env,
+        pagesFetchedInBatch: 1,
+        diagnostics: [
+          {
+            code: 'OUT_OF_GEOGRAPHIC_SCOPE',
+            message: 'Row #1 falls outside Geographic Scope (54 / 5406) for assignments.',
+            rowIndex: 0,
+          },
+        ],
+      },
+    };
+  }
+
+  const pageSize =
+    request.pageSize !== undefined && request.pageSize >= 1 && request.pageSize <= 100
+      ? request.pageSize
+      : 100;
+  const batchPages =
+    request.batchPages !== undefined && request.batchPages >= 1 && request.batchPages <= 20
+      ? request.batchPages
+      : 10;
+  const totalPages = Math.ceil(ASSIGNMENTS_MOCK_TOTAL / pageSize);
+  const startPage = Math.max(1, request.startPage);
+  const lastPageFetched = Math.min(totalPages, startPage + batchPages - 1);
+  const pagesFetchedInBatch = Math.max(0, lastPageFetched - startPage + 1);
+  const startOffset = (startPage - 1) * pageSize;
+  const endOffset = Math.min(ASSIGNMENTS_MOCK_TOTAL, lastPageFetched * pageSize);
+  const rowsInBatch = Math.max(0, endOffset - startOffset);
+  const hasMore = lastPageFetched < totalPages;
+
+  // Keep mock payload fast in unit tests while honoring exact batch progress counts
+  const rowDigests = Array.from({ length: Math.min(rowsInBatch, 5) }, (_, idx) => ({
+    key: makeMockH1Key(startOffset + idx + 1),
+    rowDigest: makeMockRowDigest(startOffset + idx + 1),
+  }));
+
+  return {
+    ok: true,
+    data: {
+      status: 'BATCH_OK',
+      endpoint: 'assignments',
+      env,
+      startPage,
+      lastPageFetched,
+      pagesFetchedInBatch,
+      totalPages,
+      sourceTotal: ASSIGNMENTS_MOCK_TOTAL,
+      rowsInBatch,
+      hasMore,
+      nextPage: hasMore ? lastPageFetched + 1 : null,
+      rowDigests,
+      aggregateSummary: startPage === 1 ? ASSIGNMENTS_MOCK_AGGREGATES : [],
+      sampleCandidates: startPage === 1 ? ASSIGNMENTS_MOCK_SAMPLE_CANDIDATES : [],
+    },
+  };
+}
+
+export function buildMockFinalizePreviewEnvelope(
+  request: FinalizePreviewRequest,
+  scenario: MockScenario,
+  outcome: MockPreviewOutcome = 'ready',
+): unknown {
+  if (request.endpoint !== 'assignments') {
+    return {
+      ok: false,
+      error: {
+        code: 'DATASET_NOT_SUPPORTED',
+        message: 'Finalize preview is currently enabled for assignments.',
+      },
+    };
+  }
+  const dash = buildMockDashboardEnvelope(
+    scenario === 'rpc-error' ? 'sandbox-default' : scenario,
+  ) as { ok: true; data: DashboardStatusData };
+  const env = dash.data.env;
+  const dsMeta = dash.data.datasets.find((d) => d.endpoint === 'assignments');
+  const unresolved = dash.data.unresolvedRuns.find((r) => r.endpoint === 'assignments') ?? null;
+  const guard = evaluateMockWriteGuard('assignments', dash.data);
+
+  const isLegacyInit = dsMeta?.legacySnapshotPresent ?? false;
+  const counts =
+    outcome === 'all-unchanged'
+      ? { insert: 0, update: 0, unchanged: request.sourceTotal, review: 0 }
+      : isLegacyInit
+        ? { insert: request.sourceTotal, update: 0, unchanged: 0, review: 0 }
+        : { insert: 12, update: 5, unchanged: request.sourceTotal - 17, review: 2 };
+  const reviewBreakdown =
+    outcome === 'all-unchanged' || isLegacyInit ? {} : { MISSING_IN_SOURCE: 2 };
+
+  const sampleRows: ExtendedMinimizedPreviewRow[] = ASSIGNMENTS_MOCK_SAMPLE_CANDIDATES.map(
+    (cand, idx) => ({
+      diffKind:
+        outcome === 'all-unchanged'
+          ? 'UNCHANGED'
+          : isLegacyInit
+            ? 'INSERT'
+            : idx === 0
+              ? 'INSERT'
+              : idx === 1
+                ? 'UPDATE'
+                : 'UNCHANGED',
+      sourceKey: cand.sourceKey,
+      scopeLabel: cand.scopeLabel,
+      minimizedAttributes: cand.minimizedAttributes,
+      reviewReasons: [],
+    }),
+  );
+
+  if (!isLegacyInit && outcome !== 'all-unchanged') {
+    sampleRows.push({
+      diffKind: 'REVIEW',
+      sourceKey: makeMockH1Key(9999),
+      scopeLabel: '54 / 5406 · 540608 สะเอียบ · หมู่ 2',
+      minimizedAttributes: [],
+      reviewReasons: ['MISSING_IN_SOURCE'],
+    });
+  }
+
+  const datasetDigest = `assign00a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef012345678`;
+  const sheetRevisionFingerprint = `assign009f8e7d6c5b4a39281706f5e4d3c2b1a0987654321fedcba098765432`;
+  const fingerprintDigest = `assign00f1e2d3c4b5a69788796a5b4c3d2e1f00112233445566778899aabbcc`;
+
+  return {
+    ok: true,
+    data: {
+      status: 'READY',
+      endpoint: 'assignments',
+      env,
+      syncMode: 'KEYED_UPSERT',
+      paginationProtocol: 'assignment',
+      destinationTab: 'Assignments',
+      previewedAtUtc: '2026-11-21T16:05:00.000Z',
+      pagesFetched: request.pagesFetched,
+      sourceTotal: request.sourceTotal,
+      fingerprint: {
+        endpoint: 'assignments',
+        env,
+        sourceTotal: request.sourceTotal,
+        datasetDigest,
+        sheetRevisionFingerprint,
+        counts,
+        fingerprintDigest,
+      },
+      counts,
+      reviewBreakdown,
+      unresolvedPreviousRun: unresolved,
+      legacySnapshotPresent: isLegacyInit,
+      legacySnapshotTab: dsMeta?.legacySnapshotTab ?? null,
+      writeAllowed: guard.writeAllowed,
+      blockedGuardReason: guard.blockedGuardReason,
+      previewMode: 'EXTENDED_MINIMIZED',
+      aggregateSummary: ASSIGNMENTS_MOCK_AGGREGATES,
+      sampleRows,
+    },
+  };
+}
+
+export function buildMockStageLargeBatchEnvelope(
+  request: StageLargeDatasetBatchRequest,
+  scenario: MockScenario,
+  outcome: MockCommitOutcome = 'verified',
+): unknown {
+  if (request.endpoint !== 'assignments') {
+    return {
+      ok: false,
+      error: { code: 'DATASET_NOT_SUPPORTED', message: 'Dataset not supported for staging.' },
+    };
+  }
+  if (outcome === 'http-401') {
+    return {
+      ok: false,
+      error: { code: 'HTTP_401', message: 'ThaiPHC authentication failed (HTTP 401).' },
+    };
+  }
+  const dash = buildMockDashboardEnvelope(
+    scenario === 'rpc-error' ? 'sandbox-default' : scenario,
+  ) as { ok: true; data: DashboardStatusData };
+  const env = dash.data.env;
+  const guard = evaluateMockWriteGuard('assignments', dash.data);
+
+  if (!guard.writeAllowed) {
+    return {
+      ok: true,
+      data: {
+        status: 'FAILED_STOP',
+        runId: null,
+        endpoint: 'assignments',
+        env,
+        destinationTab: 'Assignments',
+        stopCode: guard.stopCode ?? 'WRITE_DISABLED',
+        message: guard.message ?? 'Write guard blocked commit.',
+        syncLogStatus: 'NOT_WRITTEN',
+        stagingTabRetained: null,
+      },
+    };
+  }
+
+  if (env === 'PRODUCTION' && request.confirmationPhrase !== 'PRODUCTION 5406 assignments') {
+    return {
+      ok: true,
+      data: {
+        status: 'FAILED_STOP',
+        runId: null,
+        endpoint: 'assignments',
+        env,
+        destinationTab: 'Assignments',
+        stopCode: 'PRODUCTION_CONFIRMATION_REQUIRED',
+        message:
+          'Production commit requires exact confirmation phrase "PRODUCTION 5406 assignments".',
+        syncLogStatus: 'NOT_WRITTEN',
+        stagingTabRetained: null,
+      },
+    };
+  }
+
+  const unresolved = dash.data.unresolvedRuns.find((r) => r.endpoint === 'assignments');
+  if (unresolved && request.acknowledgeUnresolvedRunId !== unresolved.runId) {
+    return {
+      ok: true,
+      data: {
+        status: 'FAILED_STOP',
+        runId: null,
+        endpoint: 'assignments',
+        env,
+        destinationTab: 'Assignments',
+        stopCode: 'UNRESOLVED_PREVIOUS_RUN',
+        message: `Dataset "assignments" has an unresolved previous run (${unresolved.runId}).`,
+        syncLogStatus: 'NOT_WRITTEN',
+        stagingTabRetained: null,
+      },
+    };
+  }
+
+  const pageSize =
+    request.pageSize !== undefined && request.pageSize >= 1 && request.pageSize <= 100
+      ? request.pageSize
+      : 100;
+  const batchPages =
+    request.batchPages !== undefined && request.batchPages >= 1 && request.batchPages <= 20
+      ? request.batchPages
+      : 10;
+  const totalPages = Math.ceil(request.expectedFingerprint.sourceTotal / pageSize);
+  const startPage = Math.max(1, request.startPage);
+  const lastPageStaged = Math.min(totalPages, startPage + batchPages - 1);
+  const stagedRowCount = Math.min(
+    request.expectedFingerprint.sourceTotal,
+    lastPageStaged * pageSize,
+  );
+  const hasMore = lastPageStaged < totalPages;
+  const runId = request.runId ?? 'run_20261121_1606_assign_s1';
+  const stagingTabName = `_Stage_assignments_${runId}`;
+
+  return {
+    ok: true,
+    data: {
+      status: 'BATCH_STAGED',
+      runId,
+      endpoint: 'assignments',
+      env,
+      destinationTab: 'Assignments',
+      stagingTabName,
+      lastPageStaged,
+      totalPages,
+      stagedRowCount,
+      sourceTotal: request.expectedFingerprint.sourceTotal,
+      hasMore,
+      nextPage: hasMore ? lastPageStaged + 1 : null,
+    },
+  };
+}
+
+export function buildMockFinalizeLargeCommitEnvelope(
+  request: FinalizeLargeDatasetCommitRequest,
+  scenario: MockScenario,
+  outcome: MockCommitOutcome = 'verified',
+): unknown {
+  if (request.endpoint !== 'assignments') {
+    return {
+      ok: false,
+      error: {
+        code: 'DATASET_NOT_SUPPORTED',
+        message: 'Dataset not supported for finalize commit.',
+      },
+    };
+  }
+  const dash = buildMockDashboardEnvelope(
+    scenario === 'rpc-error' ? 'sandbox-default' : scenario,
+  ) as { ok: true; data: DashboardStatusData };
+  const env = dash.data.env;
+  const stageTabName = `_Stage_assignments_${request.runId}`;
+
+  if (outcome === 'preview-stale') {
+    return {
+      ok: true,
+      data: {
+        status: 'PREVIEW_STALE_RECONFIRM_REQUIRED',
+        endpoint: 'assignments',
+        env,
+        destinationTab: 'Assignments',
+        driftReason: 'SOURCE_CHANGED',
+        expectedFingerprint: request.expectedFingerprint,
+        currentSourceTotal: request.expectedFingerprint.sourceTotal,
+        currentDatasetDigest: '9'.repeat(64),
+        currentSheetRevisionFingerprint: request.expectedFingerprint.sheetRevisionFingerprint,
+      },
+    };
+  }
+
+  if (outcome === 'unknown-outcome') {
+    return {
+      ok: true,
+      data: {
+        status: 'UNKNOWN_OUTCOME_STOP',
+        runId: request.runId,
+        endpoint: 'assignments',
+        env,
+        destinationTab: 'Assignments',
+        stopCode: 'WRITE_FAILED_UNKNOWN',
+        message:
+          'Sheet write or flush stopped with an unknown outcome. Hidden staging tab retained for inspection.',
+        syncLogStatus: 'STARTED',
+        stagingTabRetained: stageTabName,
+      },
+    };
+  }
+
+  if (outcome === 'readback-mismatch') {
+    return {
+      ok: true,
+      data: {
+        status: 'FAILED_STOP',
+        runId: request.runId,
+        endpoint: 'assignments',
+        env,
+        destinationTab: 'Assignments',
+        stopCode: 'READBACK_MISMATCH',
+        message:
+          'Destination Readback detected a mismatch after write. Hidden staging tab retained for inspection.',
+        syncLogStatus: 'FAILED_STOP',
+        stagingTabRetained: stageTabName,
+      },
+    };
+  }
+
+  const fp = request.expectedFingerprint;
+  const expectedRowCount = fp.sourceTotal + fp.counts.review;
+  return {
+    ok: true,
+    data: {
+      status: 'COMMITTED_VERIFIED',
+      runId: request.runId,
+      endpoint: 'assignments',
+      env,
+      syncMode: 'KEYED_UPSERT',
+      destinationTab: 'Assignments',
+      completedAtUtc: '2026-11-21T16:07:00.000Z',
+      counts: fp.counts,
+      fingerprint: fp,
+      readback: {
+        verified: true,
+        destinationTab: 'Assignments',
+        expectedRowCount,
+        actualRowCount: expectedRowCount,
+        uniqueKeysVerified: true,
+        rowDigestsVerified: true,
+        unrelatedTabsPreserved: true,
+        baselineTabsChecked: ['ชีต1', '_ThaiPHCReportCurrent', 'RAssign_f010_20261119'],
+        stagingTabCleaned: true,
       },
       syncLogStatus: 'COMMITTED_VERIFIED',
     },

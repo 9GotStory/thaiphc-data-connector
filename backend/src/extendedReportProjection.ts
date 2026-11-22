@@ -8,7 +8,11 @@ import {
   VILLAGE_CODE_PATTERN,
   type FieldPresence,
 } from './cellValidation.ts';
-import { VOLUNTEER_GENDER_SCHEMA } from './datasetCatalog.ts';
+import {
+  ASSIGNMENTS_RESTRICTED_SOURCE_FIELDS,
+  ASSIGNMENTS_SCHEMA,
+  VOLUNTEER_GENDER_SCHEMA,
+} from './datasetCatalog.ts';
 import type {
   ExtendedAggregateGroup,
   ExtendedMinimizedAttribute,
@@ -50,18 +54,27 @@ export interface SuppressedGenderCounts {
   suppressed: boolean;
 }
 
+function formatExtendedScopeLabel(fields: {
+  subdistrictCode: string;
+  subdistrictName: string;
+  villageNo: string;
+  villageName: string | null;
+}): string {
+  const villageSuffix = [fields.villageNo ? `หมู่ ${fields.villageNo}` : '', fields.villageName ?? '']
+    .filter(Boolean)
+    .join(' ');
+  return ['54 / 5406', `${fields.subdistrictCode} ${fields.subdistrictName}`.trim(), villageSuffix]
+    .filter(Boolean)
+    .join(' · ');
+}
+
 export function formatVolunteerGenderScopeLabel(fields: {
   subdistrictCode: string;
   subdistrictName: string;
   villageNo: string;
   villageName: string;
 }): string {
-  const villageSuffix = [fields.villageNo ? `หมู่ ${fields.villageNo}` : '', fields.villageName]
-    .filter(Boolean)
-    .join(' ');
-  return ['54 / 5406', `${fields.subdistrictCode} ${fields.subdistrictName}`.trim(), villageSuffix]
-    .filter(Boolean)
-    .join(' · ');
+  return formatExtendedScopeLabel(fields);
 }
 
 /**
@@ -335,6 +348,305 @@ export function validateAndProjectVolunteerGenderRows(
     ok: true,
     rows: projectedRows,
     datasetDigest: computeDatasetDigest(projectedRows, sha256Hex),
+    aggregateSummary,
+  };
+}
+
+export interface ProjectedAssignmentsRow {
+  key: string; // F010 h1_<64-hex> Pseudonymous Key
+  values: Array<string | number | boolean | null>;
+  presence: Record<string, FieldPresence>;
+  rowDigest: string;
+  scopeLabel: string;
+  subdistrictCode: string;
+  subdistrictName: string;
+  minimizedAttributes: ExtendedMinimizedAttribute[];
+  reviewReasons: ReviewReasonCode[];
+}
+
+export type AssignmentsValidationResult =
+  | {
+      ok: true;
+      rows: ProjectedAssignmentsRow[];
+      aggregateSummary: ExtendedAggregateGroup[];
+    }
+  | {
+      ok: false;
+      diagnostics: PreviewDiagnostic[];
+    };
+
+const ASSIGNMENTS_ALLOWED_SOURCE_FIELDS = new Set<string>([
+  ...ASSIGNMENTS_RESTRICTED_SOURCE_FIELDS,
+  ...ASSIGNMENTS_SCHEMA.fields.map((f) => f.name),
+]);
+
+const ASSIGNMENTS_NON_KEY_RESTRICTED_FIELDS = ASSIGNMENTS_RESTRICTED_SOURCE_FIELDS.filter(
+  (name) => name !== ASSIGNMENTS_SCHEMA.keyField,
+);
+
+export function formatAssignmentsScopeLabel(fields: {
+  subdistrictCode: string;
+  subdistrictNameTh: string;
+  villageNo: string;
+  villageName: string | null;
+}): string {
+  return formatExtendedScopeLabel({
+    subdistrictCode: fields.subdistrictCode,
+    subdistrictName: fields.subdistrictNameTh,
+    villageNo: fields.villageNo,
+    villageName: fields.villageName,
+  });
+}
+
+function isWithinAssignmentsScope(row: Record<string, unknown>): boolean {
+  return (
+    row.provinceCode === '54' &&
+    row.districtCode === '5406' &&
+    typeof row.subdistrictCode === 'string' &&
+    SUBDISTRICT_PATTERN.test(row.subdistrictCode)
+  );
+}
+
+/**
+ * Server-side Minimized Projection for `assignments`:
+ * - Strips all 8 RESTRICTED_DEFAULT_OMIT fields (id, osmCode, citizenId, prefixNameTh,
+ *   prefixNameEn, firstName, lastName, fullName) before returning or storing anything.
+ * - Validates nullable `villageName` (`string | null`) and boolean `isActive`.
+ * - Enforces strict Geographic Scope (54 / 5406) on provinceCode, districtCode,
+ *   subdistrictCode (540601..540608), and positive villageNo.
+ * - Derives deterministic F010 `h1_<64-hex>` Pseudonymous Keys via `derivePseudonym(rawId)`.
+ */
+export function validateAndProjectAssignmentsRows(
+  rawItems: readonly unknown[],
+  sha256Hex: (input: string) => string,
+  derivePseudonym: (rawId: string) => string,
+  rowIndexOffset = 0,
+): AssignmentsValidationResult {
+  const schema = ASSIGNMENTS_SCHEMA;
+  const diagnostics: PreviewDiagnostic[] = [];
+
+  if (rawItems.length === 0) {
+    return {
+      ok: false,
+      diagnostics: [
+        {
+          code: 'INCOMPLETE_SNAPSHOT',
+          message: 'ThaiPHC assignments batch returned zero rows.',
+        },
+      ],
+    };
+  }
+
+  if (rawItems.length > schema.maxRows) {
+    return {
+      ok: false,
+      diagnostics: [
+        {
+          code: 'ROW_LIMIT_EXCEEDED',
+          message: `Source row count (${rawItems.length}) exceeds maximum safe limit (${schema.maxRows}) for assignments.`,
+        },
+      ],
+    };
+  }
+
+  const seenRawIds = new Set<string>();
+  const projectedRows: ProjectedAssignmentsRow[] = [];
+  const subdistrictAgg = new Map<
+    string,
+    { groupCode: string; groupLabel: string; rowCount: number; reviewCount: number }
+  >();
+
+  for (let i = 0; i < rawItems.length; i++) {
+    const globalRowIndex = rowIndexOffset + i;
+    const preamble = validateKeyedRowPreamble(
+      rawItems[i],
+      globalRowIndex,
+      schema.keyField,
+      ASSIGNMENTS_ALLOWED_SOURCE_FIELDS,
+      seenRawIds,
+    );
+    if (!preamble.ok) {
+      diagnostics.push(preamble.diagnostic);
+      continue;
+    }
+    const { record: raw, key: rawId } = preamble;
+
+    let rowFailed = false;
+
+    // Validate remaining 7 RESTRICTED_DEFAULT_OMIT fields without retaining or echoing values
+    for (const restrictedName of ASSIGNMENTS_NON_KEY_RESTRICTED_FIELDS) {
+      if (!hasOwn(raw, restrictedName)) continue;
+      try {
+        assertSafeString(raw[restrictedName], restrictedName);
+      } catch (err) {
+        const code = err instanceof CellValidationError ? err.code : 'TYPE_MISMATCH';
+        diagnostics.push({
+          code,
+          message:
+            err instanceof CellValidationError
+              ? err.message
+              : `Row #${globalRowIndex + 1} restricted field "${restrictedName}" failed validation.`,
+          field: restrictedName,
+          rowIndex: globalRowIndex,
+        });
+        rowFailed = true;
+        break;
+      }
+    }
+    if (rowFailed) continue;
+
+    // Validate and extract strictly the 17 ALLOW_ONLY_IF_DATASET_APPROVED columns
+    const values: Array<string | number | boolean | null> = [];
+    const presence: Record<string, FieldPresence> = {};
+    const approvedByName = new Map<string, string | boolean | null>();
+
+    for (const field of schema.fields) {
+      if (field.kind === 'boolean') {
+        if (!hasOwn(raw, field.name) || typeof raw[field.name] !== 'boolean') {
+          diagnostics.push({
+            code: 'TYPE_MISMATCH',
+            message: `Row #${globalRowIndex + 1} field "${field.name}" must be a boolean.`,
+            field: field.name,
+            rowIndex: globalRowIndex,
+          });
+          rowFailed = true;
+          break;
+        }
+        const boolVal = raw[field.name] as boolean;
+        values.push(boolVal);
+        presence[field.name] = 'VALUE';
+        approvedByName.set(field.name, boolVal);
+        continue;
+      }
+
+      if (!hasOwn(raw, field.name)) {
+        values.push(null);
+        presence[field.name] = 'ABSENT';
+        approvedByName.set(field.name, null);
+        continue;
+      }
+
+      const rawVal = raw[field.name];
+      if (field.kind === 'string_or_null' && rawVal === null) {
+        values.push(null);
+        presence[field.name] = 'NULL';
+        approvedByName.set(field.name, null);
+        continue;
+      }
+
+      try {
+        const safeStr = assertSafeString(rawVal, field.name);
+        values.push(safeStr);
+        presence[field.name] = 'VALUE';
+        approvedByName.set(field.name, safeStr);
+      } catch (err) {
+        const code = err instanceof CellValidationError ? err.code : 'TYPE_MISMATCH';
+        diagnostics.push({
+          code,
+          message:
+            err instanceof CellValidationError
+              ? err.message
+              : `Row #${globalRowIndex + 1} field "${field.name}" failed validation.`,
+          field: field.name,
+          rowIndex: globalRowIndex,
+        });
+        rowFailed = true;
+        break;
+      }
+    }
+    if (rowFailed) continue;
+
+    if (!isWithinAssignmentsScope(raw)) {
+      diagnostics.push({
+        code: 'OUT_OF_GEOGRAPHIC_SCOPE',
+        message: `Row #${globalRowIndex + 1} falls outside Geographic Scope (54 / 5406) for assignments.`,
+        rowIndex: globalRowIndex,
+      });
+      continue;
+    }
+
+    seenRawIds.add(rawId);
+
+    // Derive deterministic F010 h1_ key and discard rawId immediately
+    const pseudonymousKey = derivePseudonym(rawId);
+    const rowDigest = sha256Hex(JSON.stringify([values, presence]));
+
+    const subdistrictCode = String(approvedByName.get('subdistrictCode') ?? '');
+    const subdistrictNameTh = String(approvedByName.get('subdistrictNameTh') ?? subdistrictCode);
+    const villageNo = String(approvedByName.get('villageNo') ?? '');
+    const rawVillageName = approvedByName.get('villageName');
+    const villageName = typeof rawVillageName === 'string' ? rawVillageName : null;
+
+    const scopeLabel = formatAssignmentsScopeLabel({
+      subdistrictCode,
+      subdistrictNameTh,
+      villageNo,
+      villageName,
+    });
+
+    const isActiveVal = approvedByName.get('isActive');
+    const minimizedAttributes: ExtendedMinimizedAttribute[] = [
+      { field: 'isActive', value: typeof isActiveVal === 'boolean' ? String(isActiveVal) : null },
+      {
+        field: 'status',
+        value:
+          typeof approvedByName.get('status') === 'string'
+            ? (approvedByName.get('status') as string)
+            : null,
+      },
+      {
+        field: 'approvalStatus',
+        value:
+          typeof approvedByName.get('approvalStatus') === 'string'
+            ? (approvedByName.get('approvalStatus') as string)
+            : null,
+      },
+      {
+        field: 'volunteerStatus',
+        value:
+          typeof approvedByName.get('volunteerStatus') === 'string'
+            ? (approvedByName.get('volunteerStatus') as string)
+            : null,
+      },
+      { field: 'villageName', value: villageName },
+    ];
+
+    const groupEntry = subdistrictAgg.get(subdistrictCode);
+    if (groupEntry) {
+      groupEntry.rowCount += 1;
+    } else {
+      subdistrictAgg.set(subdistrictCode, {
+        groupCode: subdistrictCode,
+        groupLabel: subdistrictNameTh,
+        rowCount: 1,
+        reviewCount: 0,
+      });
+    }
+
+    projectedRows.push({
+      key: pseudonymousKey,
+      values,
+      presence,
+      rowDigest,
+      scopeLabel,
+      subdistrictCode,
+      subdistrictName: subdistrictNameTh,
+      minimizedAttributes,
+      reviewReasons: [],
+    });
+  }
+
+  if (diagnostics.length > 0) {
+    return { ok: false, diagnostics: diagnostics.slice(0, 25) };
+  }
+
+  const aggregateSummary = [...subdistrictAgg.values()].sort((a, b) =>
+    a.groupCode < b.groupCode ? -1 : a.groupCode > b.groupCode ? 1 : 0,
+  );
+
+  return {
+    ok: true,
+    rows: projectedRows,
     aggregateSummary,
   };
 }

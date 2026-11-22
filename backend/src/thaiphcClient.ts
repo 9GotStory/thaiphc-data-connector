@@ -1,5 +1,5 @@
 import { hasAsciiControlChar } from './cellValidation.ts';
-import { VOLUNTEER_GENDER_SCHEMA } from './datasetCatalog.ts';
+import { ASSIGNMENTS_SCHEMA, VOLUNTEER_GENDER_SCHEMA } from './datasetCatalog.ts';
 import type {
   HttpFetchOptions,
   HttpFetchResponse,
@@ -12,9 +12,12 @@ export const THAIPHC_ALLOWED_ORIGIN = 'https://api-thaiphc.hss.moph.go.th';
 export const GEO_SCOPE_PROVINCE = '54';
 export const GEO_SCOPE_DISTRICT = '5406';
 export const DEFAULT_PAGE_SIZE = 100;
+export const DEFAULT_BATCH_PAGES = 10;
+export const MAX_BATCH_PAGES = 20;
 const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 const MAX_OFFSET_PAGES = 15;
 const MAX_REPORT_PAGES = 250;
+const MAX_ASSIGNMENT_PAGES = 250;
 const BEARER_TOKEN_PATTERN = /^[A-Za-z0-9._~+/-]+={0,}$/;
 
 const HEALTH_SERVICE_TYPE_EXCLUSIONS = [
@@ -138,6 +141,249 @@ export function buildReportRequestUrl(
     ['province', GEO_SCOPE_PROVINCE],
     ['district', GEO_SCOPE_DISTRICT],
   ]);
+}
+
+export function buildAssignmentRequestUrl(page = 1, pageSize = DEFAULT_PAGE_SIZE): string {
+  return buildAllowlistedUrl('/api/v1/dashboard/assignments', [
+    ['page', String(page)],
+    ['pageSize', String(pageSize)],
+    ['provinceCode', GEO_SCOPE_PROVINCE],
+    ['districtCode', GEO_SCOPE_DISTRICT],
+    ['osmStatus', ''],
+    ['osm_status', ''],
+    ['approval_status', 'approved'],
+    ['order_by', 'approved_date'],
+    ['sort_dir', 'desc'],
+  ]);
+}
+
+export type AssignmentBatchFetchResult =
+  | {
+      ok: true;
+      items: unknown[];
+      startPage: number;
+      lastPageFetched: number;
+      pagesFetchedInBatch: number;
+      totalPages: number;
+      sourceTotal: number;
+      hasMore: boolean;
+      nextPage: number | null;
+    }
+  | {
+      ok: false;
+      authFailed: true;
+      code: 'HTTP_401';
+      message: string;
+      pagesFetchedInBatch: number;
+    }
+  | {
+      ok: false;
+      authFailed: false;
+      code: PreviewStopCode;
+      message: string;
+      pagesFetchedInBatch: number;
+      pageOffset?: number;
+      observedSourceTotal?: number;
+    };
+
+export function fetchAssignmentBatch(params: {
+  token: string;
+  fetchUrl: FetchUrlFn;
+  startPage: number;
+  batchPages?: number;
+  pageSize?: number;
+  expectedSourceTotal?: number | null;
+  maxRows?: number;
+}): AssignmentBatchFetchResult {
+  const pageSize =
+    params.pageSize !== undefined &&
+    Number.isSafeInteger(params.pageSize) &&
+    params.pageSize >= 1 &&
+    params.pageSize <= 100
+      ? params.pageSize
+      : DEFAULT_PAGE_SIZE;
+  const batchPages =
+    params.batchPages !== undefined &&
+    Number.isSafeInteger(params.batchPages) &&
+    params.batchPages >= 1 &&
+    params.batchPages <= MAX_BATCH_PAGES
+      ? params.batchPages
+      : DEFAULT_BATCH_PAGES;
+  const maxRows = params.maxRows ?? ASSIGNMENTS_SCHEMA.maxRows;
+
+  if (
+    !Number.isSafeInteger(params.startPage) ||
+    params.startPage < 1 ||
+    params.startPage > MAX_ASSIGNMENT_PAGES
+  ) {
+    return {
+      ok: false,
+      authFailed: false,
+      code: 'INCOMPLETE_SNAPSHOT',
+      message: 'Requested assignments startPage is out of valid range.',
+      pagesFetchedInBatch: 0,
+    };
+  }
+
+  const items: unknown[] = [];
+  let expectedTotal: number | null =
+    params.expectedSourceTotal !== undefined && params.expectedSourceTotal !== null
+      ? params.expectedSourceTotal
+      : null;
+  let totalPages = 0;
+  let pagesFetchedInBatch = 0;
+  let lastPageFetched = params.startPage - 1;
+  const maxEndPage = Math.min(params.startPage + batchPages - 1, MAX_ASSIGNMENT_PAGES);
+
+  for (let page = params.startPage; page <= maxEndPage; page++) {
+    const offset = (page - 1) * pageSize;
+    const url = buildAssignmentRequestUrl(page, pageSize);
+    const res = executeAllowlistedGet(url, params.token, params.fetchUrl);
+    pagesFetchedInBatch += 1;
+
+    if (!res.ok) {
+      if (res.authFailed) {
+        return { ...res, pagesFetchedInBatch };
+      }
+      return { ...res, pagesFetchedInBatch, pageOffset: offset };
+    }
+
+    const data = res.data;
+    if (
+      !hasExactKeys(data, ['provinces', 'items', 'pagination']) ||
+      !Array.isArray(data.provinces) ||
+      !Array.isArray(data.items) ||
+      !hasExactKeys(data.pagination, ['page', 'limit', 'total', 'pages'])
+    ) {
+      return {
+        ok: false,
+        authFailed: false,
+        code: 'INVALID_ENVELOPE',
+        message:
+          'ThaiPHC assignments pagination envelope did not match { provinces[], items[], pagination{ page, limit, total, pages } }.',
+        pagesFetchedInBatch,
+        pageOffset: offset,
+      };
+    }
+
+    const p = data.pagination;
+    const pPage = p.page;
+    const pLimit = p.limit;
+    const pTotal = p.total;
+    const pPages = p.pages;
+    if (
+      !Number.isSafeInteger(pPage) ||
+      pPage !== page ||
+      !Number.isSafeInteger(pLimit) ||
+      pLimit !== pageSize ||
+      !Number.isSafeInteger(pTotal) ||
+      (pTotal as number) < 0 ||
+      !Number.isSafeInteger(pPages) ||
+      (pPages as number) < 0
+    ) {
+      return {
+        ok: false,
+        authFailed: false,
+        code: 'INVALID_ENVELOPE',
+        message: 'ThaiPHC assignments pagination fields did not match requested page and pageSize.',
+        pagesFetchedInBatch,
+        pageOffset: offset,
+      };
+    }
+
+    const total = pTotal as number;
+    const pages = pPages as number;
+    const validPages =
+      total === 0 ? pages === 0 || pages === 1 : pages === Math.ceil(total / pageSize);
+    if (!validPages) {
+      return {
+        ok: false,
+        authFailed: false,
+        code: 'INVALID_ENVELOPE',
+        message: 'ThaiPHC assignments pagination.pages does not match ceil(total / limit).',
+        pagesFetchedInBatch,
+        pageOffset: offset,
+      };
+    }
+
+    if (total > maxRows) {
+      return {
+        ok: false,
+        authFailed: false,
+        code: 'ROW_LIMIT_EXCEEDED',
+        message: `ThaiPHC assignments total (${total}) exceeds maximum safe row limit (${maxRows}).`,
+        pagesFetchedInBatch,
+        pageOffset: offset,
+      };
+    }
+
+    if (expectedTotal !== null && total !== expectedTotal) {
+      return {
+        ok: false,
+        authFailed: false,
+        code: 'SOURCE_TOTAL_CHANGED',
+        message: 'ThaiPHC assignments source total changed mid-fetch between pages or batches.',
+        pagesFetchedInBatch,
+        pageOffset: offset,
+        observedSourceTotal: total,
+      };
+    }
+    expectedTotal = total;
+    totalPages = pages;
+
+    if (total === 0 || page > totalPages) {
+      return {
+        ok: false,
+        authFailed: false,
+        code: 'INCOMPLETE_SNAPSHOT',
+        message:
+          'ThaiPHC assignments snapshot returned zero rows or requested page beyond total pages.',
+        pagesFetchedInBatch,
+        pageOffset: offset,
+      };
+    }
+
+    const expectedCount = Math.min(pageSize, Math.max(0, total - offset));
+    if (data.items.length !== expectedCount) {
+      return {
+        ok: false,
+        authFailed: false,
+        code: 'INCOMPLETE_SNAPSHOT',
+        message: 'ThaiPHC assignments page item count did not match reported total and pageSize.',
+        pagesFetchedInBatch,
+        pageOffset: offset,
+      };
+    }
+
+    items.push(...data.items);
+    lastPageFetched = page;
+    if (page >= totalPages) {
+      break;
+    }
+  }
+
+  if (expectedTotal === null || pagesFetchedInBatch === 0) {
+    return {
+      ok: false,
+      authFailed: false,
+      code: 'INCOMPLETE_SNAPSHOT',
+      message: 'ThaiPHC assignments batch ended without valid pagination metadata.',
+      pagesFetchedInBatch,
+    };
+  }
+
+  const hasMore = lastPageFetched < totalPages;
+  return {
+    ok: true,
+    items,
+    startPage: params.startPage,
+    lastPageFetched,
+    pagesFetchedInBatch,
+    totalPages,
+    sourceTotal: expectedTotal,
+    hasMore,
+    nextPage: hasMore ? lastPageFetched + 1 : null,
+  };
 }
 
 type SingleGetOutcome =

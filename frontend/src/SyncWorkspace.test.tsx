@@ -860,4 +860,248 @@ describe('Reference Datasets Repeatable Sync (Frontend GasRpcTransport Seam)', (
     expect(await screen.findByText(/ซิงก์และตรวจสอบ Destination Readback สำเร็จ/)).toBeInTheDocument();
     expect(screen.getByText('VolunteerTenure')).toBeInTheDocument();
   });
+
+  it('completes volunteer-family Complete Snapshot Mode B Preview (Layers badge, active _ThaiPHCReportCurrent pointer, LOCALITY_MISMATCH review, zero PII), multi-batch RFamily_<runId> publication with pointer readback, and displays active pointer on Dashboard', async () => {
+    const user = userEvent.setup();
+    const mock = new MockGasTransport({ scenario: 'sandbox-report-writable' });
+    const stageSpy = vi.spyOn(mock, 'stageLargeDatasetBatch');
+    const finalizeSpy = vi.spyOn(mock, 'finalizeLargeDatasetCommit');
+
+    renderApp(mock);
+    await openSyncWorkspace(user);
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+
+    const familyRadio = screen.getByRole('radio', { name: /ความสัมพันธ์ครอบครัว อสม\./ });
+    await user.click(familyRadio);
+    expect(familyRadio).toBeChecked();
+
+    const previewBtn = screen.getByRole('button', { name: /เริ่ม Preview/ });
+    expect(previewBtn).toBeEnabled();
+    await user.click(previewBtn);
+
+    // Mode B Minimized Projection banner + distinct Complete Snapshot (Layers) messaging + active pointer tab + LOCALITY_MISMATCH
+    expect(
+      await screen.findByText(/ขอบเขตคุ้มครองข้อมูลส่วนบุคคล \(Minimized Projection\)/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/โหมด Complete Snapshot — สร้างแท็บเวอร์ชันใหม่ \(RFamily_<runId>\)/),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/RFamily_20261121_1030/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/Complete Snapshot/).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText(/LOCALITY_MISMATCH/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/คงค่าต้นทางตามกฎ Preserve Source Locality/)).toBeInTheDocument();
+    expect(screen.getAllByText(/snapshot_preview_00001/).length).toBeGreaterThanOrEqual(1);
+    expect(document.body.textContent).not.toMatch(
+      /citizenId|prefixName|firstName|lastName|fullName|address|volunteerId|volunteerName|osmCode/,
+    );
+
+    // Filter to REVIEW shows LOCALITY_MISMATCH preserved rows
+    const reviewFilter = screen.getByRole('button', { name: /REVIEW/ });
+    await user.click(reviewFilter);
+    expect(reviewFilter).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getAllByText(/540210/).length).toBeGreaterThanOrEqual(1);
+
+    // SANDBOX Confirmation Gate -> AlertDialog -> Multi-batch RFamily_<runId> staging + Complete Snapshot publication
+    await user.click(screen.getByRole('button', { name: /ตรวจสอบและยืนยันการบันทึก \(SANDBOX\)/ }));
+    const dialog = screen.getByRole('alertdialog');
+    expect(within(dialog).getByText(/COMPLETE_SNAPSHOT/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/_ThaiPHCReportCurrent/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: /ยืนยันบันทึกข้อมูล/ }));
+
+    expect(await screen.findByText(/ซิงก์และตรวจสอบ Destination Readback สำเร็จ/)).toBeInTheDocument();
+    expect(
+      screen.getAllByText(/RFamily_run_20261121_1606_family_s1/).length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/อัปเดตตัวชี้เผยแพร่ _ThaiPHCReportCurrent ชี้ไปยัง/)).toBeInTheDocument();
+    expect(screen.getByText(/แท็บ RFamily_\* เวอร์ชันเดิม และแท็บ/)).toBeInTheDocument();
+    expect(stageSpy).toHaveBeenCalledTimes(2);
+    expect(finalizeSpy).toHaveBeenCalledTimes(1);
+
+    // Return to Dashboard -> displays active RFamily_* pointer tab with _ThaiPHCReportCurrent caption, row count, and status
+    await user.click(screen.getByRole('button', { name: /กลับหน้า Dashboard/ }));
+    const extSection = await screen.findByRole('region', { name: /ชุดข้อมูลรายงานขยาย/ });
+    expect(within(extSection).getAllByText('RFamily_20261121_1030').length).toBeGreaterThanOrEqual(
+      1,
+    );
+    expect(within(extSection).getAllByText('_ThaiPHCReportCurrent').length).toBeGreaterThanOrEqual(
+      1,
+    );
+    expect(within(extSection).getAllByText('1,823').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('handles volunteer-family pointer-drift PREVIEW_STALE_RECONFIRM_REQUIRED, STAGING_DIGEST_MISMATCH, INCOMPLETE_SNAPSHOT, Write Guard locks, and PRODUCTION typed confirmation without HMAC reminder', async () => {
+    const user = userEvent.setup();
+
+    // 1. Pointer-drift PREVIEW_STALE_RECONFIRM_REQUIRED -> offers fresh Preview button, zero Retry Commit
+    const staleRender = renderApp(
+      new MockGasTransport({
+        scenario: 'sandbox-report-writable',
+        commitOutcome: 'preview-stale',
+      }),
+    );
+    await openSyncWorkspace(user);
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole('radio', { name: /ความสัมพันธ์ครอบครัว อสม\./ }));
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+    await screen.findByText(/โหมด Complete Snapshot/);
+
+    await user.click(screen.getByRole('button', { name: /ตรวจสอบและยืนยันการบันทึก \(SANDBOX\)/ }));
+    await user.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: /ยืนยันบันทึกข้อมูล/ }),
+    );
+    const staleAlert = await screen.findByRole('alert');
+    expect(within(staleAlert).getByText(/PREVIEW_STALE_RECONFIRM_REQUIRED/)).toBeInTheDocument();
+    expect(within(staleAlert).getAllByText(/_ThaiPHCReportCurrent/).length).toBeGreaterThanOrEqual(
+      1,
+    );
+    expect(
+      within(staleAlert).queryByRole('button', { name: /Retry|ลองเขียนซ้ำ/i }),
+    ).not.toBeInTheDocument();
+    staleRender.unmount();
+
+    // 1b. Write Guard locks for volunteer-family (THAIPHC_PERSON_DATA_WRITE_ENABLED OFF & unapproved same-workbook)
+    const personOffRender = renderApp(new MockGasTransport({ scenario: 'sandbox-writable' }));
+    await openSyncWorkspace(user);
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole('radio', { name: /ความสัมพันธ์ครอบครัว อสม\./ }));
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+    expect(await screen.findByText(/โหมดอ่านอย่างเดียว — ไม่สามารถ Commit ได้/)).toBeInTheDocument();
+    expect(screen.getByText('THAIPHC_PERSON_DATA_WRITE_ENABLED')).toBeInTheDocument();
+    personOffRender.unmount();
+
+    const sameUnapprovedRender = renderApp(
+      new MockGasTransport({ scenario: 'same-workbook-unapproved-writable' }),
+    );
+    await openSyncWorkspace(user);
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole('radio', { name: /ความสัมพันธ์ครอบครัว อสม\./ }));
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+    expect(await screen.findByText(/โหมดอ่านอย่างเดียว — ไม่สามารถ Commit ได้/)).toBeInTheDocument();
+    expect(screen.getByText('THAIPHC_SAME_WORKBOOK_APPROVAL')).toBeInTheDocument();
+    expect(screen.getByText(/OWNER_ONLY_5406_APPROVED/)).toBeInTheDocument();
+    sameUnapprovedRender.unmount();
+
+    // 2. Digest mismatch stop (STAGING_DIGEST_MISMATCH) retains hidden RFamily_<runId> with zero Retry Commit
+    const digestRender = renderApp(
+      new MockGasTransport({
+        scenario: 'sandbox-report-writable',
+        commitOutcome: 'digest-mismatch',
+      }),
+    );
+    await openSyncWorkspace(user);
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole('radio', { name: /ความสัมพันธ์ครอบครัว อสม\./ }));
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+    await screen.findByText(/โหมด Complete Snapshot/);
+
+    await user.click(screen.getByRole('button', { name: /ตรวจสอบและยืนยันการบันทึก \(SANDBOX\)/ }));
+    await user.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: /ยืนยันบันทึกข้อมูล/ }),
+    );
+    const digestAlert = await screen.findByRole('alert');
+    expect(
+      within(digestAlert).getAllByText(/STAGING_DIGEST_MISMATCH/).length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      within(digestAlert).getAllByText(/RFamily_run_20261121_1606_family_s1/).length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(within(digestAlert).getByText(/ยังไม่เผยแพร่/)).toBeInTheDocument();
+    expect(within(digestAlert).getAllByText(/_ThaiPHCReportCurrent/).length).toBeGreaterThanOrEqual(
+      1,
+    );
+    expect(digestAlert.textContent).not.toContain('_Stage_*');
+    expect(
+      within(digestAlert).queryByRole('button', { name: /Retry|ลองเขียนซ้ำ/i }),
+    ).not.toBeInTheDocument();
+    digestRender.unmount();
+
+    // 2b. Post-start UNKNOWN_OUTCOME_STOP (syncLogStatus = STARTED) does NOT falsely claim tab is hidden/unpublished and guides inspecting RFamily_<runId>, _ThaiPHCReportCurrent, and _ThaiPHCSyncLog
+    const unknownFamilyRender = renderApp(
+      new MockGasTransport({
+        scenario: 'sandbox-report-writable',
+        commitOutcome: 'unknown-outcome',
+      }),
+    );
+    await openSyncWorkspace(user);
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole('radio', { name: /ความสัมพันธ์ครอบครัว อสม\./ }));
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+    await screen.findByText(/โหมด Complete Snapshot/);
+
+    await user.click(screen.getByRole('button', { name: /ตรวจสอบและยืนยันการบันทึก \(SANDBOX\)/ }));
+    await user.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: /ยืนยันบันทึกข้อมูล/ }),
+    );
+    const unknownFamilyAlert = await screen.findByRole('alert');
+    expect(within(unknownFamilyAlert).getByText(/UNKNOWN_OUTCOME_STOP/)).toBeInTheDocument();
+    expect(within(unknownFamilyAlert).getByText(/STARTED/)).toBeInTheDocument();
+    expect(unknownFamilyAlert.textContent).not.toContain('ยังไม่เผยแพร่');
+    expect(unknownFamilyAlert.textContent).not.toContain('_Stage_*');
+    expect(
+      within(unknownFamilyAlert).getAllByText(/_ThaiPHCReportCurrent/).length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      within(unknownFamilyAlert).getAllByText(/_ThaiPHCSyncLog/).length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      within(unknownFamilyAlert).queryByRole('button', { name: /Retry|ลองเขียนซ้ำ/i }),
+    ).not.toBeInTheDocument();
+    unknownFamilyRender.unmount();
+
+    // 3. Incomplete-stage refusal (INCOMPLETE_SNAPSHOT) retains hidden RFamily_<runId>
+    const incompleteRender = renderApp(
+      new MockGasTransport({
+        scenario: 'sandbox-report-writable',
+        commitOutcome: 'incomplete-stage',
+      }),
+    );
+    await openSyncWorkspace(user);
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole('radio', { name: /ความสัมพันธ์ครอบครัว อสม\./ }));
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+    await screen.findByText(/โหมด Complete Snapshot/);
+
+    await user.click(screen.getByRole('button', { name: /ตรวจสอบและยืนยันการบันทึก \(SANDBOX\)/ }));
+    await user.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: /ยืนยันบันทึกข้อมูล/ }),
+    );
+    const incAlert = await screen.findByRole('alert');
+    expect(within(incAlert).getAllByText(/INCOMPLETE_SNAPSHOT/).length).toBeGreaterThanOrEqual(1);
+    incompleteRender.unmount();
+
+    // 4. PRODUCTION typed confirmation ("PRODUCTION 5406 volunteer-family") with NO HMAC continuity reminder
+    renderApp(new MockGasTransport({ scenario: 'production-report-writable' }));
+    await openSyncWorkspace(user);
+    await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole('radio', { name: /ความสัมพันธ์ครอบครัว อสม\./ }));
+    await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
+    await screen.findByText(/โหมด Complete Snapshot/);
+
+    // volunteer-family uses run-scoped ordinal keys, NOT HMAC h1_ keys -> no HMAC reminder box
+    expect(screen.queryByText(/การตรวจสอบความต่อเนื่องของคีย์ F010/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /ดำเนินการยืนยันการบันทึก \(PRODUCTION\)/ }));
+    const prodDialog = screen.getByRole('alertdialog');
+    const confirmAction = within(prodDialog).getByRole('button', {
+      name: /ยืนยันบันทึกข้อมูลลง PRODUCTION/,
+    });
+    expect(confirmAction).toBeDisabled();
+
+    await user.type(
+      within(prodDialog).getByLabelText(/พิมพ์ข้อความด้านบนให้ตรงทุกตัวอักษร/),
+      'PRODUCTION 5406 volunteer-family',
+    );
+    expect(confirmAction).toBeEnabled();
+    await user.click(confirmAction);
+
+    expect(await screen.findByText(/ซิงก์และตรวจสอบ Destination Readback สำเร็จ/)).toBeInTheDocument();
+  });
 });

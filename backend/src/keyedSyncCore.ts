@@ -7,6 +7,7 @@ import {
   SYNC_LOG_HEADERS,
   SYNC_LOG_TAB,
   SYNC_LOG_TEXT_COLUMN_COUNT,
+  type DatasetSchemaSpec,
   type KeyedDatasetSchemaSpec,
 } from './datasetCatalog.ts';
 import { createF010Pseudonymizer, type F010Pseudonymizer } from './pseudonymizer.ts';
@@ -41,12 +42,12 @@ export const LOCK_TIMEOUT_MS = 10000;
 
 export type CellScalar = string | number | boolean;
 
-export interface CommitTargetContext {
+export interface CommitTargetContext<TSchema extends DatasetSchemaSpec = DatasetSchemaSpec> {
   endpoint: DatasetEndpoint;
   isExtendedReport: boolean;
   env: AppEnvironment;
   referenceSpreadsheetId: string;
-  schema: KeyedDatasetSchemaSpec;
+  schema: TSchema;
 }
 
 export interface ExistingDestinationRow {
@@ -985,7 +986,7 @@ export function verifyDestinationReadback(
  * `_Stage_*` intact on `UNKNOWN_OUTCOME_STOP`.
  */
 export function executeVerifiedKeyedWrite(params: {
-  ctx: CommitTargetContext;
+  ctx: CommitTargetContext<KeyedDatasetSchemaSpec>;
   spreadsheet: WritableSpreadsheetHandle;
   projectedRows: readonly ProjectedKeyedRowBase[];
   destState: DestinationState;

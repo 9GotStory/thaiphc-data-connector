@@ -125,6 +125,11 @@ export function createFakeSyncPlatformEnv(opts: {
         state.hidden = true;
         state.writeOps.push('hideSheet');
       },
+      showSheet: () => {
+        state.hidden = false;
+        state.writeOps.push('showSheet');
+      },
+      isSheetHidden: () => state.hidden,
       getValues: (row: number, col: number, numRows: number, numCols: number) => {
         const out: unknown[][] = [];
         for (let r = row - 1; r < row - 1 + numRows; r++) {

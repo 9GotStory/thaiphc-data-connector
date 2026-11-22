@@ -145,6 +145,7 @@ export function ConfirmationGate({
   }
 
   const isProd = preview.env === 'PRODUCTION';
+  const isCompleteSnapshot = preview.syncMode === 'COMPLETE_SNAPSHOT';
   const showHmacContinuityReminder =
     isProd && DATASET_DISPLAY_META[preview.endpoint].usesHmacPseudonym;
   const expectedPhrase = `PRODUCTION 5406 ${preview.endpoint}`;
@@ -335,7 +336,11 @@ export function ConfirmationGate({
                     {preview.fingerprint.fingerprintDigest.slice(0, 16)}…
                   </code>
                 </p>
-                <p>GAS จะตรวจสอบ Fingerprint ซ้ำภายใต้ LockService ก่อนเขียนจริง และไม่ลองเขียนซ้ำอัตโนมัติ</p>
+                <p>
+                  {isCompleteSnapshot
+                    ? 'GAS จะจัดเตรียมข้อมูลลงแท็บซ่อน RFamily_<runId>, ตรวจ Chunk SHA-256 Digest และ Pointer Revision ภายใต้ LockService ก่อนเปิดแสดงแท็บและอัปเดต _ThaiPHCReportCurrent เป็นขั้นตอนสุดท้าย โดยคงแท็บ RFamily_* เดิมไว้ครบถ้วน'
+                    : 'GAS จะตรวจสอบ Fingerprint ซ้ำภายใต้ LockService ก่อนเขียนจริง และไม่ลองเขียนซ้ำอัตโนมัติ'}
+                </p>
               </AlertDialogDescription>
             </AlertDialogHeader>
 

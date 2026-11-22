@@ -2,6 +2,7 @@ import { hasAsciiControlChar } from './cellValidation.ts';
 import {
   ASSIGNMENTS_SCHEMA,
   LARGE_KEYED_SCHEMAS,
+  VOLUNTEER_FAMILY_SCHEMA,
   VOLUNTEER_GENDER_SCHEMA,
 } from './datasetCatalog.ts';
 import type {
@@ -136,7 +137,7 @@ export function buildReferenceRequestUrl(
 }
 
 export type ReportPaginatedEndpoint =
-  'volunteer-gender' | 'resigned-volunteers' | 'volunteer-tenure';
+  'volunteer-gender' | 'volunteer-family' | 'resigned-volunteers' | 'volunteer-tenure';
 
 export function buildReportRequestUrl(
   endpoint: ReportPaginatedEndpoint,
@@ -631,6 +632,14 @@ export function fetchLargeKeyedBatch(
     return fetchAssignmentBatch({ ...params, maxRows });
   }
   return fetchReportBatch({ ...params, endpoint: params.endpoint, maxRows });
+}
+
+export function fetchVolunteerFamilyBatch(params: BatchFetchParams): LargeBatchFetchResult {
+  return fetchReportBatch({
+    ...params,
+    endpoint: 'volunteer-family',
+    maxRows: params.maxRows ?? VOLUNTEER_FAMILY_SCHEMA.maxRows,
+  });
 }
 
 function fetchReportPaginatedDataset(

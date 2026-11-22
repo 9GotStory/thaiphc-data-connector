@@ -81,6 +81,9 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
         hideSheet: () => {
           state.hidden = true;
         },
+        showSheet: () => {
+          state.hidden = false;
+        },
         getRange: (row: number, col: number, numRows: number, numCols: number) => ({
           getValues: () =>
             Array.from({ length: numRows }, (_, r) =>
@@ -105,6 +108,21 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
 
     const sheets = [
       makeFakeSheet('ชีต1', [['baseline-keep']]),
+      makeFakeSheet('_ThaiPHCReportCurrent', [
+        ['endpoint', 'run_id', 'snapshot_sheet', 'row_count', 'manifest_digest'],
+        [
+          'volunteer-family',
+          'run_20261120_prior_vm',
+          'RFamily_run_20261120_prior_vm',
+          1,
+          'a'.repeat(64),
+        ],
+      ]),
+      makeFakeSheet('RFamily_run_20261120_prior_vm', [
+        ['{"status":"PUBLISHED"}'],
+        ['_source_key', 'provinceCode'],
+        ['snapshot_run_20261120_prior_vm_00001', '54'],
+      ]),
       makeFakeSheet('Subdistricts', [
         [
           'code',
@@ -310,6 +328,39 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
       pageSize: 100,
     });
 
+    const mockFamilyPayload = JSON.stringify({
+      success: true,
+      message: 'Success',
+      items: [
+        {
+          provinceCode: '54',
+          provinceName: 'แพร่',
+          districtCode: '5406',
+          districtName: 'สอง',
+          subdistrictCode: '540210',
+          subdistrictName: 'ตำบลต้นทางนอกเขตย่อย',
+          villageCode: '540603006',
+          villageNo: '6',
+          villageName: 'บ้านตัวอย่าง',
+          osmCode: '99990000000099',
+          citizenId: '1540600000099',
+          prefixName: 'นางสาว',
+          firstName: 'PRIVATE_VM_FAMILY_FIRST',
+          lastName: 'PRIVATE_VM_FAMILY_LAST',
+          fullName: 'นางสาว PRIVATE_VM_FAMILY_FIRST PRIVATE_VM_FAMILY_LAST',
+          gender: 'female',
+          address: 'PRIVATE_VM_ADDR_99/1',
+          status: 'volunteer',
+          statusLabel: 'อสม.',
+          volunteerId: 'SYNTHETIC-VM-VOL-UUID',
+          volunteerName: 'PRIVATE_VM_VOL_NAME',
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 100,
+    });
+
     const sandbox = {
       HtmlService: {
         XFrameOptionsMode: { DEFAULT: 'DEFAULT', ALLOWALL: 'ALLOWALL' },
@@ -380,13 +431,15 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
         fetch: (url: string) => {
           const payload = url.includes('/dashboard/assignments')
             ? mockAssignmentsPayload
-            : url.includes('/reports/resigned-volunteers')
-              ? mockResignedPayload
-              : url.includes('/reports/volunteer-tenure')
-                ? mockTenurePayload
-                : url.includes('/reports/volunteer-gender')
-                  ? mockGenderPayload
-                  : mockSubdistrictPayload;
+            : url.includes('/reports/volunteer-family')
+              ? mockFamilyPayload
+              : url.includes('/reports/resigned-volunteers')
+                ? mockResignedPayload
+                : url.includes('/reports/volunteer-tenure')
+                  ? mockTenurePayload
+                  : url.includes('/reports/volunteer-gender')
+                    ? mockGenderPayload
+                    : mockSubdistrictPayload;
           return {
             getResponseCode: () => 200,
             getAllHeaders: () => ({ 'Content-Type': 'application/json' }),
@@ -721,6 +774,97 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
     expect(tenureCommit.data.readback.verified).toBe(true);
     expect(tenureCommit.data.readback.stagingTabCleaned).toBe(true);
 
+    // Smoke-verify bundled volunteer-family Complete Snapshot (hidden RFamily_<runId> -> verified unhide -> _ThaiPHCReportCurrent pointer -> prior RFamily_* retained -> Dashboard reflects new pointer) in node:vm
+    const famBatch = JSON.parse(
+      JSON.stringify(
+        context.previewDatasetBatch({
+          endpoint: 'volunteer-family',
+          token: 'synthetic_vm_token_1234567890',
+          startPage: 1,
+          batchPages: 10,
+          pageSize: 100,
+        }),
+      ),
+    );
+    expect(famBatch.ok).toBe(true);
+    expect(famBatch.data.status).toBe('BATCH_OK');
+    expect(famBatch.data.rowDigests[0].key).toBe('snapshot_preview_00001');
+    expect(famBatch.data.rowDigests[0].reviewReasons).toEqual(['LOCALITY_MISMATCH']);
+    expect(JSON.stringify(famBatch)).not.toMatch(
+      /PRIVATE_VM_FAMILY_FIRST|PRIVATE_VM_ADDR|1540600000099|99990000000099|SYNTHETIC-VM-VOL-UUID|PRIVATE_VM_VOL_NAME/,
+    );
+
+    const famPreview = JSON.parse(
+      JSON.stringify(
+        context.finalizePreview({
+          endpoint: 'volunteer-family',
+          sourceTotal: famBatch.data.sourceTotal,
+          pagesFetched: famBatch.data.pagesFetchedInBatch,
+          rowDigests: famBatch.data.rowDigests,
+          aggregateSummary: famBatch.data.aggregateSummary,
+          sampleCandidates: famBatch.data.sampleCandidates,
+        }),
+      ),
+    );
+    expect(famPreview.ok).toBe(true);
+    expect(famPreview.data.status).toBe('READY');
+    expect(famPreview.data.syncMode).toBe('COMPLETE_SNAPSHOT');
+    expect(famPreview.data.activeSnapshotTab).toBe('RFamily_run_20261120_prior_vm');
+    expect(famPreview.data.reviewBreakdown).toEqual({ LOCALITY_MISMATCH: 1 });
+
+    const famStage = JSON.parse(
+      JSON.stringify(
+        context.stageLargeDatasetBatch({
+          endpoint: 'volunteer-family',
+          token: 'synthetic_vm_token_1234567890',
+          expectedFingerprint: famPreview.data.fingerprint,
+          startPage: 1,
+          batchPages: 10,
+          pageSize: 100,
+        }),
+      ),
+    );
+    expect(famStage.ok).toBe(true);
+    expect(famStage.data.status).toBe('BATCH_STAGED');
+    expect(famStage.data.stagingTabName).toMatch(/^RFamily_/);
+    const famSheetObj = sheets.find((s) => s.getName() === famStage.data.stagingTabName);
+    expect(famSheetObj).toBeDefined();
+    expect(famSheetObj!.isSheetHidden()).toBe(true);
+
+    const famCommit = JSON.parse(
+      JSON.stringify(
+        context.finalizeLargeDatasetCommit({
+          endpoint: 'volunteer-family',
+          expectedFingerprint: famPreview.data.fingerprint,
+          runId: famStage.data.runId,
+        }),
+      ),
+    );
+    expect(famCommit.ok).toBe(true);
+    expect(famCommit.data.status).toBe('COMMITTED_VERIFIED');
+    expect(famCommit.data.syncMode).toBe('COMPLETE_SNAPSHOT');
+    expect(famCommit.data.destinationTab).toBe(famStage.data.stagingTabName);
+    expect(famCommit.data.readback.verified).toBe(true);
+    expect(famCommit.data.readback.publicationPointerVerified).toBe(true);
+    expect(famCommit.data.readback.stagingTabCleaned).toBeNull();
+    expect(famSheetObj!.isSheetHidden()).toBe(false);
+    // Prior RFamily_* snapshot and ชีต1 preserved untouched
+    expect(sheets.some((s) => s.getName() === 'RFamily_run_20261120_prior_vm')).toBe(true);
+    expect(sheets.some((s) => s.getName() === 'ชีต1')).toBe(true);
+
+    const dashAfterFamily = JSON.parse(JSON.stringify(context.getDashboardStatus()));
+    expect(dashAfterFamily.ok).toBe(true);
+    const famDashRow = dashAfterFamily.data.datasets.find(
+      (d: { endpoint: string }) => d.endpoint === 'volunteer-family',
+    );
+    expect(famDashRow).toMatchObject({
+      endpoint: 'volunteer-family',
+      destinationTab: famStage.data.stagingTabName,
+      rowCount: 1,
+      publicationPointerActive: true,
+      lastStatus: 'COMMITTED_VERIFIED',
+    });
+
     expect(propertyMutations).toEqual([]);
     expect(JSON.stringify(result)).not.toContain(VALID_HMAC_KEY);
     expect(JSON.stringify(commitRes)).not.toContain('synthetic_vm_token_1234567890');
@@ -730,5 +874,6 @@ describe('GAS Backend Bundle & Manifest Smoke Verification (node:vm)', () => {
     expect(JSON.stringify(assignCommit)).not.toContain('PRIVATE_VM_FIRST');
     expect(JSON.stringify(resignCommit)).not.toContain('PRIVATE_VM_RESIGN_FIRST');
     expect(JSON.stringify(tenureCommit)).not.toContain('PRIVATE_VM_TENURE_FIRST');
+    expect(JSON.stringify(famCommit)).not.toMatch(/PRIVATE_VM_FAMILY_FIRST|PRIVATE_VM_ADDR/);
   });
 });

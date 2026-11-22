@@ -16,6 +16,8 @@ export type SmallKeyedDatasetEndpoint = ReferenceDatasetEndpoint | 'volunteer-ge
 
 export type LargeKeyedDatasetEndpoint = 'assignments' | 'resigned-volunteers' | 'volunteer-tenure';
 
+export type LargeBatchedDatasetEndpoint = LargeKeyedDatasetEndpoint | 'volunteer-family';
+
 export type DatasetGroup = 'reference' | 'extended_report';
 
 export type SyncMode = 'KEYED_UPSERT' | 'COMPLETE_SNAPSHOT';
@@ -224,6 +226,7 @@ export interface PreviewReadyBase {
   unresolvedPreviousRun: UnresolvedRunSummary | null;
   legacySnapshotPresent: boolean;
   legacySnapshotTab: string | null;
+  activeSnapshotTab?: string | null;
   writeAllowed: boolean;
   blockedGuardReason: BlockedGuardReason | null;
 }
@@ -369,6 +372,7 @@ export interface ReadbackVerification {
   unrelatedTabsPreserved: boolean;
   baselineTabsChecked: string[];
   stagingTabCleaned: boolean | null;
+  publicationPointerVerified?: boolean;
 }
 
 export interface CommitVerifiedData {

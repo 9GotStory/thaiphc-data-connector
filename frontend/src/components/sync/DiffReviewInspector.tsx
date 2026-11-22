@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   Archive,
   CheckCircle2,
+  Layers,
   Lock,
   MinusCircle,
   OctagonAlert,
@@ -19,7 +20,7 @@ import type {
   ReviewReasonCode,
 } from '@/api/types';
 import { CopyableIdentifier } from '@/components/CopyableIdentifier';
-import { EnvironmentBadge } from '@/components/StatusBadges';
+import { EnvironmentBadge, SyncModeBadge } from '@/components/StatusBadges';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -541,8 +542,12 @@ export function DiffReviewInspector({ preview }: DiffReviewInspectorProps) {
     );
   }
 
+  const isCompleteSnapshot = preview.syncMode === 'COMPLETE_SNAPSHOT';
   const allUnchanged =
-    preview.counts.insert === 0 && preview.counts.update === 0 && preview.counts.review === 0;
+    !isCompleteSnapshot &&
+    preview.counts.insert === 0 &&
+    preview.counts.update === 0 &&
+    preview.counts.review === 0;
 
   const counterCards: Array<{
     kind: DiffKind;
@@ -553,7 +558,7 @@ export function DiffReviewInspector({ preview }: DiffReviewInspectorProps) {
   }> = [
     {
       kind: 'INSERT',
-      thaiLabel: 'เพิ่มใหม่',
+      thaiLabel: isCompleteSnapshot ? 'เพิ่มใหม่ (Snapshot)' : 'เพิ่มใหม่',
       count: preview.counts.insert,
       icon: PlusCircle,
       classes: 'bg-diff-insert-bg border-diff-insert-border text-diff-insert-fg',
@@ -639,6 +644,40 @@ export function DiffReviewInspector({ preview }: DiffReviewInspectorProps) {
         </Alert>
       )}
 
+      {/* Complete Snapshot Explanation Banner (Clearly Distinguishes volunteer-family from 7 Keyed Upsert Datasets) */}
+      {isCompleteSnapshot && (
+        <Alert variant="legacy" role="status">
+          <div className="flex items-start gap-3">
+            <Layers className="mt-0.5 size-5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+            <div className="space-y-1">
+              <AlertTitle className="text-[0.9375rem]">
+                โหมด Complete Snapshot — สร้างแท็บเวอร์ชันใหม่ (RFamily_&lt;runId&gt;) ไม่ใช้ Keyed Upsert
+              </AlertTitle>
+              <AlertDescription className="mt-1 text-foreground space-y-1">
+                <p>
+                  ชุดข้อมูล <code className="font-mono font-semibold">{preview.endpoint}</code>{' '}
+                  ไม่มีคีย์ความสัมพันธ์ถาวร ระบบจะจัดเก็บแถวที่ลดทอนแล้วทั้งหมดด้วยคีย์ลำดับรอบ (
+                  <code className="font-mono">snapshot_&lt;runId&gt;_NNNNN</code>) ลงแท็บซ่อน{' '}
+                  <code className="font-mono font-semibold">RFamily_&lt;runId&gt;</code>{' '}
+                  ตรวจสอบความครบถ้วนและ SHA-256 Chunk Digest ภายใต้{' '}
+                  <code className="font-mono">LockService</code> ก่อนเปิดแสดงแท็บและอัปเดตตัวชี้เผยแพร่{' '}
+                  <code className="font-mono font-semibold">_ThaiPHCReportCurrent</code>{' '}
+                  เป็นขั้นตอนสุดท้าย — แท็บ <code className="font-mono">RFamily_*</code>{' '}
+                  เวอร์ชันก่อนหน้าทั้งหมดจะถูกคงไว้ไม่ถูกลบอัตโนมัติ
+                </p>
+                {preview.activeSnapshotTab && (
+                  <p className="text-xs">
+                    แท็บที่เผยแพร่อยู่ปัจจุบันใน <code className="font-mono">_ThaiPHCReportCurrent</code>:{' '}
+                    <code className="font-mono font-semibold">{preview.activeSnapshotTab}</code>{' '}
+                    (จะถูกคงไว้ครบถ้วนและไม่ถูกแก้ไข)
+                  </p>
+                )}
+              </AlertDescription>
+            </div>
+          </div>
+        </Alert>
+      )}
+
       {/* 4.1 Preview Fingerprint Metadata Strip */}
       <div className="rounded-lg border border-border bg-muted/70 p-3.5 space-y-2.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -650,6 +689,7 @@ export function DiffReviewInspector({ preview }: DiffReviewInspectorProps) {
               2. ผลตรวจสอบ Preview &amp; Preview Fingerprint
             </h2>
             <EnvironmentBadge env={preview.env} />
+            <SyncModeBadge syncMode={preview.syncMode} />
             <Badge variant="neutral" className="font-mono">
               {preview.endpoint} → {preview.destinationTab}
             </Badge>

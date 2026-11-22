@@ -35,16 +35,24 @@ export interface DatasetFieldSpec {
   readonly kind: DatasetFieldKind;
 }
 
-export interface KeyedDatasetSchemaSpec<TEndpoint extends DatasetEndpoint = DatasetEndpoint> {
+export interface DatasetSchemaSpec<TEndpoint extends DatasetEndpoint = DatasetEndpoint> {
   readonly endpoint: TEndpoint;
   readonly tab: string;
-  readonly keyField: string;
   readonly displayNameField: string;
   readonly summaryFieldNames: readonly string[];
   readonly maxRows: number;
   readonly preserveSourceLocality?: boolean;
   readonly fields: readonly DatasetFieldSpec[];
 }
+
+export interface KeyedDatasetSchemaSpec<
+  TEndpoint extends DatasetEndpoint = DatasetEndpoint,
+> extends DatasetSchemaSpec<TEndpoint> {
+  readonly keyField: string;
+}
+
+export type CompleteSnapshotSchemaSpec<TEndpoint extends DatasetEndpoint = DatasetEndpoint> =
+  DatasetSchemaSpec<TEndpoint>;
 
 export type ReferenceSchemaSpec = KeyedDatasetSchemaSpec<ReferenceDatasetEndpoint>;
 
@@ -116,14 +124,43 @@ export const DATASET_CATALOG: readonly DatasetDescriptor[] = [
 ] as const;
 
 export const REPORT_CURRENT_TAB = '_ThaiPHCReportCurrent';
+export const REPORT_CURRENT_HEADERS = [
+  'endpoint',
+  'run_id',
+  'snapshot_sheet',
+  'row_count',
+  'manifest_digest',
+] as const;
+export const REPORT_CURRENT_TEXT_COLUMN_INDICES: readonly number[] = REPORT_CURRENT_HEADERS.reduce<
+  number[]
+>((acc, header, idx) => {
+  if (header !== 'row_count') {
+    acc.push(idx + 1);
+  }
+  return acc;
+}, []);
 export const SYNC_LOG_TAB = '_ThaiPHCSyncLog';
 export const STAGING_TAB_PREFIX = '_Stage_';
+export const VOLUNTEER_FAMILY_SNAPSHOT_PREFIX = 'RFamily_';
 export const SAME_WORKBOOK_APPROVAL_TOKEN = 'OWNER_ONLY_5406_APPROVED';
 export const SCHEMA_VERSION = '0.1.0';
 export const RUN_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
+export const FAMILY_PREVIEW_KEY_PATTERN = /^snapshot_preview_\d{5}$/;
 
 export function buildStagingTabName(endpoint: DatasetEndpoint, runId: string): string {
   return `${STAGING_TAB_PREFIX}${endpoint}_${runId}`;
+}
+
+export function buildFamilySnapshotTabName(runId: string): string {
+  return `${VOLUNTEER_FAMILY_SNAPSHOT_PREFIX}${runId}`;
+}
+
+export function buildFamilyPreviewRowKey(ordinal: number): string {
+  return `snapshot_preview_${String(ordinal).padStart(5, '0')}`;
+}
+
+export function buildFamilySnapshotRowKey(runId: string, ordinal: number): string {
+  return `snapshot_${runId}_${String(ordinal).padStart(5, '0')}`;
 }
 
 /**
@@ -424,6 +461,54 @@ export const LARGE_KEYED_SCHEMAS: Readonly<
   'resigned-volunteers': RESIGNED_VOLUNTEERS_SCHEMA,
   'volunteer-tenure': VOLUNTEER_TENURE_SCHEMA,
 };
+
+/**
+ * Exact 9 RESTRICTED_DEFAULT_OMIT direct personal identifier fields on `volunteer-family`
+ * (docs/sheets-schema.json). Always stripped server-side before preview or storage.
+ */
+export const VOLUNTEER_FAMILY_RESTRICTED_SOURCE_FIELDS = [
+  'osmCode',
+  'citizenId',
+  'prefixName',
+  'firstName',
+  'lastName',
+  'fullName',
+  'address',
+  'volunteerId',
+  'volunteerName',
+] as const;
+
+/**
+ * Exact 12 ALLOW_ONLY_IF_DATASET_APPROVED columns on `volunteer-family` Complete Snapshots
+ * (`RFamily_<runId>`, matching docs/sheets-schema.json and apps-script/ReportReceiver.gs).
+ * Uses run-scoped ordinal keys (`snapshot_<runId>_NNNNN`) — never guessed-key upsert.
+ */
+export const VOLUNTEER_FAMILY_SCHEMA: CompleteSnapshotSchemaSpec<'volunteer-family'> = {
+  endpoint: 'volunteer-family',
+  tab: 'RFamily_<runId>',
+  displayNameField: 'subdistrictName',
+  summaryFieldNames: ['gender', 'status', 'statusLabel'],
+  maxRows: 2500,
+  preserveSourceLocality: true,
+  fields: [
+    { name: 'provinceCode', kind: 'string' },
+    { name: 'provinceName', kind: 'string' },
+    { name: 'districtCode', kind: 'string' },
+    { name: 'districtName', kind: 'string' },
+    { name: 'subdistrictCode', kind: 'string' },
+    { name: 'subdistrictName', kind: 'string' },
+    { name: 'villageCode', kind: 'string' },
+    { name: 'villageNo', kind: 'string' },
+    { name: 'villageName', kind: 'string' },
+    { name: 'gender', kind: 'string' },
+    { name: 'status', kind: 'string' },
+    { name: 'statusLabel', kind: 'string' },
+  ],
+};
+
+export function isVolunteerFamilyEndpoint(endpoint: string): endpoint is 'volunteer-family' {
+  return endpoint === 'volunteer-family';
+}
 
 export function isReferenceEndpoint(endpoint: string): endpoint is ReferenceDatasetEndpoint {
   return endpoint === 'subdistricts' || endpoint === 'villages' || endpoint === 'health-services';

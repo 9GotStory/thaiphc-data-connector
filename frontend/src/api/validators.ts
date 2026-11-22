@@ -531,7 +531,7 @@ function parseReadbackVerification(value: unknown): ReadbackVerification {
       ? null
       : assertBoolean(value.stagingTabCleaned, 'readback.stagingTabCleaned');
 
-  return {
+  const readback: ReadbackVerification = {
     verified: assertBoolean(value.verified, 'readback.verified'),
     destinationTab: assertNonEmptyString(value.destinationTab, 'readback.destinationTab'),
     expectedRowCount: assertNonNegInt(value.expectedRowCount, 'readback.expectedRowCount'),
@@ -545,6 +545,13 @@ function parseReadbackVerification(value: unknown): ReadbackVerification {
     baselineTabsChecked,
     stagingTabCleaned,
   };
+  if (value.publicationPointerVerified !== undefined) {
+    readback.publicationPointerVerified = assertBoolean(
+      value.publicationPointerVerified,
+      'readback.publicationPointerVerified',
+    );
+  }
+  return readback;
 }
 
 export function parseDashboardStatusResponse(raw: unknown): DashboardStatusData {
@@ -687,7 +694,26 @@ export function parsePreviewDatasetResponse(raw: unknown): PreviewDatasetData {
     invalidResponse('sampleRows must be an array.');
   }
 
-  const baseReady = {
+  const baseReady: {
+    status: 'READY';
+    endpoint: DatasetEndpoint;
+    env: AppEnvironment;
+    syncMode: SyncMode;
+    paginationProtocol: PaginationProtocol;
+    destinationTab: string;
+    previewedAtUtc: string;
+    pagesFetched: number;
+    sourceTotal: number;
+    fingerprint: PreviewFingerprint;
+    counts: DiffCounts;
+    reviewBreakdown: Partial<Record<ReviewReasonCode, number>>;
+    unresolvedPreviousRun: UnresolvedRunSummary | null;
+    legacySnapshotPresent: boolean;
+    legacySnapshotTab: string | null;
+    activeSnapshotTab?: string | null;
+    writeAllowed: boolean;
+    blockedGuardReason: BlockedGuardReason | null;
+  } = {
     status: 'READY' as const,
     endpoint,
     env,
@@ -713,6 +739,9 @@ export function parsePreviewDatasetResponse(raw: unknown): PreviewDatasetData {
             'blockedGuardReason',
           ),
   };
+  if (data.activeSnapshotTab !== undefined) {
+    baseReady.activeSnapshotTab = assertNullableString(data.activeSnapshotTab, 'activeSnapshotTab');
+  }
 
   if (data.previewMode === 'REFERENCE_READABLE') {
     return {

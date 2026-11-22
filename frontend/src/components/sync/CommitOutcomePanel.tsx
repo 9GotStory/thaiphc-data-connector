@@ -8,9 +8,9 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useEffect, useRef } from 'react';
-import type { CommitDatasetData, DatasetEndpoint, StaleDriftReason } from '@/api/types';
+import type { CommitDatasetData, DatasetEndpoint, StaleDriftReason, SyncMode } from '@/api/types';
 import { CopyableIdentifier } from '@/components/CopyableIdentifier';
-import { EnvironmentBadge } from '@/components/StatusBadges';
+import { EnvironmentBadge, SyncModeBadge } from '@/components/StatusBadges';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -38,19 +38,29 @@ const DRIFT_LABELS: Record<StaleDriftReason, string> = {
 
 export function CommitProgressCard({
   endpoint,
+  syncMode = 'KEYED_UPSERT',
   batchProgress = null,
 }: {
   endpoint: DatasetEndpoint;
+  syncMode?: SyncMode;
   batchProgress?: CommitBatchProgress | null;
 }) {
-  const steps = [
-    '1. ตรวจ LockService & Preview Fingerprint',
-    batchProgress
-      ? '2. จัดเตรียมแท็บซ่อน (_Stage_*) / เขียนปลายทาง'
-      : '2. จัดเตรียมข้อมูล / เขียนปลายทาง (Keyed Upsert)',
-    '3. อ่านตรวจซ้ำปลายทาง (Destination Readback)',
-    '4. บันทึก _ThaiPHCSyncLog & ปิดงาน',
-  ];
+  const isCompleteSnapshot = syncMode === 'COMPLETE_SNAPSHOT';
+  const steps = isCompleteSnapshot
+    ? [
+        '1. ตรวจ LockService & Preview Fingerprint',
+        '2. จัดเตรียมแท็บซ่อน (RFamily_<runId>) & ตรวจ Chunk Digest',
+        '3. เผยแพร่ _ThaiPHCReportCurrent & อ่านตรวจซ้ำ (Destination Readback)',
+        '4. บันทึก _ThaiPHCSyncLog & ปิดงาน',
+      ]
+    : [
+        '1. ตรวจ LockService & Preview Fingerprint',
+        batchProgress
+          ? '2. จัดเตรียมแท็บซ่อน (_Stage_*) / เขียนปลายทาง'
+          : '2. จัดเตรียมข้อมูล / เขียนปลายทาง (Keyed Upsert)',
+        '3. อ่านตรวจซ้ำปลายทาง (Destination Readback)',
+        '4. บันทึก _ThaiPHCSyncLog & ปิดงาน',
+      ];
 
   const progressValue =
     batchProgress && batchProgress.phase === 'staging' && batchProgress.totalPages
@@ -65,9 +75,14 @@ export function CommitProgressCard({
     const tabPart = batchProgress.stagingTabName ? ` (${batchProgress.stagingTabName})` : '';
     if (batchProgress.totalPages !== null && batchProgress.pagesStaged > 0) {
       statusText = `กำลังจัดเตรียมข้อมูลลงแท็บซ่อน${tabPart} — หน้า ${batchProgress.pagesStaged.toLocaleString('en-US')} / ${batchProgress.totalPages.toLocaleString('en-US')} · จัดเก็บแล้ว ${batchProgress.rowsStaged.toLocaleString('en-US')} / ${batchProgress.sourceTotal.toLocaleString('en-US')} แถว (Batch ที่ ${batchProgress.batchNumber})`;
+    } else if (isCompleteSnapshot) {
+      statusText = `กำลังจัดเตรียมข้อมูลลงแท็บซ่อน RFamily_<runId> (Batch ที่ ${batchProgress.batchNumber}) ภายใต้ LockService...`;
     } else {
       statusText = `กำลังจัดเตรียมข้อมูลลงแท็บซ่อน _Stage_${endpoint}_* (Batch ที่ ${batchProgress.batchNumber}) ภายใต้ LockService...`;
     }
+  } else if (isCompleteSnapshot) {
+    statusText =
+      'กำลังตรวจ Chunk SHA-256 Digest & Pointer Revision ภายใต้ LockService, เปิดแสดง RFamily_<runId>, อัปเดต _ThaiPHCReportCurrent และตรวจสอบ Destination Readback...';
   } else {
     statusText = `กำลังตรวจ Staged Digest & Preview Fingerprint ซ้ำภายใต้ LockService, ดำเนินการ Keyed Upsert ลงปลายทาง, และตรวจสอบ Destination Readback...`;
   }
@@ -142,6 +157,7 @@ export function CommitOutcomePanel({
   // Outcome A — Verified Success (COMMITTED_VERIFIED)
   if (outcome.status === 'COMMITTED_VERIFIED') {
     const rb = outcome.readback;
+    const isCompleteSnapshot = outcome.syncMode === 'COMPLETE_SNAPSHOT';
     return (
       <Card className="border-status-verified-border border-l-4 border-l-status-verified-fg">
         <CardHeader className="border-b border-border/70">
@@ -154,6 +170,7 @@ export function CommitOutcomePanel({
             <Badge variant="verified" className="font-mono font-semibold">
               COMMITTED_VERIFIED
             </Badge>
+            <SyncModeBadge syncMode={outcome.syncMode} />
             <h2 className="text-[1.0625rem] font-semibold leading-[1.4] text-foreground">
               ซิงก์และตรวจสอบ Destination Readback สำเร็จ
             </h2>
@@ -175,11 +192,16 @@ export function CommitOutcomePanel({
               <div className="text-muted-foreground">สภาพแวดล้อม</div>
               <EnvironmentBadge env={outcome.env} />
             </div>
-            <div className="rounded-md border border-border bg-muted/50 p-3">
+            <div className="rounded-md border border-border bg-muted/50 p-3 min-w-0">
               <div className="text-muted-foreground">แท็บปลายทาง</div>
-              <div className="mt-1 font-mono font-semibold text-foreground">
+              <div className="mt-1 font-mono font-semibold text-foreground break-all">
                 {outcome.destinationTab}
               </div>
+              {isCompleteSnapshot && (
+                <div className="mt-0.5 text-[0.7rem] text-muted-foreground">
+                  เผยแพร่ผ่านตัวชี้ <code className="font-mono">_ThaiPHCReportCurrent</code>
+                </div>
+              )}
             </div>
             <div className="rounded-md border border-border bg-muted/50 p-3">
               <div className="text-muted-foreground">เสร็จสิ้นเมื่อ (Asia/Bangkok)</div>
@@ -266,15 +288,11 @@ export function CommitOutcomePanel({
                   strokeWidth={1.75}
                   aria-hidden="true"
                 />
-                <span>คีย์ _source_key ไม่ซ้ำกัน</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2
-                  className="size-4 shrink-0 text-status-verified-fg"
-                  strokeWidth={1.75}
-                  aria-hidden="true"
-                />
-                <span>ค่า _row_digest ตรงกับข้อมูลที่บันทึกและคงข้อมูลเดิมครบถ้วน</span>
+                <span>
+                  {isCompleteSnapshot
+                    ? 'คีย์ลำดับรอบ snapshot_<runId>_NNNNN ครบถ้วนไม่ซ้ำกัน (Verified Complete Snapshot)'
+                    : 'คีย์ _source_key ไม่ซ้ำกัน'}
+                </span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2
@@ -283,7 +301,42 @@ export function CommitOutcomePanel({
                   aria-hidden="true"
                 />
                 <span>
-                  แท็บอื่นทั้งหมดและแท็บ <code className="font-mono">ชีต1</code> ยังอยู่ครบถ้วนไม่ถูกกระทบ
+                  {isCompleteSnapshot
+                    ? 'ค่า _row_digest และ Chunk SHA-256 Digest ตรงกับข้อมูลที่บันทึกครบทุกชุด'
+                    : 'ค่า _row_digest ตรงกับข้อมูลที่บันทึกและคงข้อมูลเดิมครบถ้วน'}
+                </span>
+              </li>
+              {isCompleteSnapshot && rb.publicationPointerVerified === true && (
+                <li className="flex items-center gap-2">
+                  <CheckCircle2
+                    className="size-4 shrink-0 text-status-verified-fg"
+                    strokeWidth={1.75}
+                    aria-hidden="true"
+                  />
+                  <span>
+                    อัปเดตตัวชี้เผยแพร่ _ThaiPHCReportCurrent ชี้ไปยัง{' '}
+                    <code className="font-mono font-semibold">{outcome.destinationTab}</code>{' '}
+                    เรียบร้อยแล้ว
+                  </span>
+                </li>
+              )}
+              <li className="flex items-center gap-2">
+                <CheckCircle2
+                  className="size-4 shrink-0 text-status-verified-fg"
+                  strokeWidth={1.75}
+                  aria-hidden="true"
+                />
+                <span>
+                  {isCompleteSnapshot ? (
+                    <>
+                      แท็บอื่นทั้งหมด, แท็บ RFamily_* เวอร์ชันเดิม และแท็บ{' '}
+                      <code className="font-mono">ชีต1</code> ยังอยู่ครบถ้วนไม่ถูกกระทบ
+                    </>
+                  ) : (
+                    <>
+                      แท็บอื่นทั้งหมดและแท็บ <code className="font-mono">ชีต1</code> ยังอยู่ครบถ้วนไม่ถูกกระทบ
+                    </>
+                  )}
                 </span>
               </li>
               {rb.stagingTabCleaned === true && (
@@ -313,6 +366,8 @@ export function CommitOutcomePanel({
   }
 
   // Outcome B — Stale Preview Stop (PREVIEW_STALE_RECONFIRM_REQUIRED)
+  const isFamilySnapshot = outcome.endpoint === 'volunteer-family';
+
   if (outcome.status === 'PREVIEW_STALE_RECONFIRM_REQUIRED') {
     return (
       <Alert
@@ -335,10 +390,24 @@ export function CommitOutcomePanel({
             </div>
             <AlertTitle>ข้อมูลมีการเปลี่ยนแปลงหลัง Preview — หยุดก่อนเขียนลงแท็บจริง</AlertTitle>
             <AlertDescription className="text-foreground space-y-1">
-              <p>{DRIFT_LABELS[outcome.driftReason]}</p>
+              <p>
+                {isFamilySnapshot && outcome.driftReason === 'DESTINATION_CHANGED'
+                  ? 'สถานะตัวชี้เผยแพร่ _ThaiPHCReportCurrent (sheetRevisionFingerprint) เปลี่ยนแปลงหลัง Preview'
+                  : DRIFT_LABELS[outcome.driftReason]}
+              </p>
               <p className="text-xs text-muted-foreground">
-                ยืนยันว่าไม่มีการเขียนเปลี่ยนแปลงใดๆ ลงแท็บปลายทาง{' '}
-                <code className="font-mono">{outcome.destinationTab}</code>
+                {isFamilySnapshot ? (
+                  <>
+                    ยืนยันว่าไม่มีการเปลี่ยนแปลงตัวชี้เผยแพร่{' '}
+                    <code className="font-mono">_ThaiPHCReportCurrent</code>{' '}
+                    และแท็บที่เผยแพร่อยู่เดิมไม่ถูกกระทบ
+                  </>
+                ) : (
+                  <>
+                    ยืนยันว่าไม่มีการเขียนเปลี่ยนแปลงใดๆ ลงแท็บปลายทาง{' '}
+                    <code className="font-mono">{outcome.destinationTab}</code>
+                  </>
+                )}
               </p>
             </AlertDescription>
           </div>
@@ -354,6 +423,7 @@ export function CommitOutcomePanel({
   }
 
   // Outcome C — Unknown Outcome / Failure Stop (UNKNOWN_OUTCOME_STOP / FAILED_STOP)
+  const isPrePublishFamilyStop = isFamilySnapshot && outcome.syncLogStatus === 'NOT_WRITTEN';
   return (
     <Alert
       ref={stopFocusRef}
@@ -394,16 +464,32 @@ export function CommitOutcomePanel({
         </p>
         {outcome.stagingTabRetained && (
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-muted-foreground">แท็บพักซ่อนที่คงไว้เพื่อตรวจสอบ:</span>
+            <span className="text-muted-foreground">
+              {isFamilySnapshot
+                ? isPrePublishFamilyStop
+                  ? 'แท็บซ่อน RFamily_<runId> ที่คงไว้เพื่อตรวจสอบ (ยังไม่เผยแพร่):'
+                  : 'แท็บ Snapshot RFamily_<runId> ที่ต้องตรวจสอบสถานะการเผยแพร่:'
+                : 'แท็บพักซ่อนที่คงไว้เพื่อตรวจสอบ:'}
+            </span>
             <CopyableIdentifier
               value={outcome.stagingTabRetained}
-              label="แท็บซ่อน _Stage_*"
+              label={
+                isFamilySnapshot
+                  ? isPrePublishFamilyStop
+                    ? 'แท็บซ่อน RFamily_<runId>'
+                    : 'แท็บ Snapshot RFamily_<runId>'
+                  : 'แท็บซ่อน _Stage_*'
+              }
               maxWidthClass="max-w-xs"
             />
           </div>
         )}
         <p className="text-xs text-muted-foreground">
-          หากรอบนี้สร้างแท็บพักชั่วคราว (_Stage_*) ระบบจะคงซ่อนแท็บไว้ในสมุดงานเพื่อให้ตรวจสอบ ไม่ลบทิ้งอัตโนมัติ
+          {isPrePublishFamilyStop
+            ? 'รอบนี้หยุดก่อนขั้นตอนเผยแพร่ — หากมีการสร้างแท็บซ่อน RFamily_<runId> ระบบจะคงซ่อนแท็บไว้เพื่อตรวจสอบ โดยไม่อัปเดต _ThaiPHCReportCurrent และไม่ลบทิ้งอัตโนมัติ'
+            : isFamilySnapshot
+              ? 'รอบนี้หยุดระหว่างหรือหลังขั้นตอนเผยแพร่ — สถานะการเปิดแสดง RFamily_<runId> และตัวชี้ _ThaiPHCReportCurrent อาจเปลี่ยนแปลงแล้วบางส่วน กรุณาตรวจสอบทั้ง RFamily_<runId>, _ThaiPHCReportCurrent และ _ThaiPHCSyncLog ด้วยตนเองก่อนดำเนินการต่อ (ระบบไม่ลบทิ้งแท็บอัตโนมัติ)'
+              : 'หากรอบนี้สร้างแท็บพักชั่วคราว (_Stage_*) ระบบจะคงซ่อนแท็บไว้ในสมุดงานเพื่อให้ตรวจสอบ ไม่ลบทิ้งอัตโนมัติ'}
         </p>
         <p className="text-xs font-medium text-status-stop-fg">
           ระบบไม่ลองเขียนซ้ำอัตโนมัติ (No Auto-Retry) เพื่อป้องกันข้อมูลซ้ำซ้อนหรือเสียหายบน Google Sheets
@@ -416,14 +502,40 @@ export function CommitOutcomePanel({
         </h3>
         <ol className="list-decimal pl-5 space-y-2 text-sm">
           <li>
-            เปิดสมุดงาน Google Sheets ปลายทาง ตรวจสอบแท็บข้อมูล{' '}
-            <code className="font-mono">{outcome.destinationTab}</code> และแถว{' '}
-            <code className="font-mono">run_id</code> ล่าสุดใน{' '}
-            <code className="font-mono">_ThaiPHCSyncLog</code>
+            {isFamilySnapshot ? (
+              <>
+                เปิดสมุดงาน Google Sheets ปลายทาง ตรวจสอบแท็บ Snapshot{' '}
+                <code className="font-mono">
+                  {outcome.stagingTabRetained ?? outcome.destinationTab}
+                </code>
+                , ตัวชี้เผยแพร่ <code className="font-mono">_ThaiPHCReportCurrent</code> และแถว{' '}
+                <code className="font-mono">run_id</code> ล่าสุดใน{' '}
+                <code className="font-mono">_ThaiPHCSyncLog</code>
+              </>
+            ) : (
+              <>
+                เปิดสมุดงาน Google Sheets ปลายทาง ตรวจสอบแท็บข้อมูล{' '}
+                <code className="font-mono">{outcome.destinationTab}</code> และแถว{' '}
+                <code className="font-mono">run_id</code> ล่าสุดใน{' '}
+                <code className="font-mono">_ThaiPHCSyncLog</code>
+              </>
+            )}
           </li>
           <li>
-            ตรวจสอบว่ามีแท็บซ่อน <code className="font-mono">_Stage_*</code> ค้างอยู่หรือไม่
-            และตรวจสอบความครบถ้วนของข้อมูลจริง
+            {isFamilySnapshot ? (
+              <>
+                ตรวจสอบสถานะการซ่อน/เปิดแสดงของแท็บ{' '}
+                <code className="font-mono">RFamily_&lt;runId&gt;</code>, แถว{' '}
+                <code className="font-mono">volunteer-family</code> ใน{' '}
+                <code className="font-mono">_ThaiPHCReportCurrent</code> และยืนยันว่าแท็บ{' '}
+                <code className="font-mono">RFamily_*</code> เวอร์ชันเดิมยังอยู่ครบถ้วน
+              </>
+            ) : (
+              <>
+                ตรวจสอบว่ามีแท็บซ่อน <code className="font-mono">_Stage_*</code> ค้างอยู่หรือไม่
+                และตรวจสอบความครบถ้วนของข้อมูลจริง
+              </>
+            )}
           </li>
           <li>
             กลับไปหน้า Dashboard เพื่อรีเฟรชสถานะ จากนั้นเริ่มรอบ <strong>Preview → Diff → Confirm</strong>{' '}

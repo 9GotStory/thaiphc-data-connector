@@ -565,4 +565,192 @@ describe('GasRpcTransport Seam', () => {
       }),
     ).rejects.toMatchObject({ code: 'INVALID_RPC_RESPONSE' });
   });
+
+  it('validates volunteer-family Complete Snapshot multi-batch envelopes (snapshot_preview_* keys, activeSnapshotTab, LOCALITY_MISMATCH, RFamily_<runId> staging, publicationPointerVerified readback, pointer-drift PREVIEW_STALE, digest mismatch, incomplete stage) and rejects malformed fields', async () => {
+    const mock = new MockGasTransport({ scenario: 'sandbox-report-writable' });
+
+    const fb1 = await mock.previewDatasetBatch({
+      endpoint: 'volunteer-family',
+      token: 'synthetic_token_for_family_test',
+      startPage: 1,
+      batchPages: 10,
+      pageSize: 100,
+    });
+    expect(fb1.status).toBe('BATCH_OK');
+    if (fb1.status !== 'BATCH_OK')
+      throw new Error('Expected BATCH_OK for volunteer-family batch 1');
+    expect(fb1.hasMore).toBe(true);
+    expect(fb1.nextPage).toBe(11);
+    expect(fb1.totalPages).toBe(19);
+    expect(fb1.sourceTotal).toBe(1823);
+    expect(fb1.rowDigests[0].key).toBe('snapshot_preview_00001');
+    expect(fb1.rowDigests.some((entry) => entry.reviewReasons?.includes('LOCALITY_MISMATCH'))).toBe(
+      true,
+    );
+    expect(JSON.stringify(fb1)).not.toMatch(
+      /citizenId|prefixName|firstName|lastName|fullName|address|volunteerId|volunteerName|osmCode/,
+    );
+
+    const fb2 = await mock.previewDatasetBatch({
+      endpoint: 'volunteer-family',
+      token: 'synthetic_token_for_family_test',
+      startPage: 11,
+      batchPages: 10,
+      pageSize: 100,
+      expectedSourceTotal: fb1.sourceTotal,
+    });
+    expect(fb2.status).toBe('BATCH_OK');
+    if (fb2.status !== 'BATCH_OK')
+      throw new Error('Expected BATCH_OK for volunteer-family batch 2');
+    expect(fb2.hasMore).toBe(false);
+    expect(fb2.nextPage).toBeNull();
+
+    const famPreview = await mock.finalizePreview({
+      endpoint: 'volunteer-family',
+      sourceTotal: fb1.sourceTotal,
+      pagesFetched: fb1.pagesFetchedInBatch + fb2.pagesFetchedInBatch,
+      rowDigests: [...fb1.rowDigests, ...fb2.rowDigests],
+      aggregateSummary: [...fb1.aggregateSummary, ...fb2.aggregateSummary],
+      sampleCandidates: [...fb1.sampleCandidates, ...fb2.sampleCandidates],
+    });
+    expect(famPreview.status).toBe('READY');
+    if (famPreview.status !== 'READY' || famPreview.previewMode !== 'EXTENDED_MINIMIZED') {
+      throw new Error('Expected READY EXTENDED_MINIMIZED preview for volunteer-family');
+    }
+    expect(famPreview.syncMode).toBe('COMPLETE_SNAPSHOT');
+    expect(famPreview.paginationProtocol).toBe('report');
+    expect(famPreview.destinationTab).toBe('RFamily_<runId>');
+    expect(famPreview.activeSnapshotTab).toBe('RFamily_20261121_1030');
+    expect(famPreview.legacySnapshotPresent).toBe(false);
+    expect(famPreview.counts).toEqual({ insert: 1823, update: 0, unchanged: 0, review: 3 });
+    expect(famPreview.reviewBreakdown).toEqual({ LOCALITY_MISMATCH: 3 });
+
+    const fs1 = await mock.stageLargeDatasetBatch({
+      endpoint: 'volunteer-family',
+      token: 'synthetic_token_for_family_test',
+      expectedFingerprint: famPreview.fingerprint,
+      startPage: 1,
+      batchPages: 10,
+      pageSize: 100,
+    });
+    expect(fs1.status).toBe('BATCH_STAGED');
+    if (fs1.status !== 'BATCH_STAGED') throw new Error('Expected BATCH_STAGED batch 1');
+    expect(fs1.stagingTabName).toBe(`RFamily_${fs1.runId}`);
+    expect(fs1.destinationTab).toBe(`RFamily_${fs1.runId}`);
+    expect(fs1.hasMore).toBe(true);
+
+    const fs2 = await mock.stageLargeDatasetBatch({
+      endpoint: 'volunteer-family',
+      token: 'synthetic_token_for_family_test',
+      expectedFingerprint: famPreview.fingerprint,
+      runId: fs1.runId,
+      startPage: 11,
+      batchPages: 10,
+      pageSize: 100,
+    });
+    expect(fs2.status).toBe('BATCH_STAGED');
+    if (fs2.status !== 'BATCH_STAGED') throw new Error('Expected BATCH_STAGED batch 2');
+    expect(fs2.hasMore).toBe(false);
+
+    const fFin = await mock.finalizeLargeDatasetCommit({
+      endpoint: 'volunteer-family',
+      expectedFingerprint: famPreview.fingerprint,
+      runId: fs1.runId,
+    });
+    expect(fFin.status).toBe('COMMITTED_VERIFIED');
+    if (fFin.status === 'COMMITTED_VERIFIED') {
+      expect(fFin.syncMode).toBe('COMPLETE_SNAPSHOT');
+      expect(fFin.destinationTab).toBe(`RFamily_${fs1.runId}`);
+      expect(fFin.readback.verified).toBe(true);
+      expect(fFin.readback.publicationPointerVerified).toBe(true);
+      expect(fFin.readback.stagingTabCleaned).toBeNull();
+      expect(fFin.readback.baselineTabsChecked).toEqual(
+        expect.arrayContaining(['ชีต1', '_ThaiPHCReportCurrent', 'RFamily_20261121_1030']),
+      );
+    }
+
+    // Pointer-drift PREVIEW_STALE_RECONFIRM_REQUIRED, STAGING_DIGEST_MISMATCH, INCOMPLETE_SNAPSHOT
+    const staleMock = new MockGasTransport({
+      scenario: 'sandbox-report-writable',
+      commitOutcome: 'preview-stale',
+    });
+    const staleFin = await staleMock.finalizeLargeDatasetCommit({
+      endpoint: 'volunteer-family',
+      expectedFingerprint: famPreview.fingerprint,
+      runId: fs1.runId,
+    });
+    expect(staleFin.status).toBe('PREVIEW_STALE_RECONFIRM_REQUIRED');
+    if (staleFin.status === 'PREVIEW_STALE_RECONFIRM_REQUIRED') {
+      expect(staleFin.driftReason).toBe('DESTINATION_CHANGED');
+    }
+
+    const digestMock = new MockGasTransport({
+      scenario: 'sandbox-report-writable',
+      commitOutcome: 'digest-mismatch',
+    });
+    const digestFin = await digestMock.finalizeLargeDatasetCommit({
+      endpoint: 'volunteer-family',
+      expectedFingerprint: famPreview.fingerprint,
+      runId: fs1.runId,
+    });
+    expect(digestFin.status).toBe('FAILED_STOP');
+    if (digestFin.status === 'FAILED_STOP') {
+      expect(digestFin.stopCode).toBe('STAGING_DIGEST_MISMATCH');
+      expect(digestFin.stagingTabRetained).toBe(`RFamily_${fs1.runId}`);
+    }
+
+    const incompleteMock = new MockGasTransport({
+      scenario: 'sandbox-report-writable',
+      commitOutcome: 'incomplete-stage',
+    });
+    const incompleteFin = await incompleteMock.finalizeLargeDatasetCommit({
+      endpoint: 'volunteer-family',
+      expectedFingerprint: famPreview.fingerprint,
+      runId: fs1.runId,
+    });
+    expect(incompleteFin.status).toBe('FAILED_STOP');
+    if (incompleteFin.status === 'FAILED_STOP') {
+      expect(incompleteFin.stopCode).toBe('INCOMPLETE_SNAPSHOT');
+      expect(incompleteFin.stagingTabRetained).toBe(`RFamily_${fs1.runId}`);
+    }
+
+    // Reject malformed activeSnapshotTab and publicationPointerVerified at GoogleScriptRunTransport boundary
+    const badActiveTabTransport = new GoogleScriptRunTransport(() =>
+      createFakeRunner((onSuccess) =>
+        onSuccess({ ok: true, data: { ...famPreview, activeSnapshotTab: 12345 } }),
+      ),
+    );
+    await expect(
+      badActiveTabTransport.finalizePreview({
+        endpoint: 'volunteer-family',
+        sourceTotal: 1,
+        pagesFetched: 1,
+        rowDigests: [],
+        aggregateSummary: [],
+        sampleCandidates: [],
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_RPC_RESPONSE' });
+
+    const badPointerFlagTransport = new GoogleScriptRunTransport(() =>
+      createFakeRunner((onSuccess) =>
+        onSuccess({
+          ok: true,
+          data: {
+            ...fFin,
+            readback:
+              fFin.status === 'COMMITTED_VERIFIED'
+                ? { ...fFin.readback, publicationPointerVerified: 'yes' }
+                : {},
+          },
+        }),
+      ),
+    );
+    await expect(
+      badPointerFlagTransport.finalizeLargeDatasetCommit({
+        endpoint: 'volunteer-family',
+        expectedFingerprint: famPreview.fingerprint,
+        runId: fs1.runId,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_RPC_RESPONSE' });
+  });
 });

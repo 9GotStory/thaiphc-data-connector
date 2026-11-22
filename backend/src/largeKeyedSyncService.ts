@@ -1,14 +1,22 @@
 import { computeDatasetDigest } from './cellValidation.ts';
 import {
+  finalizeVolunteerFamilyCommitWithPlatform,
+  finalizeVolunteerFamilyPreviewWithPlatform,
+  previewVolunteerFamilyBatchWithPlatform,
+  stageVolunteerFamilyBatchWithPlatform,
+} from './completeSnapshotSyncService.ts';
+import {
   buildStagingTabName,
   getDatasetDescriptor,
   isLargeKeyedEndpoint,
+  isVolunteerFamilyEndpoint,
   LARGE_KEYED_SCHEMAS,
   RUN_ID_PATTERN,
   type KeyedDatasetSchemaSpec,
 } from './datasetCatalog.ts';
 import {
   formatExtendedScopeLabel,
+  mergeAggregateSummary,
   validateAndProjectLargeKeyedRows,
 } from './extendedReportProjection.ts';
 import {
@@ -50,7 +58,6 @@ import { DEFAULT_PAGE_SIZE, fetchLargeKeyedBatch, isValidBearerToken } from './t
 import type {
   AppEnvironment,
   CommitDatasetResponse,
-  ExtendedAggregateGroup,
   ExtendedMinimizedPreviewRow,
   ExtendedSampleCandidate,
   FinalizeLargeDatasetCommitRequest,
@@ -154,41 +161,6 @@ function makeBlockedFinalizePreview(
       unresolvedPreviousRun,
     },
   };
-}
-
-function mergeAggregateSummary(
-  groups: readonly ExtendedAggregateGroup[],
-): ExtendedAggregateGroup[] {
-  const byCode = new Map<string, ExtendedAggregateGroup>();
-  for (const g of groups) {
-    if (
-      !g ||
-      typeof g.groupCode !== 'string' ||
-      g.groupCode.length === 0 ||
-      typeof g.groupLabel !== 'string' ||
-      !Number.isSafeInteger(g.rowCount) ||
-      g.rowCount < 0 ||
-      !Number.isSafeInteger(g.reviewCount) ||
-      g.reviewCount < 0
-    ) {
-      continue;
-    }
-    const existing = byCode.get(g.groupCode);
-    if (existing) {
-      existing.rowCount += g.rowCount;
-      existing.reviewCount += g.reviewCount;
-    } else {
-      byCode.set(g.groupCode, {
-        groupCode: g.groupCode,
-        groupLabel: g.groupLabel,
-        rowCount: g.rowCount,
-        reviewCount: g.reviewCount,
-      });
-    }
-  }
-  return [...byCode.values()].sort((a, b) =>
-    a.groupCode < b.groupCode ? -1 : a.groupCode > b.groupCode ? 1 : 0,
-  );
 }
 
 const VALID_INCOMING_REVIEW_REASONS: ReadonlySet<string> = new Set<ReviewReasonCode>([
@@ -321,10 +293,13 @@ export function previewDatasetBatchWithPlatform(
         'Batched preview request payload is required.',
       );
     }
+    if (typeof request.endpoint === 'string' && isVolunteerFamilyEndpoint(request.endpoint)) {
+      return previewVolunteerFamilyBatchWithPlatform(request, platform);
+    }
     const base = validateLargeContext(
       request.endpoint,
       platform,
-      'Batched preview is enabled for assignments, resigned-volunteers, and volunteer-tenure.',
+      'Batched preview is enabled for assignments, resigned-volunteers, volunteer-tenure, and volunteer-family.',
     );
     if (!base.ok) {
       return batchPreviewRpcError(base.code, base.message);
@@ -479,10 +454,13 @@ export function finalizePreviewWithPlatform(
         'Finalize preview request payload is required.',
       );
     }
+    if (typeof request.endpoint === 'string' && isVolunteerFamilyEndpoint(request.endpoint)) {
+      return finalizeVolunteerFamilyPreviewWithPlatform(request, platform);
+    }
     const base = validateLargeContext(
       request.endpoint,
       platform,
-      'Finalize preview is enabled for assignments, resigned-volunteers, and volunteer-tenure.',
+      'Finalize preview is enabled for assignments, resigned-volunteers, volunteer-tenure, and volunteer-family.',
     );
     if (!base.ok) {
       return finalizePreviewRpcError(base.code, base.message);
@@ -744,10 +722,13 @@ export function stageLargeDatasetBatchWithPlatform(
         error: { code: 'INVALID_REQUEST', message: 'Staging batch request payload is required.' },
       };
     }
+    if (typeof request.endpoint === 'string' && isVolunteerFamilyEndpoint(request.endpoint)) {
+      return stageVolunteerFamilyBatchWithPlatform(request, platform);
+    }
     const base = validateLargeContext(
       request.endpoint,
       platform,
-      'Multi-batch staging commit is enabled for assignments, resigned-volunteers, and volunteer-tenure.',
+      'Multi-batch staging commit is enabled for assignments, resigned-volunteers, volunteer-tenure, and volunteer-family.',
     );
     if (!base.ok) {
       return { ok: false, error: { code: base.code, message: base.message } };
@@ -1056,10 +1037,13 @@ export function finalizeLargeDatasetCommitWithPlatform(
         },
       };
     }
+    if (typeof request.endpoint === 'string' && isVolunteerFamilyEndpoint(request.endpoint)) {
+      return finalizeVolunteerFamilyCommitWithPlatform(request, platform);
+    }
     const base = validateLargeContext(
       request.endpoint,
       platform,
-      'Multi-batch commit finalization is enabled for assignments, resigned-volunteers, and volunteer-tenure.',
+      'Multi-batch commit finalization is enabled for assignments, resigned-volunteers, volunteer-tenure, and volunteer-family.',
     );
     if (!base.ok) {
       return { ok: false, error: { code: base.code, message: base.message } };

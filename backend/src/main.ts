@@ -61,6 +61,10 @@ function wrapWritableSheet(sheet: GoogleAppsScript.Spreadsheet.Sheet): WritableS
     hideSheet: () => {
       sheet.hideSheet();
     },
+    showSheet: () => {
+      sheet.showSheet();
+    },
+    isSheetHidden: () => sheet.isSheetHidden(),
     getValues: (row: number, col: number, numRows: number, numCols: number) =>
       sheet.getRange(row, col, numRows, numCols).getValues(),
     setValues: (row: number, col: number, values: unknown[][]) => {

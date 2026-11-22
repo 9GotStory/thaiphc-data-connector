@@ -229,6 +229,7 @@ export interface PreviewReadyBase {
   unresolvedPreviousRun: UnresolvedRunSummary | null;
   legacySnapshotPresent: boolean;
   legacySnapshotTab: string | null;
+  activeSnapshotTab?: string | null;
   writeAllowed: boolean;
   blockedGuardReason: BlockedGuardReason | null;
 }
@@ -386,6 +387,7 @@ export interface ReadbackVerification {
   unrelatedTabsPreserved: boolean;
   baselineTabsChecked: string[];
   stagingTabCleaned: boolean | null;
+  publicationPointerVerified?: boolean;
 }
 
 export interface CommitVerifiedData {
@@ -458,6 +460,8 @@ export interface WritableSheetHandle extends SheetHandle {
   insertRowsAfter(afterPosition: number, howMany: number): void;
   setFrozenRows(rows: number): void;
   hideSheet(): void;
+  showSheet(): void;
+  isSheetHidden(): boolean;
   setValues(row: number, col: number, values: unknown[][]): void;
   setNumberFormat(row: number, col: number, numRows: number, numCols: number, format: string): void;
 }

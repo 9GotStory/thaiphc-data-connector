@@ -122,7 +122,6 @@ export function DatasetSelector({
 }: DatasetSelectorProps) {
   const referenceDatasets = data.datasets.filter((d) => d.group === 'reference');
   const extendedDatasets = data.datasets.filter((d) => d.group === 'extended_report');
-  const isSelectedSupported = DATASET_DISPLAY_META[selectedEndpoint].supportedInWorkspace;
 
   return (
     <Card>
@@ -200,31 +199,6 @@ export function DatasetSelector({
           </div>
         </fieldset>
 
-        {!isSelectedSupported && (
-          <div
-            role="status"
-            className="flex items-start gap-2 rounded-md border border-border border-l-4 border-l-primary bg-muted/70 p-3 text-xs text-foreground"
-          >
-            <Lock
-              className="mt-0.5 size-4 shrink-0 text-primary"
-              strokeWidth={1.75}
-              aria-hidden="true"
-            />
-            <span>
-              ชุดข้อมูลรายงานขยาย (<code className="font-mono">{selectedEndpoint}</code>)
-              อยู่ระหว่างการเปิดใช้งานในรอบงานถัดไป (Ticket 07 · Complete Snapshot) — ในรอบนี้สามารถรัน
-              Preview และ Keyed Upsert Repeatable Sync ได้ครบทั้ง 7 ชุดข้อมูล (
-              <code className="font-mono">subdistricts</code>,{' '}
-              <code className="font-mono">villages</code>,{' '}
-              <code className="font-mono">health-services</code>,{' '}
-              <code className="font-mono">volunteer-gender</code>,{' '}
-              <code className="font-mono">assignments</code>,{' '}
-              <code className="font-mono">resigned-volunteers</code>, และ{' '}
-              <code className="font-mono">volunteer-tenure</code>)
-            </span>
-          </div>
-        )}
-
         <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="flex items-start gap-2 text-xs text-muted-foreground">
             <Info
@@ -240,7 +214,7 @@ export function DatasetSelector({
           <Button
             type="button"
             variant="primary"
-            disabled={isLocked || !isSelectedSupported}
+            disabled={isLocked}
             onClick={onStartPreview}
             className="w-full sm:w-auto px-5"
           >

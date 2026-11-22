@@ -8,7 +8,7 @@ import type {
   ExtendedSampleCandidate,
   FinalizeLargeDatasetCommitRequest,
   FinalizePreviewRequest,
-  LargeKeyedDatasetEndpoint,
+  LargeBatchedDatasetEndpoint,
   PreviewDatasetBatchRequest,
   PreviewDatasetRequest,
   ReferenceDatasetEndpoint,
@@ -16,6 +16,7 @@ import type {
   ReviewReasonCode,
   SmallKeyedDatasetEndpoint,
   StageLargeDatasetBatchRequest,
+  SyncMode,
 } from './types';
 
 export type MockScenario =
@@ -34,7 +35,13 @@ export type MockScenario =
 
 export type MockPreviewOutcome = 'ready' | 'stop-blocked' | 'http-401' | 'all-unchanged';
 export type MockCommitOutcome =
-  'verified' | 'preview-stale' | 'unknown-outcome' | 'readback-mismatch' | 'http-401';
+  | 'verified'
+  | 'preview-stale'
+  | 'unknown-outcome'
+  | 'readback-mismatch'
+  | 'digest-mismatch'
+  | 'incomplete-stage'
+  | 'http-401';
 
 const SANDBOX_REF_ID = '1SANDBOX_MOCK_REF_WORKBOOK_0000000001';
 const SANDBOX_REPORT_ID = '1SANDBOX_MOCK_REPORT_WORKBOOK_0000002';
@@ -983,11 +990,12 @@ export function buildMockCommitEnvelope(
   };
 }
 
-function isSupportedLargeKeyed(endpoint: string): endpoint is LargeKeyedDatasetEndpoint {
+function isSupportedLargeBatched(endpoint: string): endpoint is LargeBatchedDatasetEndpoint {
   return (
     endpoint === 'assignments' ||
     endpoint === 'resigned-volunteers' ||
-    endpoint === 'volunteer-tenure'
+    endpoint === 'volunteer-tenure' ||
+    endpoint === 'volunteer-family'
   );
 }
 
@@ -1001,7 +1009,9 @@ function makeMockRowDigest(index: number): string {
   return `${hex}${'1122334455667788'.repeat(3)}deadbeef`;
 }
 
-interface LargeKeyedMockProfile {
+interface LargeBatchedMockProfile {
+  readonly syncMode: SyncMode;
+  readonly usesHmac: boolean;
   readonly destinationTab: string;
   readonly paginationProtocol: 'assignment' | 'report';
   readonly sourceTotal: number;
@@ -1015,10 +1025,12 @@ interface LargeKeyedMockProfile {
   readonly missingSampleScopeLabel: string;
 }
 
-const LARGE_KEYED_MOCK_PROFILES: Readonly<
-  Record<LargeKeyedDatasetEndpoint, LargeKeyedMockProfile>
+const LARGE_BATCHED_MOCK_PROFILES: Readonly<
+  Record<LargeBatchedDatasetEndpoint, LargeBatchedMockProfile>
 > = {
   assignments: {
+    syncMode: 'KEYED_UPSERT',
+    usesHmac: true,
     destinationTab: 'Assignments',
     paginationProtocol: 'assignment',
     sourceTotal: 1571,
@@ -1080,7 +1092,62 @@ const LARGE_KEYED_MOCK_PROFILES: Readonly<
     ],
     missingSampleScopeLabel: '54 / 5406 · 540608 สะเอียบ · หมู่ 2',
   },
+  'volunteer-family': {
+    syncMode: 'COMPLETE_SNAPSHOT',
+    usesHmac: false,
+    destinationTab: 'RFamily_<runId>',
+    paginationProtocol: 'report',
+    sourceTotal: 1823,
+    runSlug: 'family',
+    digestSlug: 'family00',
+    h1Salt: '',
+    legacyBaselineTab: 'RFamily_20261121_1030',
+    localityMismatchCount: 3,
+    aggregates: [
+      { groupCode: '540210', groupLabel: 'ตำบลต้นทางนอกเขตย่อย', rowCount: 2, reviewCount: 2 },
+      { groupCode: '540601', groupLabel: 'บ้านหนุน', rowCount: 620, reviewCount: 1 },
+      { groupCode: '540603', groupLabel: 'ห้วยหม้าย', rowCount: 1201, reviewCount: 0 },
+    ],
+    sampleCandidates: [
+      {
+        sourceKey: 'snapshot_preview_00001',
+        rowDigest: makeMockRowDigest(301),
+        scopeLabel: '54 / 5406 · 540210 ตำบลต้นทางนอกเขตย่อย · หมู่ 6 บ้านตัวอย่าง (540603006)',
+        minimizedAttributes: [
+          { field: 'gender', value: 'female' },
+          { field: 'status', value: 'volunteer' },
+          { field: 'statusLabel', value: 'อสม.' },
+        ],
+        reviewReasons: ['LOCALITY_MISMATCH'],
+      },
+      {
+        sourceKey: 'snapshot_preview_00002',
+        rowDigest: makeMockRowDigest(302),
+        scopeLabel: '54 / 5406 · 540601 บ้านหนุน · หมู่ 10 หนุนเหนือ (540303004)',
+        minimizedAttributes: [
+          { field: 'gender', value: 'male' },
+          { field: 'status', value: 'spouse' },
+          { field: 'statusLabel', value: 'คู่สมรส' },
+        ],
+        reviewReasons: ['LOCALITY_MISMATCH'],
+      },
+      {
+        sourceKey: 'snapshot_preview_00003',
+        rowDigest: makeMockRowDigest(303),
+        scopeLabel: '54 / 5406 · 540603 ห้วยหม้าย · หมู่ 1 ห้วยหม้าย (540603001)',
+        minimizedAttributes: [
+          { field: 'gender', value: 'female' },
+          { field: 'status', value: 'child' },
+          { field: 'statusLabel', value: 'บุตร' },
+        ],
+        reviewReasons: [],
+      },
+    ],
+    missingSampleScopeLabel: '',
+  },
   'resigned-volunteers': {
+    syncMode: 'KEYED_UPSERT',
+    usesHmac: true,
     destinationTab: 'ResignedVolunteers',
     paginationProtocol: 'report',
     sourceTotal: 1152,
@@ -1138,6 +1205,8 @@ const LARGE_KEYED_MOCK_PROFILES: Readonly<
     missingSampleScopeLabel: '54 / 5406 · 540606 สะเอียบ · หมู่ 1 (540606001)',
   },
   'volunteer-tenure': {
+    syncMode: 'KEYED_UPSERT',
+    usesHmac: true,
     destinationTab: 'VolunteerTenure',
     paginationProtocol: 'report',
     sourceTotal: 1571,
@@ -1207,13 +1276,13 @@ export function buildMockPreviewBatchEnvelope(
   scenario: MockScenario,
   outcome: MockPreviewOutcome = 'ready',
 ): unknown {
-  if (!isSupportedLargeKeyed(request.endpoint)) {
+  if (!isSupportedLargeBatched(request.endpoint)) {
     return {
       ok: false,
       error: {
         code: 'DATASET_NOT_SUPPORTED',
         message:
-          'Batched preview is enabled for assignments, resigned-volunteers, and volunteer-tenure.',
+          'Batched preview is enabled for assignments, resigned-volunteers, volunteer-tenure, and volunteer-family.',
       },
     };
   }
@@ -1224,13 +1293,13 @@ export function buildMockPreviewBatchEnvelope(
     };
   }
   const endpoint = request.endpoint;
-  const profile = LARGE_KEYED_MOCK_PROFILES[endpoint];
+  const profile = LARGE_BATCHED_MOCK_PROFILES[endpoint];
   const dash = buildMockDashboardEnvelope(
     scenario === 'rpc-error' ? 'sandbox-default' : scenario,
   ) as { ok: true; data: DashboardStatusData };
   const env = dash.data.env;
 
-  if (!dash.data.guards.hmacKeyConfigured) {
+  if (profile.usesHmac && !dash.data.guards.hmacKeyConfigured) {
     return {
       ok: true,
       data: {
@@ -1287,9 +1356,14 @@ export function buildMockPreviewBatchEnvelope(
 
   // Keep mock payload fast in unit tests while honoring exact batch progress counts & LOCALITY_MISMATCH
   const rowDigests = Array.from({ length: Math.min(rowsInBatch, 5) }, (_, idx) => {
+    const ordinal = startOffset + idx + 1;
+    const key =
+      profile.syncMode === 'COMPLETE_SNAPSHOT'
+        ? `snapshot_preview_${String(ordinal).padStart(5, '0')}`
+        : makeMockH1Key(ordinal, profile.h1Salt);
     const base = {
-      key: makeMockH1Key(startOffset + idx + 1, profile.h1Salt),
-      rowDigest: makeMockRowDigest(startOffset + idx + 1),
+      key,
+      rowDigest: makeMockRowDigest(ordinal),
     };
     if (startPage === 1 && idx < profile.localityMismatchCount) {
       return { ...base, reviewReasons: ['LOCALITY_MISMATCH' as const] };
@@ -1323,18 +1397,18 @@ export function buildMockFinalizePreviewEnvelope(
   scenario: MockScenario,
   outcome: MockPreviewOutcome = 'ready',
 ): unknown {
-  if (!isSupportedLargeKeyed(request.endpoint)) {
+  if (!isSupportedLargeBatched(request.endpoint)) {
     return {
       ok: false,
       error: {
         code: 'DATASET_NOT_SUPPORTED',
         message:
-          'Finalize preview is enabled for assignments, resigned-volunteers, and volunteer-tenure.',
+          'Finalize preview is enabled for assignments, resigned-volunteers, volunteer-tenure, and volunteer-family.',
       },
     };
   }
   const endpoint = request.endpoint;
-  const profile = LARGE_KEYED_MOCK_PROFILES[endpoint];
+  const profile = LARGE_BATCHED_MOCK_PROFILES[endpoint];
   const dash = buildMockDashboardEnvelope(
     scenario === 'rpc-error' ? 'sandbox-default' : scenario,
   ) as { ok: true; data: DashboardStatusData };
@@ -1343,11 +1417,13 @@ export function buildMockFinalizePreviewEnvelope(
   const unresolved = dash.data.unresolvedRuns.find((r) => r.endpoint === endpoint) ?? null;
   const guard = evaluateMockWriteGuard(endpoint, dash.data);
 
-  const isLegacyInit = dsMeta?.legacySnapshotPresent ?? false;
+  const isCompleteSnapshot = profile.syncMode === 'COMPLETE_SNAPSHOT';
+  const isLegacyInit = !isCompleteSnapshot && (dsMeta?.legacySnapshotPresent ?? false);
   const localityCount = outcome === 'all-unchanged' ? 0 : profile.localityMismatchCount;
-  const missingCount = outcome === 'all-unchanged' || isLegacyInit ? 0 : 2;
-  const counts =
-    outcome === 'all-unchanged'
+  const missingCount = isCompleteSnapshot || outcome === 'all-unchanged' || isLegacyInit ? 0 : 2;
+  const counts = isCompleteSnapshot
+    ? { insert: request.sourceTotal, update: 0, unchanged: 0, review: localityCount }
+    : outcome === 'all-unchanged'
       ? { insert: 0, update: 0, unchanged: request.sourceTotal, review: 0 }
       : isLegacyInit
         ? { insert: request.sourceTotal, update: 0, unchanged: 0, review: localityCount }
@@ -1367,8 +1443,9 @@ export function buildMockFinalizePreviewEnvelope(
   }
 
   const sampleRows: ExtendedMinimizedPreviewRow[] = profile.sampleCandidates.map((cand, idx) => ({
-    diffKind:
-      outcome === 'all-unchanged'
+    diffKind: isCompleteSnapshot
+      ? 'INSERT'
+      : outcome === 'all-unchanged'
         ? 'UNCHANGED'
         : isLegacyInit
           ? 'INSERT'
@@ -1403,9 +1480,12 @@ export function buildMockFinalizePreviewEnvelope(
       status: 'READY',
       endpoint,
       env,
-      syncMode: 'KEYED_UPSERT',
+      syncMode: profile.syncMode,
       paginationProtocol: profile.paginationProtocol,
       destinationTab: profile.destinationTab,
+      ...(isCompleteSnapshot
+        ? { activeSnapshotTab: dsMeta?.publicationPointerActive ? dsMeta.destinationTab : null }
+        : {}),
       previewedAtUtc: '2026-11-21T16:05:00.000Z',
       pagesFetched: request.pagesFetched,
       sourceTotal: request.sourceTotal,
@@ -1422,7 +1502,7 @@ export function buildMockFinalizePreviewEnvelope(
       reviewBreakdown,
       unresolvedPreviousRun: unresolved,
       legacySnapshotPresent: isLegacyInit,
-      legacySnapshotTab: dsMeta?.legacySnapshotTab ?? null,
+      legacySnapshotTab: isLegacyInit ? (dsMeta?.legacySnapshotTab ?? null) : null,
       writeAllowed: guard.writeAllowed,
       blockedGuardReason: guard.blockedGuardReason,
       previewMode: 'EXTENDED_MINIMIZED',
@@ -1437,7 +1517,7 @@ export function buildMockStageLargeBatchEnvelope(
   scenario: MockScenario,
   outcome: MockCommitOutcome = 'verified',
 ): unknown {
-  if (!isSupportedLargeKeyed(request.endpoint)) {
+  if (!isSupportedLargeBatched(request.endpoint)) {
     return {
       ok: false,
       error: { code: 'DATASET_NOT_SUPPORTED', message: 'Dataset not supported for staging.' },
@@ -1450,7 +1530,8 @@ export function buildMockStageLargeBatchEnvelope(
     };
   }
   const endpoint = request.endpoint;
-  const profile = LARGE_KEYED_MOCK_PROFILES[endpoint];
+  const profile = LARGE_BATCHED_MOCK_PROFILES[endpoint];
+  const isCompleteSnapshot = profile.syncMode === 'COMPLETE_SNAPSHOT';
   const dash = buildMockDashboardEnvelope(
     scenario === 'rpc-error' ? 'sandbox-default' : scenario,
   ) as { ok: true; data: DashboardStatusData };
@@ -1526,7 +1607,8 @@ export function buildMockStageLargeBatchEnvelope(
   );
   const hasMore = lastPageStaged < totalPages;
   const runId = request.runId ?? `run_20261121_1606_${profile.runSlug}_s1`;
-  const stagingTabName = `_Stage_${endpoint}_${runId}`;
+  const stagingTabName = isCompleteSnapshot ? `RFamily_${runId}` : `_Stage_${endpoint}_${runId}`;
+  const destinationTab = isCompleteSnapshot ? stagingTabName : profile.destinationTab;
 
   return {
     ok: true,
@@ -1535,7 +1617,7 @@ export function buildMockStageLargeBatchEnvelope(
       runId,
       endpoint,
       env,
-      destinationTab: profile.destinationTab,
+      destinationTab,
       stagingTabName,
       lastPageStaged,
       totalPages,
@@ -1552,7 +1634,7 @@ export function buildMockFinalizeLargeCommitEnvelope(
   scenario: MockScenario,
   outcome: MockCommitOutcome = 'verified',
 ): unknown {
-  if (!isSupportedLargeKeyed(request.endpoint)) {
+  if (!isSupportedLargeBatched(request.endpoint)) {
     return {
       ok: false,
       error: {
@@ -1562,13 +1644,17 @@ export function buildMockFinalizeLargeCommitEnvelope(
     };
   }
   const endpoint = request.endpoint;
-  const profile = LARGE_KEYED_MOCK_PROFILES[endpoint];
+  const profile = LARGE_BATCHED_MOCK_PROFILES[endpoint];
+  const isCompleteSnapshot = profile.syncMode === 'COMPLETE_SNAPSHOT';
   const dash = buildMockDashboardEnvelope(
     scenario === 'rpc-error' ? 'sandbox-default' : scenario,
   ) as { ok: true; data: DashboardStatusData };
   const env = dash.data.env;
   const dsMeta = dash.data.datasets.find((d) => d.endpoint === endpoint);
-  const stageTabName = `_Stage_${endpoint}_${request.runId}`;
+  const stageTabName = isCompleteSnapshot
+    ? `RFamily_${request.runId}`
+    : `_Stage_${endpoint}_${request.runId}`;
+  const finalDestTab = isCompleteSnapshot ? stageTabName : profile.destinationTab;
 
   if (outcome === 'preview-stale') {
     return {
@@ -1577,12 +1663,52 @@ export function buildMockFinalizeLargeCommitEnvelope(
         status: 'PREVIEW_STALE_RECONFIRM_REQUIRED',
         endpoint,
         env,
-        destinationTab: profile.destinationTab,
-        driftReason: 'SOURCE_CHANGED',
+        destinationTab: finalDestTab,
+        driftReason: isCompleteSnapshot ? 'DESTINATION_CHANGED' : 'SOURCE_CHANGED',
         expectedFingerprint: request.expectedFingerprint,
         currentSourceTotal: request.expectedFingerprint.sourceTotal,
-        currentDatasetDigest: '9'.repeat(64),
-        currentSheetRevisionFingerprint: request.expectedFingerprint.sheetRevisionFingerprint,
+        currentDatasetDigest: isCompleteSnapshot
+          ? request.expectedFingerprint.datasetDigest
+          : '9'.repeat(64),
+        currentSheetRevisionFingerprint: isCompleteSnapshot
+          ? '8'.repeat(64)
+          : request.expectedFingerprint.sheetRevisionFingerprint,
+      },
+    };
+  }
+
+  if (outcome === 'digest-mismatch') {
+    return {
+      ok: true,
+      data: {
+        status: 'FAILED_STOP',
+        runId: request.runId,
+        endpoint,
+        env,
+        destinationTab: finalDestTab,
+        stopCode: 'STAGING_DIGEST_MISMATCH',
+        message:
+          'Persisted snapshot cells or chunk SHA-256 digests did not match staging manifest. Hidden snapshot tab retained unpublished.',
+        syncLogStatus: 'NOT_WRITTEN',
+        stagingTabRetained: stageTabName,
+      },
+    };
+  }
+
+  if (outcome === 'incomplete-stage') {
+    return {
+      ok: true,
+      data: {
+        status: 'FAILED_STOP',
+        runId: request.runId,
+        endpoint,
+        env,
+        destinationTab: finalDestTab,
+        stopCode: 'INCOMPLETE_SNAPSHOT',
+        message:
+          'Hidden snapshot tab does not contain all expected pages or rows; refusing to publish an incomplete snapshot.',
+        syncLogStatus: 'NOT_WRITTEN',
+        stagingTabRetained: stageTabName,
       },
     };
   }
@@ -1595,10 +1721,11 @@ export function buildMockFinalizeLargeCommitEnvelope(
         runId: request.runId,
         endpoint,
         env,
-        destinationTab: profile.destinationTab,
+        destinationTab: finalDestTab,
         stopCode: 'WRITE_FAILED_UNKNOWN',
-        message:
-          'Sheet write or flush stopped with an unknown outcome. Hidden staging tab retained for inspection.',
+        message: isCompleteSnapshot
+          ? 'Complete Snapshot publication or flush failed with an unknown outcome. Do not retry automatically; inspect RFamily_<runId>, _ThaiPHCReportCurrent, and _ThaiPHCSyncLog.'
+          : 'Sheet write or flush stopped with an unknown outcome. Hidden staging tab retained for inspection.',
         syncLogStatus: 'STARTED',
         stagingTabRetained: stageTabName,
       },
@@ -1613,10 +1740,11 @@ export function buildMockFinalizeLargeCommitEnvelope(
         runId: request.runId,
         endpoint,
         env,
-        destinationTab: profile.destinationTab,
+        destinationTab: finalDestTab,
         stopCode: 'READBACK_MISMATCH',
-        message:
-          'Destination Readback detected a mismatch after write. Hidden staging tab retained for inspection.',
+        message: isCompleteSnapshot
+          ? 'Complete Snapshot Destination Readback failed verification after publication. Inspect RFamily_<runId> and _ThaiPHCReportCurrent immediately.'
+          : 'Destination Readback detected a mismatch after write. Hidden staging tab retained for inspection.',
         syncLogStatus: 'FAILED_STOP',
         stagingTabRetained: stageTabName,
       },
@@ -1624,10 +1752,11 @@ export function buildMockFinalizeLargeCommitEnvelope(
   }
 
   const fp = request.expectedFingerprint;
-  const isLegacyInit = dsMeta?.legacySnapshotPresent ?? false;
-  const missingInSourceCount = isLegacyInit
-    ? 0
-    : Math.max(0, fp.counts.review - profile.localityMismatchCount);
+  const isLegacyInit = !isCompleteSnapshot && (dsMeta?.legacySnapshotPresent ?? false);
+  const missingInSourceCount =
+    isCompleteSnapshot || isLegacyInit
+      ? 0
+      : Math.max(0, fp.counts.review - profile.localityMismatchCount);
   const expectedRowCount = fp.sourceTotal + missingInSourceCount;
   return {
     ok: true,
@@ -1636,21 +1765,22 @@ export function buildMockFinalizeLargeCommitEnvelope(
       runId: request.runId,
       endpoint,
       env,
-      syncMode: 'KEYED_UPSERT',
-      destinationTab: profile.destinationTab,
+      syncMode: profile.syncMode,
+      destinationTab: finalDestTab,
       completedAtUtc: '2026-11-21T16:07:00.000Z',
       counts: fp.counts,
       fingerprint: fp,
       readback: {
         verified: true,
-        destinationTab: profile.destinationTab,
+        destinationTab: finalDestTab,
         expectedRowCount,
         actualRowCount: expectedRowCount,
         uniqueKeysVerified: true,
         rowDigestsVerified: true,
         unrelatedTabsPreserved: true,
         baselineTabsChecked: ['ชีต1', '_ThaiPHCReportCurrent', profile.legacyBaselineTab],
-        stagingTabCleaned: true,
+        stagingTabCleaned: isCompleteSnapshot ? null : true,
+        ...(isCompleteSnapshot ? { publicationPointerVerified: true } : {}),
       },
       syncLogStatus: 'COMMITTED_VERIFIED',
     },

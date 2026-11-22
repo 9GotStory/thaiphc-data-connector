@@ -3,6 +3,7 @@ import {
   CellValidationError,
   computeDatasetDigest,
   hasOwn,
+  isPlainObject,
   SUBDISTRICT_PATTERN,
   validateKeyedRowPreamble,
   VILLAGE_CODE_PATTERN,
@@ -13,6 +14,8 @@ import {
   ASSIGNMENTS_SCHEMA,
   RESIGNED_VOLUNTEERS_RESTRICTED_SOURCE_FIELDS,
   RESIGNED_VOLUNTEERS_SCHEMA,
+  VOLUNTEER_FAMILY_RESTRICTED_SOURCE_FIELDS,
+  VOLUNTEER_FAMILY_SCHEMA,
   VOLUNTEER_GENDER_SCHEMA,
   VOLUNTEER_TENURE_RESTRICTED_SOURCE_FIELDS,
   VOLUNTEER_TENURE_SCHEMA,
@@ -723,6 +726,288 @@ export function validateAndProjectLargeKeyedRows(
 
     projectedRows.push({
       key: pseudonymousKey,
+      values,
+      presence,
+      rowDigest,
+      scopeLabel,
+      subdistrictCode,
+      subdistrictName,
+      minimizedAttributes,
+      reviewReasons,
+    });
+  }
+
+  if (diagnostics.length > 0) {
+    return { ok: false, diagnostics: diagnostics.slice(0, 25) };
+  }
+
+  const aggregateSummary = [...subdistrictAgg.values()].sort((a, b) =>
+    a.groupCode < b.groupCode ? -1 : a.groupCode > b.groupCode ? 1 : 0,
+  );
+
+  return {
+    ok: true,
+    rows: projectedRows,
+    aggregateSummary,
+  };
+}
+
+export function mergeAggregateSummary(
+  groups: readonly ExtendedAggregateGroup[],
+): ExtendedAggregateGroup[] {
+  const byCode = new Map<string, ExtendedAggregateGroup>();
+  for (const g of groups) {
+    if (
+      !g ||
+      typeof g.groupCode !== 'string' ||
+      g.groupCode.length === 0 ||
+      typeof g.groupLabel !== 'string' ||
+      !Number.isSafeInteger(g.rowCount) ||
+      g.rowCount < 0 ||
+      !Number.isSafeInteger(g.reviewCount) ||
+      g.reviewCount < 0
+    ) {
+      continue;
+    }
+    const existing = byCode.get(g.groupCode);
+    if (existing) {
+      existing.rowCount += g.rowCount;
+      existing.reviewCount += g.reviewCount;
+    } else {
+      byCode.set(g.groupCode, {
+        groupCode: g.groupCode,
+        groupLabel: g.groupLabel,
+        rowCount: g.rowCount,
+        reviewCount: g.reviewCount,
+      });
+    }
+  }
+  return [...byCode.values()].sort((a, b) =>
+    a.groupCode < b.groupCode ? -1 : a.groupCode > b.groupCode ? 1 : 0,
+  );
+}
+
+const VOLUNTEER_FAMILY_ALLOWED_SOURCE_FIELDS: ReadonlySet<string> = new Set<string>([
+  ...VOLUNTEER_FAMILY_RESTRICTED_SOURCE_FIELDS,
+  ...VOLUNTEER_FAMILY_SCHEMA.fields.map((f) => f.name),
+]);
+
+export interface ProjectedVolunteerFamilyRow {
+  ordinal: number; // 1-based global snapshot ordinal
+  key: string; // snapshot_preview_NNNNN (preview) or snapshot_<runId>_NNNNN (commit)
+  values: Array<string | null>;
+  presence: Record<string, FieldPresence>;
+  rowDigest: string;
+  scopeLabel: string;
+  subdistrictCode: string;
+  subdistrictName: string;
+  minimizedAttributes: ExtendedMinimizedAttribute[];
+  reviewReasons: ReviewReasonCode[];
+}
+
+export type VolunteerFamilyValidationResult =
+  | {
+      ok: true;
+      rows: ProjectedVolunteerFamilyRow[];
+      aggregateSummary: ExtendedAggregateGroup[];
+    }
+  | {
+      ok: false;
+      diagnostics: PreviewDiagnostic[];
+    };
+
+/**
+ * Server-side Minimized Projection for `volunteer-family` Complete Snapshot rows:
+ * - Strips all 9 RESTRICTED_DEFAULT_OMIT direct identifiers before returning or storing anything.
+ * - Assigns run-scoped ordinal keys via `buildOrdinalKey(globalOrdinal)` — never guessed-key upsert.
+ * - Enforces Geographic Scope (54 / 5406) on provinceCode and districtCode as a hard gate.
+ * - Applies Preserve Source Locality: lower-level subdistrict/village mismatches retain original
+ *   source values unaltered and surface as `REVIEW` (`LOCALITY_MISMATCH`).
+ */
+export function validateAndProjectVolunteerFamilyRows(
+  rawItems: readonly unknown[],
+  sha256Hex: (input: string) => string,
+  buildOrdinalKey: (globalOrdinal: number) => string,
+  rowIndexOffset = 0,
+): VolunteerFamilyValidationResult {
+  const schema = VOLUNTEER_FAMILY_SCHEMA;
+  const diagnostics: PreviewDiagnostic[] = [];
+
+  if (rawItems.length === 0) {
+    return {
+      ok: false,
+      diagnostics: [
+        {
+          code: 'INCOMPLETE_SNAPSHOT',
+          message: 'ThaiPHC volunteer-family batch returned zero rows.',
+        },
+      ],
+    };
+  }
+
+  if (rawItems.length > schema.maxRows) {
+    return {
+      ok: false,
+      diagnostics: [
+        {
+          code: 'ROW_LIMIT_EXCEEDED',
+          message: `Source row count (${rawItems.length}) exceeds maximum safe limit (${schema.maxRows}) for volunteer-family.`,
+        },
+      ],
+    };
+  }
+
+  const projectedRows: ProjectedVolunteerFamilyRow[] = [];
+  const subdistrictAgg = new Map<
+    string,
+    { groupCode: string; groupLabel: string; rowCount: number; reviewCount: number }
+  >();
+
+  for (let i = 0; i < rawItems.length; i++) {
+    const globalRowIndex = rowIndexOffset + i;
+    const raw = rawItems[i];
+    if (!isPlainObject(raw)) {
+      diagnostics.push({
+        code: 'TYPE_MISMATCH',
+        message: `Row #${globalRowIndex + 1} is not a JSON object.`,
+        rowIndex: globalRowIndex,
+      });
+      continue;
+    }
+
+    const unexpectedKeys = Object.keys(raw).filter(
+      (k) => !VOLUNTEER_FAMILY_ALLOWED_SOURCE_FIELDS.has(k),
+    );
+    if (unexpectedKeys.length > 0) {
+      diagnostics.push({
+        code: 'UNEXPECTED_FIELD',
+        message: `Row #${globalRowIndex + 1} contains an unexpected source schema field.`,
+        rowIndex: globalRowIndex,
+      });
+      continue;
+    }
+
+    let rowFailed = false;
+
+    // Validate all 9 RESTRICTED_DEFAULT_OMIT fields without retaining or echoing values
+    for (const restrictedName of VOLUNTEER_FAMILY_RESTRICTED_SOURCE_FIELDS) {
+      if (!hasOwn(raw, restrictedName)) continue;
+      try {
+        assertSafeString(raw[restrictedName], restrictedName);
+      } catch (err) {
+        const code = err instanceof CellValidationError ? err.code : 'TYPE_MISMATCH';
+        diagnostics.push({
+          code,
+          message:
+            err instanceof CellValidationError
+              ? err.message
+              : `Row #${globalRowIndex + 1} restricted field "${restrictedName}" failed validation.`,
+          field: restrictedName,
+          rowIndex: globalRowIndex,
+        });
+        rowFailed = true;
+        break;
+      }
+    }
+    if (rowFailed) continue;
+
+    // Validate and extract strictly the 12 ALLOW_ONLY_IF_DATASET_APPROVED columns
+    const values: Array<string | null> = [];
+    const presence: Record<string, FieldPresence> = {};
+    const approvedByName = new Map<string, string | null>();
+
+    for (const field of schema.fields) {
+      if (!hasOwn(raw, field.name)) {
+        values.push(null);
+        presence[field.name] = 'ABSENT';
+        approvedByName.set(field.name, null);
+        continue;
+      }
+      try {
+        const safeStr = assertSafeString(raw[field.name], field.name);
+        values.push(safeStr);
+        presence[field.name] = 'VALUE';
+        approvedByName.set(field.name, safeStr);
+      } catch (err) {
+        const code = err instanceof CellValidationError ? err.code : 'TYPE_MISMATCH';
+        diagnostics.push({
+          code,
+          message:
+            err instanceof CellValidationError
+              ? err.message
+              : `Row #${globalRowIndex + 1} field "${field.name}" failed validation.`,
+          field: field.name,
+          rowIndex: globalRowIndex,
+        });
+        rowFailed = true;
+        break;
+      }
+    }
+    if (rowFailed) continue;
+
+    // Hard Geographic Scope gate on province 54 and district 5406
+    if (raw.provinceCode !== '54' || raw.districtCode !== '5406') {
+      diagnostics.push({
+        code: 'OUT_OF_GEOGRAPHIC_SCOPE',
+        message: `Row #${globalRowIndex + 1} falls outside Geographic Scope (54 / 5406) for volunteer-family.`,
+        rowIndex: globalRowIndex,
+      });
+      continue;
+    }
+
+    // Preserve Source Locality: keep lower-level subdistrict/village mismatches unaltered and flag REVIEW
+    const reviewReasons: ReviewReasonCode[] = hasLowerLevelLocalityMismatch(raw)
+      ? ['LOCALITY_MISMATCH']
+      : [];
+
+    const globalOrdinal = globalRowIndex + 1;
+    const key = buildOrdinalKey(globalOrdinal);
+    const rowDigest = sha256Hex(JSON.stringify([values, presence]));
+
+    const subdistrictCode = approvedByName.get('subdistrictCode') ?? '';
+    const rawSubName = approvedByName.get('subdistrictName');
+    const subdistrictName =
+      typeof rawSubName === 'string' && rawSubName.length > 0 ? rawSubName : subdistrictCode;
+    const villageNo = approvedByName.get('villageNo') ?? '';
+    const villageName = approvedByName.get('villageName') ?? null;
+    const rawVillageCode = approvedByName.get('villageCode');
+    const villageCode =
+      typeof rawVillageCode === 'string' && rawVillageCode.length > 0 ? rawVillageCode : undefined;
+
+    const scopeLabel = formatExtendedScopeLabel({
+      subdistrictCode,
+      subdistrictName,
+      villageNo,
+      villageName,
+      villageCode,
+    });
+
+    const minimizedAttributes: ExtendedMinimizedAttribute[] = schema.summaryFieldNames.map(
+      (fieldName) => ({
+        field: fieldName,
+        value: approvedByName.get(fieldName) ?? null,
+      }),
+    );
+
+    const groupCode = subdistrictCode.length > 0 ? subdistrictCode : 'UNSPECIFIED';
+    const groupLabel = subdistrictName.length > 0 ? subdistrictName : groupCode;
+    const hasReview = reviewReasons.length > 0;
+    const groupEntry = subdistrictAgg.get(groupCode);
+    if (groupEntry) {
+      groupEntry.rowCount += 1;
+      if (hasReview) groupEntry.reviewCount += 1;
+    } else {
+      subdistrictAgg.set(groupCode, {
+        groupCode,
+        groupLabel,
+        rowCount: 1,
+        reviewCount: hasReview ? 1 : 0,
+      });
+    }
+
+    projectedRows.push({
+      ordinal: globalOrdinal,
+      key,
       values,
       presence,
       rowDigest,

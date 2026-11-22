@@ -1,4 +1,5 @@
 import {
+  REPORT_CURRENT_HEADERS,
   REPORT_CURRENT_TAB,
   SAME_WORKBOOK_APPROVAL_TOKEN,
   SYNC_LOG_TAB,
@@ -6,6 +7,7 @@ import {
 import type {
   AppEnvironment,
   DatasetEndpoint,
+  PreviewDiagnostic,
   SameWorkbookPolicy,
   SpreadsheetHandle,
   UnresolvedRunSummary,
@@ -24,6 +26,14 @@ export interface ReportCurrentPointer {
   endpoint: string;
   runId: string;
   snapshotSheet: string;
+  rowCount: string;
+  manifestDigest: string;
+  rowNumber?: number;
+}
+
+export interface ReportCurrentSheetState {
+  exists: boolean;
+  pointers: Map<string, ReportCurrentPointer>;
 }
 
 export interface ReportWorkbookPolicyResult {
@@ -172,6 +182,8 @@ export function readReportCurrentPointers(
   const endpointCol = headers.get('endpoint');
   const runIdCol = headers.get('run_id');
   const snapshotSheetCol = headers.get('snapshot_sheet');
+  const rowCountCol = headers.get('row_count');
+  const manifestDigestCol = headers.get('manifest_digest');
 
   if (endpointCol === undefined || runIdCol === undefined || snapshotSheetCol === undefined) {
     return pointers;
@@ -189,10 +201,94 @@ export function readReportCurrentPointers(
       endpoint,
       runId,
       snapshotSheet,
+      rowCount: rowCountCol !== undefined ? cellToString(row[rowCountCol]) : '',
+      manifestDigest: manifestDigestCol !== undefined ? cellToString(row[manifestDigestCol]) : '',
+      rowNumber: r + 1,
     });
   }
 
   return pointers;
+}
+
+/**
+ * Strictly reads `_ThaiPHCReportCurrent` for Complete Snapshot Preview/Commit/Readback,
+ * failing closed on header drift or duplicate endpoint pointer rows.
+ */
+export function readReportCurrentState(
+  spreadsheet: SpreadsheetHandle,
+): { ok: true; state: ReportCurrentSheetState } | { ok: false; diagnostic: PreviewDiagnostic } {
+  const sheet = spreadsheet.getSheetByName(REPORT_CURRENT_TAB);
+  if (!sheet) {
+    return { ok: true, state: { exists: false, pointers: new Map() } };
+  }
+
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+  if (lastRow < 1 || lastCol !== REPORT_CURRENT_HEADERS.length) {
+    return {
+      ok: false,
+      diagnostic: {
+        code: 'HEADER_MISMATCH',
+        message: `Publication Pointer tab "${REPORT_CURRENT_TAB}" column count (${lastCol}) does not match expected schema (${REPORT_CURRENT_HEADERS.length}).`,
+      },
+    };
+  }
+
+  const headerRow = sheet.getValues(1, 1, 1, REPORT_CURRENT_HEADERS.length)[0] ?? [];
+  const headersMatch = REPORT_CURRENT_HEADERS.every((expected, idx) => headerRow[idx] === expected);
+  if (!headersMatch) {
+    return {
+      ok: false,
+      diagnostic: {
+        code: 'HEADER_MISMATCH',
+        message: `Publication Pointer tab "${REPORT_CURRENT_TAB}" headers do not match expected schema.`,
+      },
+    };
+  }
+
+  const headers = buildHeaderMap(headerRow);
+  const endpointCol = headers.get('endpoint')!;
+  const runIdCol = headers.get('run_id')!;
+  const snapshotSheetCol = headers.get('snapshot_sheet')!;
+  const rowCountCol = headers.get('row_count')!;
+  const manifestDigestCol = headers.get('manifest_digest')!;
+
+  const pointers = new Map<string, ReportCurrentPointer>();
+  if (lastRow < 2) {
+    return { ok: true, state: { exists: true, pointers } };
+  }
+
+  const rows = sheet.getValues(2, 1, lastRow - 1, REPORT_CURRENT_HEADERS.length);
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const endpoint = cellToString(row[endpointCol]);
+    const runId = cellToString(row[runIdCol]);
+    const snapshotSheet = cellToString(row[snapshotSheetCol]);
+    const rowCount = cellToString(row[rowCountCol]);
+    const manifestDigest = cellToString(row[manifestDigestCol]);
+
+    if (endpoint.length === 0 || snapshotSheet.length === 0 || pointers.has(endpoint)) {
+      return {
+        ok: false,
+        diagnostic: {
+          code: 'INVALID_EXISTING_KEY',
+          message: `Publication Pointer tab "${REPORT_CURRENT_TAB}" contains an empty or duplicate endpoint entry at row ${i + 2}.`,
+          rowIndex: i,
+        },
+      };
+    }
+
+    pointers.set(endpoint, {
+      endpoint,
+      runId,
+      snapshotSheet,
+      rowCount,
+      manifestDigest,
+      rowNumber: i + 2,
+    });
+  }
+
+  return { ok: true, state: { exists: true, pointers } };
 }
 
 export function detectLegacySnapshot(

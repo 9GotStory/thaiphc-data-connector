@@ -184,11 +184,16 @@ export function SyncWorkspace({
             status: 'STOP_BLOCKED',
             endpoint: batchRes.endpoint,
             env: batchRes.env,
-            syncMode: selectedDataset?.syncMode ?? 'KEYED_UPSERT',
+            syncMode:
+              selectedDataset?.syncMode ??
+              (input.endpoint === 'volunteer-family' ? 'COMPLETE_SNAPSHOT' : 'KEYED_UPSERT'),
             paginationProtocol:
               selectedDataset?.paginationProtocol ??
               (input.endpoint === 'assignments' ? 'assignment' : 'report'),
-            destinationTab: selectedDataset?.destinationTab ?? input.endpoint,
+            destinationTab:
+              input.endpoint === 'volunteer-family'
+                ? 'RFamily_<runId>'
+                : (selectedDataset?.destinationTab ?? input.endpoint),
             previewedAtUtc: new Date().toISOString(),
             pagesFetched: pagesFetched + batchRes.pagesFetchedInBatch,
             diagnostics: batchRes.diagnostics,
@@ -664,7 +669,14 @@ export function SyncWorkspace({
 
           {/* Module 6.1: In-flight Commit Progress */}
           {isCommitting && (
-            <CommitProgressCard endpoint={selectedEndpoint} batchProgress={commitBatchProgress} />
+            <CommitProgressCard
+              endpoint={selectedEndpoint}
+              syncMode={
+                selectedDataset?.syncMode ??
+                (selectedEndpoint === 'volunteer-family' ? 'COMPLETE_SNAPSHOT' : 'KEYED_UPSERT')
+              }
+              batchProgress={commitBatchProgress}
+            />
           )}
 
           {/* Module 6.2–6.4: Commit Outcomes */}

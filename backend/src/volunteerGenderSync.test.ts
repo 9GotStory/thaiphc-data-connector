@@ -155,6 +155,10 @@ function createFakeMultiWorkbookEnv(opts: {
       hideSheet: () => {
         state.writeOps.push('hideSheet');
       },
+      showSheet: () => {
+        state.writeOps.push('showSheet');
+      },
+      isSheetHidden: () => false,
       getValues: (row: number, col: number, numRows: number, numCols: number) => {
         const out: unknown[][] = [];
         for (let r = row - 1; r < row - 1 + numRows; r++) {

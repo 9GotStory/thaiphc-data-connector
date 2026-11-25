@@ -354,6 +354,38 @@ describe('Volunteer Family Complete Snapshot Sync (Backend GAS RPC Seam)', () =>
     }
   });
 
+  it('allows null on RESTRICTED_DEFAULT_OMIT direct PII fields (such as citizenId: null) since omitted PII is stripped server-side and never persisted', () => {
+    const rows = [
+      makeFamilyRow(1, {
+        citizenId: null,
+        osmCode: null,
+        prefixName: null,
+        address: null,
+      }),
+    ];
+    const env = createFakeSyncPlatformEnv({
+      properties: { THAIPHC_HMAC_KEY_B64: undefined },
+      fetchHandler: () => jsonHttpResponse(makeReportPage(rows, 1, 10)),
+    });
+
+    const res = previewDatasetBatchWithPlatform(
+      {
+        endpoint: 'volunteer-family',
+        token: VALID_BEARER,
+        startPage: 1,
+        batchPages: 1,
+        pageSize: 10,
+      },
+      env.platform,
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error('expected ok');
+    expect(res.data.status).toBe('BATCH_OK');
+    if (res.data.status === 'BATCH_OK') {
+      expect(res.data.rowsInBatch).toBe(1);
+    }
+  });
+
   it('stages multi-batch Complete Snapshot into hidden RFamily_<runId> with snapshot_<runId>_NNNNN ordinal keys, verifies cells & chunk SHA-256 digests under LockService, unhides and updates _ThaiPHCReportCurrent as the final write, preserves prior RFamily_* snapshots and ชีต1 untouched, and surfaces active pointer on Dashboard', () => {
     let sourceRows: Record<string, unknown>[] = [
       makeFamilyRow(1),

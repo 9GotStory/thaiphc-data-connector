@@ -528,9 +528,10 @@ export function validateAndProjectLargeKeyedRows(
 
     let rowFailed = false;
 
-    // Validate remaining RESTRICTED_DEFAULT_OMIT fields without retaining or echoing values
+    // Validate remaining RESTRICTED_DEFAULT_OMIT fields without retaining or echoing values.
+    // Explicit null is permitted on omitted non-key PII fields (never persisted or returned).
     for (const restrictedName of config.nonKeyRestrictedFields) {
-      if (!hasOwn(raw, restrictedName)) continue;
+      if (!hasOwn(raw, restrictedName) || raw[restrictedName] === null) continue;
       try {
         assertSafeString(raw[restrictedName], restrictedName);
       } catch (err) {
@@ -889,9 +890,10 @@ export function validateAndProjectVolunteerFamilyRows(
 
     let rowFailed = false;
 
-    // Validate all 9 RESTRICTED_DEFAULT_OMIT fields without retaining or echoing values
+    // Validate all 9 RESTRICTED_DEFAULT_OMIT fields without retaining or echoing values.
+    // Explicit null is permitted on omitted PII fields (e.g., citizenId: null on family rows).
     for (const restrictedName of VOLUNTEER_FAMILY_RESTRICTED_SOURCE_FIELDS) {
-      if (!hasOwn(raw, restrictedName)) continue;
+      if (!hasOwn(raw, restrictedName) || raw[restrictedName] === null) continue;
       try {
         assertSafeString(raw[restrictedName], restrictedName);
       } catch (err) {

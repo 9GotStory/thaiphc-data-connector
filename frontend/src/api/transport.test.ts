@@ -808,4 +808,175 @@ describe('GasRpcTransport Seam', () => {
       window.history.replaceState({}, '', originalUrl);
     }
   });
+
+  it('GoogleScriptRunTransport normalizes null-stripped GAS RPC object properties back to null across dashboard, preview, batch, and commit envelopes while still rejecting invalid non-null values', async () => {
+    // Real Google Apps Script `google.script.run` RPC serialization omits object keys whose
+    // values are `null` (they arrive as `undefined` on the browser client).
+    const stripNullObjectProps = (value: unknown): unknown => {
+      if (Array.isArray(value)) {
+        return value.map(stripNullObjectProps);
+      }
+      if (value !== null && typeof value === 'object') {
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+          if (v !== null) {
+            out[k] = stripNullObjectProps(v);
+          }
+        }
+        return out;
+      }
+      return value;
+    };
+
+    const mock = new MockGasTransport({ scenario: 'sandbox-writable' });
+    const baseDash = await mock.getDashboardStatus();
+    const freshSandboxDash = {
+      ...baseDash,
+      workbooks: {
+        ...baseDash.workbooks,
+        report: null,
+      },
+      datasets: baseDash.datasets.map((ds) => ({
+        ...ds,
+        rowCount: null,
+        lastRunId: null,
+        lastSyncedAtUtc: null,
+        lastStatus: 'NEVER_SYNCED' as const,
+        legacySnapshotTab: null,
+      })),
+    };
+
+    const dashWithReport = {
+      ...freshSandboxDash,
+      workbooks: baseDash.workbooks,
+    };
+
+    // Exact fresh-sandbox repro: non-null report workbook + null datasets[0].rowCount stripped by GAS
+    const dashWithReportTransport = new GoogleScriptRunTransport(() =>
+      createFakeRunner((onSuccess) =>
+        onSuccess(stripNullObjectProps({ ok: true, data: dashWithReport })),
+      ),
+    );
+    const parsedWithReport = await dashWithReportTransport.getDashboardStatus();
+    expect(parsedWithReport.datasets[0].rowCount).toBeNull();
+    expect(parsedWithReport.datasets[0].lastRunId).toBeNull();
+    expect(parsedWithReport.datasets[0].lastSyncedAtUtc).toBeNull();
+    expect(parsedWithReport.datasets[0].legacySnapshotTab).toBeNull();
+
+    // Also when workbooks.report itself is null and stripped by GAS
+    const dashNoReportTransport = new GoogleScriptRunTransport(() =>
+      createFakeRunner((onSuccess) =>
+        onSuccess(stripNullObjectProps({ ok: true, data: freshSandboxDash })),
+      ),
+    );
+    const parsedNoReport = await dashNoReportTransport.getDashboardStatus();
+    expect(parsedNoReport.workbooks.report).toBeNull();
+    expect(parsedNoReport.datasets.every((d) => d.rowCount === null)).toBe(true);
+
+    // Preview READY with nullable fields stripped (including minimizedAttributes[].value = null)
+    const genderPreview = await mock.previewDataset({
+      endpoint: 'volunteer-gender',
+      token: 'synthetic_token_gas_null_strip',
+    });
+    const genderPreviewNoLegacy =
+      genderPreview.status === 'READY'
+        ? {
+            ...genderPreview,
+            legacySnapshotPresent: false,
+            legacySnapshotTab: null,
+            writeAllowed: true,
+            blockedGuardReason: null,
+          }
+        : genderPreview;
+    const genderPreviewTransport = new GoogleScriptRunTransport(() =>
+      createFakeRunner((onSuccess) =>
+        onSuccess(stripNullObjectProps({ ok: true, data: genderPreviewNoLegacy })),
+      ),
+    );
+    const parsedGenderPreview = await genderPreviewTransport.previewDataset({
+      endpoint: 'volunteer-gender',
+      token: 'synthetic_token_gas_null_strip',
+    });
+    expect(parsedGenderPreview.status).toBe('READY');
+    if (
+      parsedGenderPreview.status === 'READY' &&
+      parsedGenderPreview.previewMode === 'EXTENDED_MINIMIZED'
+    ) {
+      expect(parsedGenderPreview.unresolvedPreviousRun).toBeNull();
+      expect(parsedGenderPreview.legacySnapshotTab).toBeNull();
+      expect(parsedGenderPreview.blockedGuardReason).toBeNull();
+      const nullAttr = parsedGenderPreview.sampleRows
+        .flatMap((r) => r.minimizedAttributes)
+        .find((a) => a.value === null);
+      expect(nullAttr).toBeDefined();
+    }
+
+    // Batched preview final batch (`nextPage: null` stripped)
+    const lastPreviewBatch = await mock.previewDatasetBatch({
+      endpoint: 'assignments',
+      token: 'synthetic_token_gas_null_strip',
+      startPage: 11,
+      batchPages: 10,
+      pageSize: 100,
+    });
+    const batchTransport = new GoogleScriptRunTransport(() =>
+      createFakeRunner((onSuccess) =>
+        onSuccess(stripNullObjectProps({ ok: true, data: lastPreviewBatch })),
+      ),
+    );
+    const parsedBatch = await batchTransport.previewDatasetBatch({
+      endpoint: 'assignments',
+      token: 'synthetic_token_gas_null_strip',
+      startPage: 11,
+      batchPages: 10,
+      pageSize: 100,
+    });
+    expect(parsedBatch.status).toBe('BATCH_OK');
+    if (parsedBatch.status === 'BATCH_OK') {
+      expect(parsedBatch.nextPage).toBeNull();
+    }
+
+    // Small commit verified (`readback.stagingTabCleaned: null` stripped)
+    const subPreview = await mock.previewDataset({
+      endpoint: 'subdistricts',
+      token: 'synthetic_token_gas_null_strip',
+    });
+    if (subPreview.status !== 'READY') throw new Error('expected READY');
+    const smallCommit = await mock.commitSmallDataset({
+      endpoint: 'subdistricts',
+      token: 'synthetic_token_gas_null_strip',
+      expectedFingerprint: subPreview.fingerprint,
+    });
+    const commitTransport = new GoogleScriptRunTransport(() =>
+      createFakeRunner((onSuccess) =>
+        onSuccess(stripNullObjectProps({ ok: true, data: smallCommit })),
+      ),
+    );
+    const parsedCommit = await commitTransport.commitSmallDataset({
+      endpoint: 'subdistricts',
+      token: 'synthetic_token_gas_null_strip',
+      expectedFingerprint: subPreview.fingerprint,
+    });
+    expect(parsedCommit.status).toBe('COMMITTED_VERIFIED');
+    if (parsedCommit.status === 'COMMITTED_VERIFIED') {
+      expect(parsedCommit.readback.stagingTabCleaned).toBeNull();
+    }
+
+    // Still strictly rejects malformed non-null/non-undefined values (e.g. string or negative rowCount)
+    const badRowCountTransport = new GoogleScriptRunTransport(() =>
+      createFakeRunner((onSuccess) =>
+        onSuccess({
+          ok: true,
+          data: {
+            ...baseDash,
+            datasets: baseDash.datasets.map((d, idx) => (idx === 0 ? { ...d, rowCount: -1 } : d)),
+          },
+        }),
+      ),
+    );
+    await expect(badRowCountTransport.getDashboardStatus()).rejects.toMatchObject({
+      code: 'INVALID_RPC_RESPONSE',
+      message: 'Invalid integer field: datasets[0].rowCount',
+    });
+  });
 });

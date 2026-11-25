@@ -213,10 +213,14 @@ function selectFamilyPreviewSamples(
       sourceKey: cand.sourceKey,
       scopeLabel: typeof cand.scopeLabel === 'string' ? cand.scopeLabel : '54 / 5406',
       minimizedAttributes: Array.isArray(cand.minimizedAttributes)
-        ? cand.minimizedAttributes.filter(
-            (a) =>
-              a && typeof a.field === 'string' && (a.value === null || typeof a.value === 'string'),
-          )
+        ? cand.minimizedAttributes
+            .filter(
+              (a) =>
+                a &&
+                typeof a.field === 'string' &&
+                (a.value === null || a.value === undefined || typeof a.value === 'string'),
+            )
+            .map((a) => ({ field: a.field, value: a.value ?? null }))
         : [],
       reviewReasons: verifiedReasons,
     };

@@ -194,7 +194,7 @@ function assertAllowedEnum<T extends string>(
 }
 
 function assertNullableString(value: unknown, field: string): string | null {
-  if (value === null) return null;
+  if (value === null || value === undefined) return null;
   if (typeof value !== 'string') {
     invalidResponse(`Invalid nullable string field: ${field}`);
   }
@@ -216,7 +216,7 @@ function assertNonNegInt(value: unknown, field: string): number {
 }
 
 function assertNullableNonNegInt(value: unknown, field: string): number | null {
-  if (value === null) return null;
+  if (value === null || value === undefined) return null;
   return assertNonNegInt(value, field);
 }
 
@@ -527,7 +527,7 @@ function parseReadbackVerification(value: unknown): ReadbackVerification {
     assertNonEmptyString(tab, `readback.baselineTabsChecked[${idx}]`),
   );
   const stagingTabCleaned =
-    value.stagingTabCleaned === null
+    value.stagingTabCleaned === null || value.stagingTabCleaned === undefined
       ? null
       : assertBoolean(value.stagingTabCleaned, 'readback.stagingTabCleaned');
 
@@ -575,7 +575,7 @@ export function parseDashboardStatusResponse(raw: unknown): DashboardStatusData 
   }
   const reference = parseWorkbook(data.workbooks.reference, 'workbooks.reference');
   const report =
-    data.workbooks.report === null
+    data.workbooks.report === null || data.workbooks.report === undefined
       ? null
       : parseWorkbook(data.workbooks.report, 'workbooks.report');
   const sameWorkbookPolicy = assertAllowedEnum<SameWorkbookPolicy>(
@@ -651,7 +651,7 @@ export function parsePreviewDatasetResponse(raw: unknown): PreviewDatasetData {
   const previewedAtUtc = assertNonEmptyString(data.previewedAtUtc, 'previewedAtUtc');
   const pagesFetched = assertNonNegInt(data.pagesFetched, 'pagesFetched');
   const unresolvedPreviousRun =
-    data.unresolvedPreviousRun === null
+    data.unresolvedPreviousRun === null || data.unresolvedPreviousRun === undefined
       ? null
       : parseUnresolvedRun(data.unresolvedPreviousRun, 'unresolvedPreviousRun');
 
@@ -731,7 +731,7 @@ export function parsePreviewDatasetResponse(raw: unknown): PreviewDatasetData {
     legacySnapshotTab: assertNullableString(data.legacySnapshotTab, 'legacySnapshotTab'),
     writeAllowed: assertBoolean(data.writeAllowed, 'writeAllowed'),
     blockedGuardReason:
-      data.blockedGuardReason === null
+      data.blockedGuardReason === null || data.blockedGuardReason === undefined
         ? null
         : assertAllowedEnum<BlockedGuardReason>(
             data.blockedGuardReason,

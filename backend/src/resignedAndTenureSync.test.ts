@@ -840,6 +840,18 @@ describe('Resigned Volunteers & Volunteer Tenure Sync (Backend GAS RPC Seam)', (
     });
     expect(allDigests.map((d) => d.key)).toEqual(legacyOut.rows.map((r) => r.key));
 
+    // Simulate GAS google.script.run stripping `null` object properties on client->server args
+    const wireCandidates = [...batch1.data.sampleCandidates, ...batch2.data.sampleCandidates].map(
+      (cand) => ({
+        ...cand,
+        minimizedAttributes: cand.minimizedAttributes.map((attr) =>
+          attr.value === null
+            ? ({ field: attr.field } as unknown as { field: string; value: string | null })
+            : attr,
+        ),
+      }),
+    );
+
     const previewRes = finalizePreviewWithPlatform(
       {
         endpoint: 'volunteer-tenure',
@@ -847,12 +859,16 @@ describe('Resigned Volunteers & Volunteer Tenure Sync (Backend GAS RPC Seam)', (
         pagesFetched: batch1.data.pagesFetchedInBatch + batch2.data.pagesFetchedInBatch,
         rowDigests: allDigests,
         aggregateSummary: [...batch1.data.aggregateSummary, ...batch2.data.aggregateSummary],
-        sampleCandidates: [...batch1.data.sampleCandidates, ...batch2.data.sampleCandidates],
+        sampleCandidates: wireCandidates,
       },
       env.platform,
     );
     expect(previewRes.ok).toBe(true);
-    if (!previewRes.ok || previewRes.data.status !== 'READY') {
+    if (
+      !previewRes.ok ||
+      previewRes.data.status !== 'READY' ||
+      previewRes.data.previewMode !== 'EXTENDED_MINIMIZED'
+    ) {
       throw new Error(`Expected READY tenure preview, got ${JSON.stringify(previewRes)}`);
     }
     expect(previewRes.data.destinationTab).toBe('VolunteerTenure');
@@ -860,6 +876,9 @@ describe('Resigned Volunteers & Volunteer Tenure Sync (Backend GAS RPC Seam)', (
     expect(previewRes.data.reviewBreakdown).toEqual({});
     expect(previewRes.data.legacySnapshotPresent).toBe(true);
     expect(previewRes.data.legacySnapshotTab).toBe('RTenure_f010_20261119');
+    expect(
+      previewRes.data.sampleRows[0].minimizedAttributes.find((a) => a.field === 'startYear')?.value,
+    ).toBeNull();
 
     const serialized = JSON.stringify({ batch1, batch2, previewRes });
     expect(serialized).not.toMatch(

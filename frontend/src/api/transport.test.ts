@@ -753,4 +753,59 @@ describe('GasRpcTransport Seam', () => {
       }),
     ).rejects.toMatchObject({ code: 'INVALID_RPC_RESPONSE' });
   });
+
+  it('createDefaultGasTransport reads allowlisted mockScenario, mockPreviewOutcome, and mockCommitOutcome from URL query when offline and ignores invalid values', async () => {
+    const originalUrl = window.location.href;
+    try {
+      window.history.replaceState(
+        {},
+        '',
+        '/?mockScenario=sandbox-writable&mockPreviewOutcome=stop-blocked&mockCommitOutcome=preview-stale',
+      );
+      const transport = createDefaultGasTransport(undefined);
+      expect(transport.mode).toBe('mock');
+
+      const dash = await transport.getDashboardStatus();
+      expect(dash.env).toBe('SANDBOX');
+      expect(dash.guards.writeEnabled).toBe(true);
+
+      const blockedPreview = await transport.previewDataset({
+        endpoint: 'subdistricts',
+        token: 'synthetic_token_query_param_test',
+      });
+      expect(blockedPreview.status).toBe('STOP_BLOCKED');
+
+      const readyMock = new MockGasTransport({ scenario: 'sandbox-writable' });
+      const readyPreview = await readyMock.previewDataset({
+        endpoint: 'subdistricts',
+        token: 'synthetic_token_query_param_test',
+      });
+      if (readyPreview.status !== 'READY') throw new Error('expected READY');
+
+      const staleCommit = await transport.commitSmallDataset({
+        endpoint: 'subdistricts',
+        token: 'synthetic_token_query_param_test',
+        expectedFingerprint: readyPreview.fingerprint,
+      });
+      expect(staleCommit.status).toBe('PREVIEW_STALE_RECONFIRM_REQUIRED');
+
+      window.history.replaceState(
+        {},
+        '',
+        '/?mockScenario=invalid-scenario&mockPreviewOutcome=bogus&mockCommitOutcome=bogus',
+      );
+      const fallbackTransport = createDefaultGasTransport(undefined);
+      const fallbackDash = await fallbackTransport.getDashboardStatus();
+      expect(fallbackDash.env).toBe('SANDBOX');
+      expect(fallbackDash.guards.writeEnabled).toBe(false);
+
+      const fallbackPreview = await fallbackTransport.previewDataset({
+        endpoint: 'subdistricts',
+        token: 'synthetic_token_query_param_test',
+      });
+      expect(fallbackPreview.status).toBe('READY');
+    } finally {
+      window.history.replaceState({}, '', originalUrl);
+    }
+  });
 });

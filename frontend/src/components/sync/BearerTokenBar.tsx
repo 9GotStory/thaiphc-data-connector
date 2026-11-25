@@ -127,19 +127,22 @@ export function BearerTokenBar({ session, disabled = false }: BearerTokenBarProp
           </span>
         </p>
 
-        <div className="whitespace-nowrap font-mono tabular-nums">
+        <div className="flex flex-wrap items-center gap-2 max-w-full font-mono tabular-nums">
           {!hasToken ? (
             <Badge variant="neutral">
               <Info className="size-3.5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
               <span>ยังไม่ได้ระบุ Token</span>
             </Badge>
           ) : session.isValid ? (
-            <Badge variant="primarySoft">
-              <CheckCircle2 className="size-3.5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
-              <span>
-                พร้อมใช้งาน · ล้างอัตโนมัติเมื่อไม่ใช้งาน 15 นาที (เหลือ {formatCountdown(session.remainingMs)})
+            <>
+              <Badge variant="primarySoft">
+                <CheckCircle2 className="size-3.5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+                <span>พร้อมใช้งาน</span>
+              </Badge>
+              <span className="text-xs text-muted-foreground">
+                ล้างอัตโนมัติเมื่อไม่ใช้งาน 15 นาที (เหลือ {formatCountdown(session.remainingMs)})
               </span>
-            </Badge>
+            </>
           ) : (
             <Badge variant="stop">
               <OctagonAlert className="size-3.5 shrink-0" strokeWidth={1.75} aria-hidden="true" />

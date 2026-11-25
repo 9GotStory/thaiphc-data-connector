@@ -1088,19 +1088,33 @@ describe('Reference Datasets Repeatable Sync (Frontend GasRpcTransport Seam)', (
     // volunteer-family uses run-scoped ordinal keys, NOT HMAC h1_ keys -> no HMAC reminder box
     expect(screen.queryByText(/การตรวจสอบความต่อเนื่องของคีย์ F010/)).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /ดำเนินการยืนยันการบันทึก \(PRODUCTION\)/ }));
+    const prodTriggerBtn = screen.getByRole('button', {
+      name: /ดำเนินการยืนยันการบันทึก \(PRODUCTION\)/,
+    });
+    await user.click(prodTriggerBtn);
     const prodDialog = screen.getByRole('alertdialog');
     const confirmAction = within(prodDialog).getByRole('button', {
       name: /ยืนยันบันทึกข้อมูลลง PRODUCTION/,
     });
     expect(confirmAction).toBeDisabled();
 
+    // Closing via Escape must restore keyboard focus to the Confirmation Gate trigger button
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(prodTriggerBtn).toHaveFocus();
+
+    // Re-open, type exact confirmation phrase, and commit
+    await user.click(prodTriggerBtn);
+    const prodDialogReopened = screen.getByRole('alertdialog');
+    const confirmActionReopened = within(prodDialogReopened).getByRole('button', {
+      name: /ยืนยันบันทึกข้อมูลลง PRODUCTION/,
+    });
     await user.type(
-      within(prodDialog).getByLabelText(/พิมพ์ข้อความด้านบนให้ตรงทุกตัวอักษร/),
+      within(prodDialogReopened).getByLabelText(/พิมพ์ข้อความด้านบนให้ตรงทุกตัวอักษร/),
       'PRODUCTION 5406 volunteer-family',
     );
-    expect(confirmAction).toBeEnabled();
-    await user.click(confirmAction);
+    expect(confirmActionReopened).toBeEnabled();
+    await user.click(confirmActionReopened);
 
     expect(await screen.findByText(/ซิงก์และตรวจสอบ Destination Readback สำเร็จ/)).toBeInTheDocument();
   });

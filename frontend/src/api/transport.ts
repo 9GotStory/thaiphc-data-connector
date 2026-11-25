@@ -6,6 +6,9 @@ import {
   buildMockPreviewBatchEnvelope,
   buildMockPreviewEnvelope,
   buildMockStageLargeBatchEnvelope,
+  MOCK_COMMIT_OUTCOMES,
+  MOCK_PREVIEW_OUTCOMES,
+  MOCK_SCENARIOS,
   type MockCommitOutcome,
   type MockPreviewOutcome,
   type MockScenario,
@@ -258,34 +261,49 @@ export class MockGasTransport implements GasRpcTransport {
   }
 }
 
-const VALID_MOCK_SCENARIOS: ReadonlySet<string> = new Set<MockScenario>([
-  'sandbox-default',
-  'sandbox-writable',
-  'sandbox-report-writable',
-  'sandbox-assignments-legacy',
-  'sandbox-report-legacy',
-  'production-unresolved',
-  'production-writable',
-  'production-report-writable',
-  'production-clean',
-  'same-workbook-unapproved',
-  'same-workbook-unapproved-writable',
-  'rpc-error',
-]);
+const VALID_MOCK_SCENARIOS: ReadonlySet<string> = new Set(MOCK_SCENARIOS);
+const VALID_MOCK_PREVIEW_OUTCOMES: ReadonlySet<string> = new Set(MOCK_PREVIEW_OUTCOMES);
+const VALID_MOCK_COMMIT_OUTCOMES: ReadonlySet<string> = new Set(MOCK_COMMIT_OUTCOMES);
 
-function readScenarioFromQuery(): MockScenario {
+function readAllowlistedParam<T extends string>(
+  params: URLSearchParams,
+  key: string,
+  allowed: ReadonlySet<string>,
+  fallback: T,
+): T {
+  const value = params.get(key);
+  return value && allowed.has(value) ? (value as T) : fallback;
+}
+
+function readMockOptionsFromQuery(): MockGasTransportOptions {
   if (typeof window === 'undefined') {
-    return 'sandbox-default';
+    return { scenario: 'sandbox-default' };
   }
   try {
-    const param = new URLSearchParams(window.location.search).get('mockScenario');
-    if (param && VALID_MOCK_SCENARIOS.has(param)) {
-      return param as MockScenario;
-    }
+    const params = new URLSearchParams(window.location.search);
+    return {
+      scenario: readAllowlistedParam<MockScenario>(
+        params,
+        'mockScenario',
+        VALID_MOCK_SCENARIOS,
+        'sandbox-default',
+      ),
+      previewOutcome: readAllowlistedParam<MockPreviewOutcome>(
+        params,
+        'mockPreviewOutcome',
+        VALID_MOCK_PREVIEW_OUTCOMES,
+        'ready',
+      ),
+      commitOutcome: readAllowlistedParam<MockCommitOutcome>(
+        params,
+        'mockCommitOutcome',
+        VALID_MOCK_COMMIT_OUTCOMES,
+        'verified',
+      ),
+    };
   } catch {
-    return 'sandbox-default';
+    return { scenario: 'sandbox-default' };
   }
-  return 'sandbox-default';
 }
 
 export function createDefaultGasTransport(
@@ -303,5 +321,5 @@ export function createDefaultGasTransport(
       return runner;
     });
   }
-  return new MockGasTransport({ scenario: readScenarioFromQuery() });
+  return new MockGasTransport(readMockOptionsFromQuery());
 }

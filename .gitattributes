@@ -1,0 +1,4 @@
+# Keep LF line endings on TypeScript/React/GAS workspace files across Ubuntu and Windows CI so Prettier checks remain deterministic without modifying legacy files.
+frontend/** text eol=lf
+backend/** text eol=lf
+vitest.config.ts text eol=lf

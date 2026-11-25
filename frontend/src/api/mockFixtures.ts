@@ -19,29 +19,43 @@ import type {
   SyncMode,
 } from './types';
 
-export type MockScenario =
-  | 'sandbox-default'
-  | 'sandbox-writable'
-  | 'sandbox-report-writable'
-  | 'sandbox-assignments-legacy'
-  | 'sandbox-report-legacy'
-  | 'production-unresolved'
-  | 'production-writable'
-  | 'production-report-writable'
-  | 'production-clean'
-  | 'same-workbook-unapproved'
-  | 'same-workbook-unapproved-writable'
-  | 'rpc-error';
+export const MOCK_SCENARIOS = [
+  'sandbox-default',
+  'sandbox-writable',
+  'sandbox-report-writable',
+  'sandbox-assignments-legacy',
+  'sandbox-report-legacy',
+  'production-unresolved',
+  'production-writable',
+  'production-report-writable',
+  'production-clean',
+  'same-workbook-unapproved',
+  'same-workbook-unapproved-writable',
+  'rpc-error',
+] as const;
 
-export type MockPreviewOutcome = 'ready' | 'stop-blocked' | 'http-401' | 'all-unchanged';
-export type MockCommitOutcome =
-  | 'verified'
-  | 'preview-stale'
-  | 'unknown-outcome'
-  | 'readback-mismatch'
-  | 'digest-mismatch'
-  | 'incomplete-stage'
-  | 'http-401';
+export type MockScenario = (typeof MOCK_SCENARIOS)[number];
+
+export const MOCK_PREVIEW_OUTCOMES = [
+  'ready',
+  'stop-blocked',
+  'http-401',
+  'all-unchanged',
+] as const;
+
+export type MockPreviewOutcome = (typeof MOCK_PREVIEW_OUTCOMES)[number];
+
+export const MOCK_COMMIT_OUTCOMES = [
+  'verified',
+  'preview-stale',
+  'unknown-outcome',
+  'readback-mismatch',
+  'digest-mismatch',
+  'incomplete-stage',
+  'http-401',
+] as const;
+
+export type MockCommitOutcome = (typeof MOCK_COMMIT_OUTCOMES)[number];
 
 const SANDBOX_REF_ID = '1SANDBOX_MOCK_REF_WORKBOOK_0000000001';
 const SANDBOX_REPORT_ID = '1SANDBOX_MOCK_REPORT_WORKBOOK_0000002';

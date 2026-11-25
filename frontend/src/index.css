@@ -102,8 +102,9 @@
   --space-3xl: 2rem;
 
   /* Layout & Sticky Offset for WCAG 2.2 Focus Not Obscured */
+  /* Mobile/Tablet (<1024px): stacked AppHeader can reach ~126px */
   --header-height: 4rem;
-  --sticky-scroll-offset: calc(var(--header-height) + 1rem);
+  --sticky-scroll-offset: 9rem;
 
   /* Subtle Shadows (Minimalism & Swiss Operational) */
   --shadow-xs: 0 1px 2px 0 rgb(15 23 42 / 0.04);
@@ -224,18 +225,32 @@
     @apply border-border;
   }
 
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  [tabindex] {
+    outline-color: var(--ring);
+  }
+
   :focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
   }
 }
 
-/* Sync Workspace sticky offset override (Header 64px + Token Bar ~76px + 16px on lg+) */
+/* Laptop/Desktop (>=1024px): single-row Header (64–68px); Sync Workspace adds Sticky Token Bar (~135–155px) */
 @media (min-width: 1024px) {
+  html {
+    --sticky-scroll-offset: 5.5rem;
+    scroll-padding-top: 5.5rem;
+  }
+
   html:has(.sync-workspace-root),
   .sync-workspace-root {
-    --sticky-scroll-offset: 9.75rem;
-    scroll-padding-top: 9.75rem;
+    --sticky-scroll-offset: 15.5rem;
+    scroll-padding-top: 15.5rem;
   }
 }
 

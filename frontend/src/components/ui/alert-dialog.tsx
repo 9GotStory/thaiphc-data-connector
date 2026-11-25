@@ -29,15 +29,18 @@ export function AlertDialog({
   const descriptionId = React.useId();
   const returnFocusRef = React.useRef<HTMLElement | null>(null);
 
-  React.useEffect(() => {
+  // Use useLayoutEffect so trigger focus is captured BEFORE AlertDialogContent's useEffect moves focus inside the modal
+  React.useLayoutEffect(() => {
     if (open) {
-      returnFocusRef.current =
-        document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      if (!returnFocusRef.current && document.activeElement instanceof HTMLElement) {
+        returnFocusRef.current = document.activeElement;
+      }
       return;
     }
-    if (returnFocusRef.current && document.contains(returnFocusRef.current)) {
-      returnFocusRef.current.focus();
-      returnFocusRef.current = null;
+    const target = returnFocusRef.current;
+    returnFocusRef.current = null;
+    if (target && document.contains(target)) {
+      target.focus();
     }
   }, [open]);
 

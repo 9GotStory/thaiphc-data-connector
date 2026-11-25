@@ -137,6 +137,16 @@ export function evaluateWriteGuards(
       };
     }
 
+    if (platform.getProperty('THAIPHC_FULL_PII_WRITE_ENABLED') !== 'true') {
+      return {
+        writeAllowed: false,
+        blockedGuardReason: 'THAIPHC_FULL_PII_WRITE_ENABLED',
+        stopCode: 'FULL_PII_WRITE_DISABLED',
+        message:
+          'THAIPHC_FULL_PII_WRITE_ENABLED is OFF in Google Apps Script Properties. Full-Field Extended Report Commit rejected.',
+      };
+    }
+
     const reportPolicy = resolveReportWorkbookPolicy(
       ctx.referenceSpreadsheetId,
       platform.getProperty('THAIPHC_REPORT_SPREADSHEET_ID'),

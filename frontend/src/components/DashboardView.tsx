@@ -426,7 +426,7 @@ export function DashboardView({
           สถานะสิทธิ์การเขียนฝั่งเซิร์ฟเวอร์ (Read-Only Write Guards)
         </h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card className="cursor-default">
             <CardHeader className="pb-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
@@ -456,7 +456,7 @@ export function DashboardView({
             <CardHeader className="pb-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="space-y-0.5 min-w-0">
-                  <CardTitle>สิทธิ์เขียนชุดข้อมูลรายงานขยาย (ลดทอนแล้ว)</CardTitle>
+                  <CardTitle>สิทธิ์เขียนชุดข้อมูลรายงานขยาย</CardTitle>
                   <code className="block font-mono text-xs text-muted-foreground">
                     THAIPHC_PERSON_DATA_WRITE_ENABLED
                   </code>
@@ -467,8 +467,33 @@ export function DashboardView({
             <CardContent className="pb-3">
               <CardDescription className="text-sm text-foreground/85">
                 {data.guards.personDataWriteEnabled
-                  ? 'อนุญาตให้บันทึกชุดข้อมูลรายงานขยาย 5 ชุดที่ผ่านการลดทอนข้อมูลส่วนบุคคล (Minimized Projection) แล้ว'
-                  : 'ปิดการเขียนชุดข้อมูลรายงานขยาย 5 ชุดฝั่งเซิร์ฟเวอร์ — ต้องเปิดทั้งสวิตช์หลักและสวิตช์นี้จึงจะ Commit รายงานได้'}
+                  ? 'อนุญาตให้บันทึกชุดข้อมูลรายงานขยาย 5 ชุดเมื่อเปิดควบคู่กับสวิตช์หลักและสวิตช์ Full-Field PII'
+                  : 'ปิดการเขียนชุดข้อมูลรายงานขยาย 5 ชุดฝั่งเซิร์ฟเวอร์ — ต้องเปิดครบทั้ง 3 สวิตช์จึงจะ Commit รายงานได้'}
+              </CardDescription>
+            </CardContent>
+            <CardFooter className="gap-1.5">
+              <Lock className="size-3.5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+              <span>อ่านอย่างเดียว — แก้ไขได้เฉพาะใน Google Apps Script &gt; Script Properties</span>
+            </CardFooter>
+          </Card>
+
+          <Card className="cursor-default">
+            <CardHeader className="pb-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="space-y-0.5 min-w-0">
+                  <CardTitle>สิทธิ์บันทึกครบทุกฟิลด์รวม PII (ADR-0005)</CardTitle>
+                  <code className="block font-mono text-xs text-muted-foreground">
+                    THAIPHC_FULL_PII_WRITE_ENABLED
+                  </code>
+                </div>
+                <WriteGuardBadge enabled={data.guards.fullPiiWriteEnabled} />
+              </div>
+            </CardHeader>
+            <CardContent className="pb-3">
+              <CardDescription className="text-sm text-foreground/85">
+                {data.guards.fullPiiWriteEnabled
+                  ? 'เปิดโหมด Full-Field Operator Mode — บันทึกครบทุกคอลัมน์จาก ThaiPHC (รวมเลขบัตร 13 หลัก/ชื่อ-สกุล/ที่อยู่ และตัวเลขจริง 1..4) ลงสมุดงานจำกัดสิทธิ์'
+                  : 'ปิดการบันทึกข้อมูลส่วนบุคคลครบทุกฟิลด์ — สามารถ Preview (ซ่อนเลขบัตรบางหลัก) ได้ตามปกติ แต่ Commit รายงานขยายจะถูกบล็อกแบบ fail-closed'}
               </CardDescription>
             </CardContent>
             <CardFooter className="gap-1.5">
@@ -484,23 +509,23 @@ export function DashboardView({
             <span>นโยบายฝั่ง GAS (Read-Only):</span>
           </span>
 
-          {data.guards.hmacKeyConfigured ? (
+          {data.guards.fullPiiWriteEnabled ? (
             <Badge
               variant="guardOn"
               className="whitespace-normal flex-wrap break-words max-w-full leading-normal"
             >
               <ShieldCheck className="size-3.5 shrink-0" aria-hidden="true" />
-              <code className="font-mono font-semibold">THAIPHC_HMAC_KEY_B64</code>
-              <span>· กำหนดค่าแล้ว (พร้อมสร้างรหัสแฝง h1_)</span>
+              <code className="font-mono font-semibold">ADR-0005</code>
+              <span>· Full-Field Operator Mode เปิดใช้งาน (Preview ซ่อน citizenId บางหลัก)</span>
             </Badge>
           ) : (
             <Badge
-              variant="stop"
+              variant="guardOff"
               className="whitespace-normal flex-wrap break-words max-w-full leading-normal"
             >
               <OctagonAlert className="size-3.5 shrink-0" aria-hidden="true" />
-              <code className="font-mono font-semibold">THAIPHC_HMAC_KEY_B64</code>
-              <span>· ยังไม่กำหนดค่า (บล็อกรายงานบุคคล)</span>
+              <code className="font-mono font-semibold">THAIPHC_FULL_PII_WRITE_ENABLED</code>
+              <span>· ปิดอยู่ (บล็อก Commit รายงานขยาย)</span>
             </Badge>
           )}
 
@@ -530,8 +555,8 @@ export function DashboardView({
       <DatasetGroupCard
         group="extended_report"
         datasets={extendedDatasets}
-        guardProperty="THAIPHC_PERSON_DATA_WRITE_ENABLED"
-        guardEnabled={data.guards.personDataWriteEnabled}
+        guardProperty="THAIPHC_PERSON_DATA_WRITE_ENABLED + THAIPHC_FULL_PII_WRITE_ENABLED"
+        guardEnabled={data.guards.personDataWriteEnabled && data.guards.fullPiiWriteEnabled}
         onOpenSyncWorkspace={onOpenSyncWorkspace}
       />
     </div>

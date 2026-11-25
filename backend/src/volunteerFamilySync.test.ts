@@ -243,16 +243,20 @@ describe('Volunteer Family Complete Snapshot Sync (Backend GAS RPC Seam)', () =>
     expect(localitySamples[0].scopeLabel).toContain('540603006');
     expect(localitySamples[1].scopeLabel).toContain('540303004');
     expect(localitySamples[0].minimizedAttributes).toEqual([
+      { field: 'osmCode', value: '99990000000002' },
+      { field: 'fullName', value: 'นางสาว PRIVATE_FAMILY_FIRST_0002 PRIVATE_FAMILY_LAST_0002' },
+      { field: 'citizenId', value: '1-5406-xxxxx-xx-x' },
       { field: 'gender', value: 'female' },
       { field: 'status', value: 'child' },
       { field: 'statusLabel', value: 'บุตร' },
+      { field: 'address', value: 'PRIVATE_ADDR_0002/9 หมู่ 2' },
+      { field: 'volunteerName', value: 'PRIVATE_VOL_NAME_0002' },
     ]);
 
-    // Zero raw PII from all 9 RESTRICTED_DEFAULT_OMIT fields & zero Bearer token in preview payload
+    // Raw 13-digit citizenId & Bearer token must NEVER appear unmasked in preview payload (ADR-0005)
     const serialized = JSON.stringify(preview);
-    expect(serialized).not.toMatch(
-      /9999000000|154060000|PRIVATE_FAMILY_FIRST|PRIVATE_FAMILY_LAST|PRIVATE_ADDR|SYNTHETIC-VOL-UUID|PRIVATE_VOL_NAME|นางสาว|นาย/,
-    );
+    expect(serialized).not.toMatch(/1540600000001|1540600000002|1540600000003/);
+    expect(serialized).toContain('1-5406-xxxxx-xx-x');
     expect(serialized).not.toContain(VALID_BEARER);
 
     // Deterministic Preview Fingerprint changes when active _ThaiPHCReportCurrent pointer drifts
@@ -557,26 +561,37 @@ describe('Volunteer Family Complete Snapshot Sync (Backend GAS RPC Seam)', () =>
       'villageCode',
       'villageNo',
       'villageName',
+      'osmCode',
+      'citizenId',
+      'prefixName',
+      'firstName',
+      'lastName',
+      'fullName',
       'gender',
+      'address',
       'status',
       'statusLabel',
+      'volunteerId',
+      'volunteerName',
       '_quality_status',
       '_field_presence_json',
       '_row_digest',
       '__chunk_ordinal',
     ]);
     expect(snap1Sheet.rows[2][0]).toBe(`snapshot_${run1Id}_00001`);
-    expect(snap1Sheet.rows[2][13]).toBe('VALID');
+    expect(snap1Sheet.rows[2][11]).toBe('1540600000001'); // exact unmasked citizenId persisted to Sheet
+    expect(snap1Sheet.rows[2][22]).toBe('VALID');
     expect(snap1Sheet.rows[3][0]).toBe(`snapshot_${run1Id}_00002`);
     expect(snap1Sheet.rows[3][5]).toBe('540210'); // preserved unaltered
     expect(snap1Sheet.rows[3][7]).toBe('540603006'); // preserved unaltered
-    expect(snap1Sheet.rows[3][13]).toBe('WARNING');
+    expect(snap1Sheet.rows[3][22]).toBe('WARNING');
     expect(snap1Sheet.rows[4][0]).toBe(`snapshot_${run1Id}_00003`);
 
-    // Zero restricted PII persisted anywhere in snapshot tab
-    expect(JSON.stringify(snap1Sheet.rows)).not.toMatch(
-      /9999000000|154060000|PRIVATE_FAMILY_FIRST|PRIVATE_FAMILY_LAST|PRIVATE_ADDR|SYNTHETIC-VOL-UUID|PRIVATE_VOL_NAME/,
-    );
+    // Full-Field Operator Mode (ADR-0005): exact source fields persisted in snapshot tab
+    expect(snap1Sheet.rows[2][10]).toBe('99990000000001');
+    expect(snap1Sheet.rows[2][13]).toBe('PRIVATE_FAMILY_FIRST_0001');
+    expect(snap1Sheet.rows[2][17]).toBe('PRIVATE_ADDR_0001/9 หมู่ 1');
+    expect(snap1Sheet.rows[2][21]).toBe('PRIVATE_VOL_NAME_0001');
 
     // _ThaiPHCReportCurrent updated as final write while preserving other endpoints' pointers
     const pointerSheet = reportWb.sheets.get('_ThaiPHCReportCurrent')!;

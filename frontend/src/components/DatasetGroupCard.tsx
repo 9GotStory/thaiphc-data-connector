@@ -39,7 +39,7 @@ export function DatasetGroupCard({
     : 'ชุดข้อมูลรายงานขยาย (Extended Report Datasets · 5 APIs)';
   const subtitle = isReference
     ? 'ข้อมูลพื้นที่และหน่วยบริการสาธารณสุข · ใช้โหมด Keyed Upsert ทั้ง 3 ชุด · ฐานข้อมูลอ้างอิงที่ตรวจรับแล้ว (Historical Acceptance Baseline): 111 แถว (8 / 85 / 18)'
-    : 'ผ่านการลดทอนข้อมูลส่วนบุคคล (Minimized Projection) ฝั่ง GAS ก่อนแสดงผลและบันทึก · แสดงเฉพาะ Metadata ไม่แสดงแถวข้อมูลบุคคล';
+    : 'โหมดเก็บครบทุกฟิลด์สำหรับเจ้าหน้าที่ (Full-Field Operator Mode · ADR-0005) · หน้า Dashboard แสดงเฉพาะ Metadata ไม่แสดงข้อมูลบุคคล';
   const caption = isReference
     ? 'ตารางสถานะชุดข้อมูลอ้างอิงพื้นฐาน 3 APIs (จ.แพร่ 54 / อ.สอง 5406)'
     : 'ตารางสถานะชุดข้อมูลรายงานขยาย 5 APIs (แสดงเฉพาะ Metadata ไม่แสดงข้อมูลบุคคล)';

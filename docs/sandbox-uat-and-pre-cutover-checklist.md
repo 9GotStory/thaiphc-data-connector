@@ -38,15 +38,16 @@ If using `@google/clasp` against your standalone Sandbox script (`.clasp.json` i
 | `THAIPHC_SAME_WORKBOOK_APPROVAL` | `OWNER_ONLY_5406_APPROVED` *(only if same workbook)* | Omit first to confirm fail-closed guard blocking |
 | `THAIPHC_WRITE_ENABLED` | `false` initially → `true` for Sandbox write tests | Start `false` to verify read-only Preview & locked Commit |
 | `THAIPHC_PERSON_DATA_WRITE_ENABLED` | `false` initially → `true` for Extended Report tests | Start `false` to verify fail-closed person-data guard |
-| `THAIPHC_HMAC_KEY_B64` | `<Sandbox-only 32-byte Base64 test key>` | Never reuse the Production F010 HMAC key in Sandbox unless testing key parity on synthetic/controlled data |
+| `THAIPHC_FULL_PII_WRITE_ENABLED` | `false` initially → `true` for Full-Field Operator Mode (ADR-0005) | Required explicit third guard before committing any Extended Report with full columns/PII |
+| `THAIPHC_HMAC_KEY_B64` | *(Optional / Legacy F010 only)* | No longer required under ADR-0005 Full-Field Operator Mode (raw `id` used as `_source_key`) |
 
 ### 2.3 Sandbox Verification Steps
 
 1. **Read-Only Guard & Dashboard Check (`Write Guards = OFF`):**
-   - [ ] Open Sandbox `/exec` URL. Confirm blue `SANDBOX` badge, exact Sandbox workbook name/masked ID, both Write Guards showing `OFF` (read-only cards, no toggle switches), zero raw personal rows, and all 8 datasets grouped into Reference Datasets (3) and Extended Report Datasets (5).
+   - [ ] Open Sandbox `/exec` URL. Confirm blue `SANDBOX` badge, exact Sandbox workbook name/masked ID, all three Write Guards (`THAIPHC_WRITE_ENABLED`, `THAIPHC_PERSON_DATA_WRITE_ENABLED`, `THAIPHC_FULL_PII_WRITE_ENABLED`) showing `OFF` (read-only cards, no toggle switches), zero raw personal rows on Dashboard, and all 8 datasets grouped into Reference Datasets (3) and Extended Report Datasets (5).
    - [ ] Run Preview on `subdistricts` and `volunteer-gender` while Write Guards are `OFF`: confirm Preview succeeds read-only with zero Sheet writes and the Confirmation Gate remains locked.
 2. **End-to-End Repeatable Sync Across All 8 Datasets (`Write Guards = ON` in Sandbox):**
-   - [ ] Set `THAIPHC_WRITE_ENABLED=true` and `THAIPHC_PERSON_DATA_WRITE_ENABLED=true` in Sandbox Script Properties, click **"รีเฟรชสถานะ"** on Dashboard, and verify both badges switch to `ON`.
+   - [ ] Set `THAIPHC_WRITE_ENABLED=true`, `THAIPHC_PERSON_DATA_WRITE_ENABLED=true`, and `THAIPHC_FULL_PII_WRITE_ENABLED=true` in Sandbox Script Properties, click **"รีเฟรชสถานะ"** on Dashboard, and verify all three badges switch to `ON`.
    - [ ] Sync each dataset one at a time via Preview → Diff Inspection → Sandbox `AlertDialog` Confirm → Commit → `Destination Readback`:
 
 | # | Dataset (`endpoint`) | Sync Strategy | Destination Tab | Mandatory Sandbox Verification |
@@ -54,11 +55,11 @@ If using `@google/clasp` against your standalone Sandbox script (`.clasp.json` i
 | 1 | `subdistricts` | `Keyed Upsert` | `Subdistricts` | Preview counts match live `5406`, leading-zero text intact, `COMMITTED_VERIFIED`, `ชีต1` preserved |
 | 2 | `villages` | `Keyed Upsert` | `Villages` | Sheet expands to 28 columns, `code` (9-digit) & `village_code_8digit` keep leading zeros (`@`), `COMMITTED_VERIFIED` |
 | 3 | `health-services` | `Keyed Upsert` | `HealthServices` | `offset` pagination completes, `(0, 0)` rows flagged `REVIEW` (`PLACEHOLDER_COORDS`), `COMMITTED_VERIFIED` |
-| 4 | `volunteer-gender` | `Keyed Upsert` | `VolunteerGender` | Mode B `Minimized Projection`, `Complementary Small-Cell Suppression` (`1..4` → `null`, `SMALL_CELL_SUPPRESSED`), `COMMITTED_VERIFIED` |
-| 5 | `assignments` | `Keyed Upsert` | `Assignments` | Sequential Batched Preview progress, zero raw PII in UI & Sheet, `h1_` `Pseudonymous Key`, hidden `_Stage_*` removed after `Destination Readback` |
-| 6 | `resigned-volunteers` | `Keyed Upsert` | `ResignedVolunteers` | Zero raw PII, `h1_` `Pseudonymous Key`, `Preserve Source Locality` (`LOCALITY_MISMATCH` = `REVIEW`), `_Stage_*` cleaned up after readback |
-| 7 | `volunteer-tenure` | `Keyed Upsert` | `VolunteerTenure` | Zero raw PII, `h1_` `Pseudonymous Key`, nullable integer/date fields preserved, `_Stage_*` cleaned up after readback |
-| 8 | `volunteer-family` | `Complete Snapshot` | `RFamily_<runId>` + `_ThaiPHCReportCurrent` | `Layers` badge, zero raw PII, `Preserve Source Locality` (`LOCALITY_MISMATCH` = `REVIEW`), hidden `RFamily_<runId>` unhidden & `Publication Pointer` updated after readback |
+| 4 | `volunteer-gender` | `Keyed Upsert` | `VolunteerGender` | Full-Field Operator Mode (`ADR-0005`): actual integer counts persisted without `1..4` small-cell suppression, `COMMITTED_VERIFIED` |
+| 5 | `assignments` | `Keyed Upsert` | `Assignments` | Sequential Batched Preview progress, `citizenId` masked in Preview (`1-5406-xxxxx-xx-x`), full 33 columns (25 source + 8 metadata) persisted with raw `id` `_source_key` and `@` text format on `citizenId`/`osmCode`, hidden `_Stage_*` removed after `Destination Readback` |
+| 6 | `resigned-volunteers` | `Keyed Upsert` | `ResignedVolunteers` | `citizenId` masked in Preview, full 26 columns persisted with raw `id` `_source_key`, `Preserve Source Locality` (`LOCALITY_MISMATCH` = `REVIEW`), `_Stage_*` cleaned up after readback |
+| 7 | `volunteer-tenure` | `Keyed Upsert` | `VolunteerTenure` | `citizenId` masked in Preview, full 29 columns persisted with raw `id` `_source_key`, nullable integer/date fields preserved, `_Stage_*` cleaned up after readback |
+| 8 | `volunteer-family` | `Complete Snapshot` | `RFamily_<runId>` + `_ThaiPHCReportCurrent` | `Layers` badge, `citizenId` masked in Preview, full 26 columns (21 source + 5 snapshot metadata) persisted in `RFamily_<runId>`, `Preserve Source Locality` (`LOCALITY_MISMATCH` = `REVIEW`), hidden `RFamily_<runId>` unhidden & `Publication Pointer` updated after readback |
 
 3. **Repeatable Sync, Non-Destructive & Hygiene Checks on Sandbox:**
    - [ ] Re-run Preview on an already-synced dataset (`subdistricts`, `assignments`): confirm `UNCHANGED` classification and zero spurious updates.
@@ -69,26 +70,20 @@ If using `@google/clasp` against your standalone Sandbox script (`.clasp.json` i
 
 ---
 
-## 3. F010 `THAIPHC_HMAC_KEY_B64` Continuity Verification (Mandatory Before Person-Level Production Writes)
+## 3. ADR-0005 Schema & Existing Tab Compatibility Verification (Mandatory Before Person-Level Production Writes)
 
-> **Why this gate is critical (ADR-0003):** `assignments`, `resigned-volunteers`, and `volunteer-tenure` derive deterministic `h1_` `Pseudonymous Key` values via the F010 two-step HMAC-SHA256 formula (`THAIPHC_F010_PSEUDONYM_DERIVE_5406` → `THAIPHC_REDACTED_REPORT_V1\0<endpoint>\0<id>`). If `THAIPHC_HMAC_KEY_B64` differs from the prior F010 key on a workbook containing existing F010 records, existing keys will not match and person rows will duplicate.
+> **Why this gate is critical (`ADR-0005`):** Full-Field Operator Mode supersedes `ADR-0003` for the Repeatable Sync Web App. `assignments` (33 cols), `resigned-volunteers` (26 cols), and `volunteer-tenure` (29 cols) store all observed source columns and use raw ThaiPHC `id` as `_source_key` (no longer requiring `THAIPHC_HMAC_KEY_B64`). Legacy F010 snapshot tabs (`RAssign_*`, `RResign_*`, `RTenure_*`, `RGender_*`, `RFamily_*`) remain untouched alongside the new tabs.
 
-- [ ] **Check Whether Prior F010 Person Records Exist:** Inspect the target Production workbook(s) for existing `RAssign_*`, `RResign_*`, `RTenure_*`, or keyed person tabs.
-  - If **no** prior F010 person records exist, record `"New baseline — no prior F010 person tabs"` and set a fresh 32-byte random Base64 key in `THAIPHC_HMAC_KEY_B64`.
-  - If **prior F010 person records exist**, proceed through every check below before enabling `THAIPHC_PERSON_DATA_WRITE_ENABLED`:
-- [ ] **Privately Load the Exact F010 Key:** Configure `THAIPHC_HMAC_KEY_B64` in the Production Web App's GAS Script Properties directly from the operator's authorized private secret store (never paste into chat, Git, or logs).
-- [ ] **Zero-Write Read-Only Parity Check (`Write Guards = OFF`):**
-  1. Keep `THAIPHC_WRITE_ENABLED=false` and `THAIPHC_PERSON_DATA_WRITE_ENABLED=false`.
-  2. Open the Production Web App and run **read-only Preview** on `assignments` (and `resigned-volunteers` / `volunteer-tenure` if prior F010 tabs exist).
-  3. Compare the `h1_...` sample keys shown in the Mode B Preview against the `_source_key` column in the existing F010 `Legacy Snapshot` tab (`RAssign_*` / `RResign_*` / `RTenure_*`) in Google Sheets.
-  4. **PASS:** Matching records produce byte-for-byte identical `h1_...` keys (and if a keyed tab already exists, unchanged records classify as `UNCHANGED` rather than 100% `INSERT` + 100% `MISSING_IN_SOURCE`).
-  5. **STOP IMMEDIATELY ON MISMATCH:** Do **not** enable `THAIPHC_PERSON_DATA_WRITE_ENABLED`. Re-verify `THAIPHC_HMAC_KEY_B64` byte-for-byte (check for trailing whitespace/newlines or wrong Base64 padding) before re-running read-only Preview.
+- [ ] **Check Existing Fixed Destination Tabs:** Inspect the target workbook for any prior minimized-schema `Assignments`, `ResignedVolunteers`, or `VolunteerTenure` tabs (from pre-ADR-0005 testing).
+  - If a prior minimized-schema tab exists on the same tab name, `HEADER_MISMATCH` will safely halt commits until the operator archives/renames or removes the old tab.
+  - Legacy F010 snapshot tabs (`RAssign_*`, `RResign_*`, `RTenure_*`, `RGender_*`, `RFamily_*`) are preserved untouched and never auto-deleted.
+- [ ] **Verify Strict Owner-Only Google Drive Access:** Before setting `THAIPHC_FULL_PII_WRITE_ENABLED=true`, verify that the target Report Workbook is strictly restricted (`shared: false`, owner-only or explicitly authorized Song District `5406` public health officers only, no "Anyone with the link").
 
 ---
 
 ## 4. Production Script Property Verification (`Write Guards = OFF` Initially)
 
-Before any Production write is authorized, deploy the exact approved commit SHA to the Production GAS Web App project (`Execute as: Me`, `Who has access: Only myself`, `exceptionLogging: "NONE"`, 3 OAuth scopes) and verify **all seven Script Properties** with **both Write Guards initially `OFF`**:
+Before any Production write is authorized, deploy the exact approved commit SHA to the Production GAS Web App project (`Execute as: Me`, `Who has access: Only myself`, `exceptionLogging: "NONE"`, 3 OAuth scopes) and verify **all Script Properties** with **all three Write Guards initially `OFF`**:
 
 | Script Property | Required Initial Production Value | Verification |
 |---|---|---|
@@ -98,12 +93,13 @@ Before any Production write is authorized, deploy the exact approved commit SHA 
 | `THAIPHC_SAME_WORKBOOK_APPROVAL` | `OWNER_ONLY_5406_APPROVED` *(only if reusing Reference Workbook)* | Omit when using a separate Report Workbook |
 | `THAIPHC_WRITE_ENABLED` | **`false`** *(initially OFF)* | Dashboard displays `OFF · ปิดการเขียน (Preview เท่านั้น)` |
 | `THAIPHC_PERSON_DATA_WRITE_ENABLED` | **`false`** *(initially OFF)* | Dashboard displays `OFF · ปิดการเขียน (Preview เท่านั้น)` |
-| `THAIPHC_HMAC_KEY_B64` | `<Verified F010-compatible 32-byte Base64 key>` | Dashboard Policy Strip displays `"กำหนดค่าแล้ว (พร้อมสร้างรหัสแฝง h1_)"` without exposing the key |
+| `THAIPHC_FULL_PII_WRITE_ENABLED` | **`false`** *(initially OFF)* | Dashboard displays `OFF · ปิดการเขียนข้อมูลเต็มรูปแบบ (Preview เท่านั้น)` |
+| `THAIPHC_HMAC_KEY_B64` | *(Optional / Legacy F010 CLI only)* | Not required for Web App under ADR-0005 |
 
 - [ ] **Production Read-Only Pre-Flight (`Write Guards = OFF`):**
-  - Open Production `/exec` URL. Confirm crimson `PRODUCTION` strip/badge, zero `UNRESOLVED_PREVIOUS_RUN` warnings, both Write Guards `OFF`, `THAIPHC_HMAC_KEY_B64` configured, and intact 111-row `Historical Acceptance Baseline` (`Subdistricts` 8 / `Villages` 85 / `HealthServices` 18).
-  - Run read-only Preview on target datasets to confirm `Diff Classification`, `LEGACY_F010_SNAPSHOT_PRESENT` (where applicable), and `THAIPHC_HMAC_KEY_B64` `h1_` parity with zero Sheet writes.
-- [ ] **Post-Approval Steady-State Write Guard Policy:** Only after separate go-live approval (Section 5) may the operator switch `THAIPHC_WRITE_ENABLED=true` (and `THAIPHC_PERSON_DATA_WRITE_ENABLED=true` for Extended Report Datasets). Once live, every Production Commit remains protected by the Preview Fingerprint re-check under `LockService`, typed `PRODUCTION 5406 <endpoint>` `AlertDialog` confirmation, mandatory `Destination Readback`, and No Auto-Retry—while `THAIPHC_WRITE_ENABLED` and `THAIPHC_PERSON_DATA_WRITE_ENABLED` remain server-side emergency kill switches.
+  - Open Production `/exec` URL. Confirm crimson `PRODUCTION` strip/badge, zero `UNRESOLVED_PREVIOUS_RUN` warnings, all three Write Guards `OFF`, and intact 111-row `Historical Acceptance Baseline` (`Subdistricts` 8 / `Villages` 85 / `HealthServices` 18).
+  - Run read-only Preview on target datasets to confirm `Diff Classification`, `LEGACY_F010_SNAPSHOT_PRESENT` (where applicable), and server-side masked `citizenId` (`1-5406-xxxxx-xx-x`) with zero Sheet writes.
+- [ ] **Post-Approval Steady-State Write Guard Policy:** Only after separate go-live approval (Section 5) may the operator switch `THAIPHC_WRITE_ENABLED=true` (and `THAIPHC_PERSON_DATA_WRITE_ENABLED=true` + `THAIPHC_FULL_PII_WRITE_ENABLED=true` for Extended Report Datasets). Once live, every Production Commit remains protected by the Preview Fingerprint re-check under `LockService`, typed `PRODUCTION 5406 <endpoint>` `AlertDialog` confirmation, mandatory `Destination Readback`, and No Auto-Retry—while all three Write Guards remain server-side emergency kill switches.
 - [ ] **Non-ACID Recovery Rule:** If any Production Commit returns `UNKNOWN_OUTCOME_STOP`, `FAILED_STOP`, or leaves `UNRESOLVED_PREVIOUS_RUN` (`STARTED` in `_ThaiPHCSyncLog`), **never blindly retry**. Optionally flip Write Guards to `false`, inspect the target tab, `_ThaiPHCSyncLog`, and any retained hidden `_Stage_*` tab in Google Sheets, and start a fresh Preview → Diff → Confirm cycle only after reconciliation.
 
 ---
@@ -113,14 +109,14 @@ Before any Production write is authorized, deploy the exact approved commit SHA 
 > Leave every box below **unchecked** until the operator independently completes Sandbox UAT and explicitly approves Production cutover.
 
 - [ ] **Candidate Release Verified:** Exact merged commit SHA recorded; Node.js 26 offline CI (`ubuntu-24.04` and `windows-latest`) green; local `npm run build && npm run check` green.
-- [ ] **Sandbox UAT Accepted:** All 8 datasets completed end-to-end on isolated Sandbox with `COMMITTED_VERIFIED`, zero raw PII exposure, `ชีต1` & 111-row baseline preserved, `Missing in Source` & `Legacy Snapshot` non-deletion confirmed, and Bearer Token cleared.
-- [ ] **F010 `THAIPHC_HMAC_KEY_B64` Continuity Confirmed:** Read-only Production Preview verified byte-for-byte `h1_` parity against prior F010 records (or confirmed clean new baseline).
-- [ ] **Production Properties & Sharing Verified (`Write Guards = OFF` Initially):** Owner-only Drive sharing confirmed, `THAIPHC_ENV=PRODUCTION`, both Write Guards confirmed `false` before read-only pre-flight, and legacy F010 GAS V3 receiver untouched until cutover retirement is separately decided.
+- [ ] **Sandbox UAT Accepted:** All 8 datasets completed end-to-end on isolated Sandbox with `COMMITTED_VERIFIED`, masked `citizenId` in Preview UI and full columns persisted cleanly with `@` format in Google Sheets, `ชีต1` & 111-row baseline preserved, `Missing in Source` & `Legacy Snapshot` non-deletion confirmed, and Bearer Token cleared.
+- [ ] **ADR-0005 Access & Tab Compatibility Confirmed:** Owner-only Drive sharing confirmed on target Report Workbook, and any pre-ADR-0005 minimized person tabs archived/handled cleanly.
+- [ ] **Production Properties & Sharing Verified (`Write Guards = OFF` Initially):** Owner-only Drive sharing confirmed, `THAIPHC_ENV=PRODUCTION`, all three Write Guards confirmed `false` before read-only pre-flight, and legacy F010 GAS V3 receiver untouched until cutover retirement is separately decided.
 - [ ] **Explicit Operator Go-Live Approval:** Operator explicitly authorizes Production Web App deployment and enabling Production Write Guards for repeatable sync operations.
 
 ### Blank Redacted Sandbox UAT & Pre-Cutover Record
 
-*Keep all Bearer Tokens, HMAC keys, raw personal rows, pseudonym values, and real Spreadsheet/Deployment IDs out of Git and chat.*
+*Keep all Bearer Tokens, HMAC keys, raw personal rows, citizen IDs, and real Spreadsheet/Deployment IDs out of Git and chat.*
 
 ```text
 Candidate Git SHA / Node.js 26 version:           PENDING
@@ -128,7 +124,7 @@ CI Status (ubuntu-24.04 & windows-latest):        PENDING
 Sandbox UAT Date (Asia/Bangkok) & Operator:       PENDING
 Sandbox 8/8 Datasets COMMITTED_VERIFIED:          PENDING
 Sandbox 111-row Baseline, ชีต1 & Legacy Intact:   PENDING
-F010 THAIPHC_HMAC_KEY_B64 Parity Verified:        PENDING
+ADR-0005 Full-Field & Masked Preview Verified:    PENDING
 Production Drive Sharing (Owner-Only) Verified:   PENDING
 Production Write Guards OFF Initial Pre-Flight:   PENDING
 Separate Production Deployment Approval Decision: HOLD (Not Yet Approved)

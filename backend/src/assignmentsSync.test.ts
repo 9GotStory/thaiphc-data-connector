@@ -1,5 +1,3 @@
-import { createHmac } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   finalizeLargeDatasetCommitWithPlatform,
@@ -19,10 +17,6 @@ const VALID_REF_SHEET_ID = TEST_REF_SHEET_ID;
 const VALID_REPORT_SHEET_ID = TEST_REPORT_SHEET_ID;
 const VALID_BEARER = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.synthetic_assign_token_12345';
 const VALID_HMAC_KEY = TEST_HMAC_KEY_B64;
-
-// Independent F010 two-step HMAC-SHA256 test vectors for VALID_HMAC_KEY + endpoint="assignments"
-const EXPECTED_H1_UUID_0001 = 'h1_4f10838fd01347c17a887f30804cd7ec9096af7fca7e3a42e837654f96a31da0';
-const EXPECTED_H1_UUID_0002 = 'h1_9f7cd7fc1209c07ef97ef2ee7b3c8023519373d5022a536beb612284fadc101d';
 
 const jsonResponse = jsonHttpResponse;
 const createFakeAssignmentsEnv = createFakeSyncPlatformEnv;
@@ -183,44 +177,12 @@ describe('Assignments Person-Level Sync — Batched Preview & F010 Pseudonymizat
     expect(batch2.data.hasMore).toBe(false);
     expect(batch2.data.nextPage).toBeNull();
 
-    // Byte-for-byte parity with independent known-good F010 vectors AND actual legacy F010 projection module
-    expect(batch1.data.rowDigests[0].key).toBe(EXPECTED_H1_UUID_0001);
-    expect(batch1.data.rowDigests[1].key).toBe(EXPECTED_H1_UUID_0002);
-
-    const legacyUrl = new URL('../../src/sync/extended-minimized-projection.mjs', import.meta.url)
-      .href;
-    const legacyMod = (await import(legacyUrl)) as {
-      projectMinimizedExtendedSnapshot: (args: {
-        endpoint: string;
-        pages: unknown[];
-        manifest: unknown;
-        privacyKeyB64: string;
-        runId: string;
-      }) => { rows: Array<{ key: string }> };
-    };
-    const manifest = JSON.parse(
-      readFileSync(new URL('../../docs/sheets-schema.json', import.meta.url), 'utf8'),
-    );
-    const derivedPrivacyKeyB64 = createHmac('sha256', Buffer.from(VALID_HMAC_KEY, 'base64'))
-      .update('THAIPHC_F010_PSEUDONYM_DERIVE_5406', 'utf8')
-      .digest('base64');
-    const legacyProjected = legacyMod.projectMinimizedExtendedSnapshot({
-      endpoint: 'assignments',
-      pages: [
-        {
-          provinces: [],
-          items: rows,
-          pagination: { page: 1, limit: 10, total: rows.length, pages: 1 },
-        },
-      ],
-      manifest,
-      privacyKeyB64: derivedPrivacyKeyB64,
-      runId: 'parity_test_run_01',
-    });
+    // ADR-0005 Full-Field Operator Mode: raw ThaiPHC id is used directly as _source_key (no HMAC required)
+    expect(batch1.data.rowDigests[0].key).toBe('SYNTHETIC-UUID-0001');
+    expect(batch1.data.rowDigests[1].key).toBe('SYNTHETIC-UUID-0002');
     const allBatchDigests = [...batch1.data.rowDigests, ...batch2.data.rowDigests];
-    expect(allBatchDigests.map((r) => r.key)).toEqual(legacyProjected.rows.map((r) => r.key));
 
-    // Finalize read-only preview from accumulated non-PII batch outputs
+    // Finalize read-only preview from accumulated batch outputs
     const preview = finalizePreviewWithPlatform(
       {
         endpoint: 'assignments',
@@ -245,7 +207,7 @@ describe('Assignments Person-Level Sync — Batched Preview & F010 Pseudonymizat
     expect(env.workbookStates.get(VALID_REPORT_SHEET_ID)!.sheets.has('Assignments')).toBe(false);
     expect(env.getFlushCount()).toBe(0);
 
-    // Diff counts, aggregate summary, nullable villageName, and LEGACY_F010_SNAPSHOT_PRESENT
+    // Diff counts, aggregate summary, nullable villageName, masked citizenId, and LEGACY_F010_SNAPSHOT_PRESENT
     expect(preview.data.paginationProtocol).toBe('assignment');
     expect(preview.data.destinationTab).toBe('Assignments');
     expect(preview.data.sourceTotal).toBe(5);
@@ -258,67 +220,71 @@ describe('Assignments Person-Level Sync — Batched Preview & F010 Pseudonymizat
       { groupCode: '540603', groupLabel: 'ห้วยหม้าย', rowCount: 2, reviewCount: 0 },
     ]);
 
-    // Nullable villageName preserved: row 1 is null, row 2 is safe Thai string
-    const sample1 = preview.data.sampleRows.find((r) => r.sourceKey === EXPECTED_H1_UUID_0001);
-    const sample2 = preview.data.sampleRows.find((r) => r.sourceKey === EXPECTED_H1_UUID_0002);
+    // Operator-identifying fullName & osmCode shown; citizenId masked server-side; nullable villageName preserved
+    const sample1 = preview.data.sampleRows.find((r) => r.sourceKey === 'SYNTHETIC-UUID-0001');
+    const sample2 = preview.data.sampleRows.find((r) => r.sourceKey === 'SYNTHETIC-UUID-0002');
     expect(sample1?.minimizedAttributes.find((a) => a.field === 'villageName')?.value).toBeNull();
+    expect(sample1?.minimizedAttributes.find((a) => a.field === 'citizenId')?.value).toBe(
+      '1-5406-xxxxx-xx-x',
+    );
+    expect(sample1?.minimizedAttributes.find((a) => a.field === 'fullName')?.value).toBe(
+      'นางสาว PRIVATE_FIRST_0001 PRIVATE_LAST_0001',
+    );
     expect(sample2?.minimizedAttributes.find((a) => a.field === 'villageName')?.value).toBe(
       'หมู่บ้านตัวอย่าง_0002',
     );
 
-    // Zero raw PII, zero HMAC key, and zero Bearer Token in any batch or finalized preview payload
+    // Raw 13-digit citizenId, HMAC key, and Bearer Token must NEVER appear in Preview payloads
     const serializedAll = JSON.stringify({ batch1, batch2, preview });
-    for (const secret of [
-      'SYNTHETIC-UUID-0001',
-      '99990000000001',
-      '1540600000001',
-      'PRIVATE_FIRST_0001',
-      'PRIVATE_LAST_0001',
-      'นางสาว',
-      'Miss',
-      VALID_HMAC_KEY,
-      VALID_BEARER,
-      'citizenId',
-      'firstName',
-      'lastName',
-      'fullName',
-      'osmCode',
-      'prefixNameTh',
-      'prefixNameEn',
-    ]) {
+    for (const secret of ['1540600000001', '1540600000002', VALID_HMAC_KEY, VALID_BEARER]) {
       expect(serializedAll).not.toContain(secret);
     }
   });
 
-  it('fails closed when THAIPHC_HMAC_KEY_B64 is missing or malformed (zero key echo), and hard-blocks strict Geographic Scope, nullable villageName type errors, formula injection, cross-batch duplicates, SOURCE_TOTAL_CHANGED, INCOMPLETE_SNAPSHOT, and HTTP_401', () => {
+  it('permits read-only Preview without THAIPHC_HMAC_KEY_B64 while failing closed on THAIPHC_FULL_PII_WRITE_ENABLED=false, and hard-blocks strict Geographic Scope, nullable villageName type errors, formula injection, cross-batch duplicates, SOURCE_TOTAL_CHANGED, and HTTP_401', () => {
     const validRows = [makeAssignmentRow(1)];
 
-    // 1. Missing or malformed THAIPHC_HMAC_KEY_B64 -> STOP_BLOCKED: MISSING_HMAC_KEY (never echoes key)
-    const malformedKeys = [
-      undefined,
-      '',
-      'TOO_SHORT_KEY',
-      // 43 valid base64 chars + "=" but non-canonical trailing bits ('B' has index 1, not % 4 === 0)
-      `${'A'.repeat(42)}B=`,
-    ];
-    for (const badKey of malformedKeys) {
-      const badKeyEnv = createFakeAssignmentsEnv({
-        properties: { THAIPHC_HMAC_KEY_B64: badKey },
-        fetchHandler: () => jsonResponse(makeAssignmentPage(validRows, 1, 10)),
-      });
-      const res = previewDatasetBatchWithPlatform(
-        { endpoint: 'assignments', token: VALID_BEARER, startPage: 1, pageSize: 10 },
-        badKeyEnv.platform,
+    // 1. Preview succeeds without THAIPHC_HMAC_KEY_B64, and writeAllowed is false when THAIPHC_FULL_PII_WRITE_ENABLED=false
+    const noHmacGuardOffEnv = createFakeAssignmentsEnv({
+      properties: { THAIPHC_HMAC_KEY_B64: undefined, THAIPHC_FULL_PII_WRITE_ENABLED: 'false' },
+      fetchHandler: () => jsonResponse(makeAssignmentPage(validRows, 1, 10)),
+    });
+    const noHmacBatch = previewDatasetBatchWithPlatform(
+      { endpoint: 'assignments', token: VALID_BEARER, startPage: 1, pageSize: 10 },
+      noHmacGuardOffEnv.platform,
+    );
+    expect(noHmacBatch.ok && noHmacBatch.data.status === 'BATCH_OK').toBe(true);
+    if (noHmacBatch.ok && noHmacBatch.data.status === 'BATCH_OK') {
+      const noHmacFin = finalizePreviewWithPlatform(
+        {
+          endpoint: 'assignments',
+          sourceTotal: noHmacBatch.data.sourceTotal,
+          pagesFetched: noHmacBatch.data.pagesFetchedInBatch,
+          rowDigests: noHmacBatch.data.rowDigests,
+          aggregateSummary: noHmacBatch.data.aggregateSummary,
+          sampleCandidates: noHmacBatch.data.sampleCandidates,
+        },
+        noHmacGuardOffEnv.platform,
       );
-      expect(res.ok && res.data.status === 'STOP_BLOCKED').toBe(true);
-      if (res.ok && res.data.status === 'STOP_BLOCKED') {
-        expect(res.data.diagnostics[0].code).toBe('MISSING_HMAC_KEY');
+      expect(noHmacFin.ok && noHmacFin.data.status === 'READY').toBe(true);
+      if (noHmacFin.ok && noHmacFin.data.status === 'READY') {
+        expect(noHmacFin.data.writeAllowed).toBe(false);
+        expect(noHmacFin.data.blockedGuardReason).toBe('THAIPHC_FULL_PII_WRITE_ENABLED');
+        const blockedStage = stageLargeDatasetBatchWithPlatform(
+          {
+            endpoint: 'assignments',
+            token: VALID_BEARER,
+            expectedFingerprint: noHmacFin.data.fingerprint,
+            startPage: 1,
+            pageSize: 10,
+          },
+          noHmacGuardOffEnv.platform,
+        );
+        expect(blockedStage.ok && blockedStage.data.status === 'FAILED_STOP').toBe(true);
+        if (blockedStage.ok && blockedStage.data.status === 'FAILED_STOP') {
+          expect(blockedStage.data.stopCode).toBe('FULL_PII_WRITE_DISABLED');
+        }
       }
-      if (badKey && badKey.length > 0) {
-        expect(JSON.stringify(res)).not.toContain(badKey);
-      }
-      // Must fail closed BEFORE making any outbound ThaiPHC network request
-      expect(badKeyEnv.fetchCalls).toHaveLength(0);
     }
 
     // 2. Strict Geographic Scope (54 / 5406): out-of-district and subdistrict mismatches -> STOP_BLOCKED
@@ -437,7 +403,7 @@ describe('Assignments Person-Level Sync — Batched Preview & F010 Pseudonymizat
       expect(driftRes.data.diagnostics[0].code).toBe('SOURCE_TOTAL_CHANGED');
     }
 
-    // 5. Cross-batch duplicate h1_ key detected in finalizePreview -> STOP_BLOCKED: DUPLICATE_SOURCE_KEY
+    // 5. Cross-batch duplicate source key detected in finalizePreview -> STOP_BLOCKED: DUPLICATE_SOURCE_KEY
     const dupEnv = createFakeAssignmentsEnv({
       fetchHandler: () => jsonResponse(makeAssignmentPage(validRows, 1, 10)),
     });
@@ -448,8 +414,8 @@ describe('Assignments Person-Level Sync — Batched Preview & F010 Pseudonymizat
         sourceTotal: 2,
         pagesFetched: 2,
         rowDigests: [
-          { key: EXPECTED_H1_UUID_0001, rowDigest: dupDigest },
-          { key: EXPECTED_H1_UUID_0001, rowDigest: dupDigest },
+          { key: 'SYNTHETIC-UUID-0001', rowDigest: dupDigest },
+          { key: 'SYNTHETIC-UUID-0001', rowDigest: dupDigest },
         ],
         aggregateSummary: [],
         sampleCandidates: [],
@@ -588,10 +554,9 @@ describe('Assignments Person-Level Sync — Batched Preview & F010 Pseudonymizat
     expect(stageSheet!.hidden).toBe(true);
     // Live Assignments tab NOT touched during staging
     expect(reportWb.sheets.has('Assignments')).toBe(false);
-    // Zero raw PII inside staging tab
-    expect(JSON.stringify(stageSheet!.rows)).not.toMatch(
-      /SYNTHETIC-UUID|PRIVATE_FIRST|PRIVATE_LAST|154060000|9999000000/,
-    );
+    // Staging tab persists Full-Field Operator Mode columns (including raw id & citizenId)
+    expect(JSON.stringify(stageSheet!.rows)).toContain('SYNTHETIC-UUID-0001');
+    expect(JSON.stringify(stageSheet!.rows)).toContain('1540600000001');
 
     const stage2 = stageLargeDatasetBatchWithPlatform(
       {
@@ -640,10 +605,18 @@ describe('Assignments Person-Level Sync — Batched Preview & F010 Pseudonymizat
     expect(reportWb.sheets.has('_ThaiPHCReportCurrent')).toBe(true);
     expect(reportWb.sheets.has('ชีต1')).toBe(true);
 
-    // Verify Assignments tab has exact 25 columns (17 approved + 8 metadata), plain-text formats, native boolean isActive, null vs "" preserved, and ZERO PII
+    // Verify Assignments tab has exact 33 columns (25 full-field source + 8 metadata), plain-text formats, native boolean isActive, null vs "" preserved
     const assignSheet = reportWb.sheets.get('Assignments')!;
     expect(assignSheet.rows).toHaveLength(6); // 1 header + 5 rows
     expect(assignSheet.rows[0]).toEqual([
+      'id',
+      'osmCode',
+      'citizenId',
+      'prefixNameTh',
+      'prefixNameEn',
+      'firstName',
+      'lastName',
+      'fullName',
       'provinceCode',
       'provinceNameTh',
       'districtCode',
@@ -670,25 +643,25 @@ describe('Assignments Person-Level Sync — Batched Preview & F010 Pseudonymizat
       '_last_seen_run_id',
       '_row_digest',
     ]);
-    // Row 1 (index 1): villageName=null -> cell '', presence.villageName='NULL'; osmStatus='' -> presence.osmStatus='VALUE'; isActive=true (boolean)
-    expect(assignSheet.rows[1][7]).toBe('');
-    expect(assignSheet.rows[1][8]).toBe(true);
-    expect(assignSheet.rows[1][19]).toBe(EXPECTED_H1_UUID_0001);
-    const presenceRow1 = JSON.parse(String(assignSheet.rows[1][22]));
+    // Row 1 (index 1): full-field identity cols + villageName=null -> cell '', presence.villageName='NULL'; osmStatus='' -> presence.osmStatus='VALUE'; isActive=true (boolean)
+    expect(assignSheet.rows[1][0]).toBe('SYNTHETIC-UUID-0001');
+    expect(assignSheet.rows[1][2]).toBe('1540600000001');
+    expect(assignSheet.rows[1][7]).toBe('นางสาว PRIVATE_FIRST_0001 PRIVATE_LAST_0001');
+    expect(assignSheet.rows[1][15]).toBe('');
+    expect(assignSheet.rows[1][16]).toBe(true);
+    expect(assignSheet.rows[1][27]).toBe('SYNTHETIC-UUID-0001');
+    const presenceRow1 = JSON.parse(String(assignSheet.rows[1][30]));
     expect(presenceRow1.villageName).toBe('NULL');
     expect(presenceRow1.osmStatus).toBe('VALUE');
-    expect(presenceRow1).not.toHaveProperty('id');
-    expect(presenceRow1).not.toHaveProperty('citizenId');
+    expect(presenceRow1.citizenId).toBe('VALUE');
     // Row 2 (index 2): villageName='หมู่บ้านตัวอย่าง_0002' preserved
-    expect(assignSheet.rows[2][7]).toBe('หมู่บ้านตัวอย่าง_0002');
-    expect(assignSheet.rows[2][19]).toBe(EXPECTED_H1_UUID_0002);
-    // Plain-text '@' format on text & metadata columns, NOT on column 9 (isActive boolean)
+    expect(assignSheet.rows[2][15]).toBe('หมู่บ้านตัวอย่าง_0002');
+    expect(assignSheet.rows[2][27]).toBe('SYNTHETIC-UUID-0002');
+    // Plain-text '@' format on text & metadata columns (including citizenId C3), NOT on column 17 (isActive boolean)
     expect(assignSheet.numberFormats.get('C1')).toBe('@');
-    expect(assignSheet.numberFormats.get('C9')).toBeUndefined();
-    expect(assignSheet.numberFormats.get('C20')).toBe('@');
-    expect(JSON.stringify(assignSheet.rows)).not.toMatch(
-      /SYNTHETIC-UUID|PRIVATE_FIRST|PRIVATE_LAST|154060000|9999000000/,
-    );
+    expect(assignSheet.numberFormats.get('C3')).toBe('@');
+    expect(assignSheet.numberFormats.get('C17')).toBeUndefined();
+    expect(assignSheet.numberFormats.get('C28')).toBe('@');
 
     // --- Run 2: Repeatable Keyed Upsert (1 UPDATE, 1 INSERT, 3 UNCHANGED, 1 non-destructive MISSING_IN_SOURCE) ---
     sourceRows = [
@@ -734,8 +707,8 @@ describe('Assignments Person-Level Sync — Batched Preview & F010 Pseudonymizat
     }
     // Updated row 1 in-place, row 5 preserved, row 6 appended
     expect(assignSheet.rows).toHaveLength(7); // 1 header + 6 rows
-    expect(assignSheet.rows[1][7]).toBe('หนุนเหนือ (อัปเดต)');
-    expect(assignSheet.rows[1][8]).toBe(false);
+    expect(assignSheet.rows[1][15]).toBe('หนุนเหนือ (อัปเดต)');
+    expect(assignSheet.rows[1][16]).toBe(false);
     expect(reportWb.sheets.has(s2b1.data.stagingTabName)).toBe(false);
   });
 
@@ -1137,10 +1110,10 @@ describe('Assignments Person-Level Sync — Batched Preview & F010 Pseudonymizat
     }
   });
 
-  it('catches DESTINATION_CHANGED before staging and at finalize, rejects STAGING_DIGEST_MISMATCH and missing HMAC key at finalize, and prioritizes REVIEW/UPDATE samples ahead of UNCHANGED rows', () => {
+  it('catches DESTINATION_CHANGED before staging and at finalize, rejects STAGING_DIGEST_MISMATCH and disabled THAIPHC_FULL_PII_WRITE_ENABLED at finalize, and prioritizes REVIEW/UPDATE samples ahead of UNCHANGED rows', () => {
     // 1. Seed 56 committed rows so we can verify both destination-drift and 50-row sample prioritization
     let sourceRows = Array.from({ length: 56 }, (_, idx) => makeAssignmentRow(idx + 1));
-    let hmacKeyValue: string | undefined = VALID_HMAC_KEY;
+    let fullPiiWriteValue: string | undefined = 'true';
 
     const env = createFakeAssignmentsEnv({
       fetchHandler: (url) => {
@@ -1152,7 +1125,7 @@ describe('Assignments Person-Level Sync — Batched Preview & F010 Pseudonymizat
     });
     const origGetProperty = env.platform.getProperty;
     env.platform.getProperty = (key: string) =>
-      key === 'THAIPHC_HMAC_KEY_B64' ? (hmacKeyValue ?? null) : origGetProperty(key);
+      key === 'THAIPHC_FULL_PII_WRITE_ENABLED' ? (fullPiiWriteValue ?? null) : origGetProperty(key);
 
     const previewAll = () => {
       const b1 = previewDatasetBatchWithPlatform(
@@ -1224,7 +1197,7 @@ describe('Assignments Person-Level Sync — Batched Preview & F010 Pseudonymizat
     const reportWb = env.workbookStates.get(VALID_REPORT_SHEET_ID)!;
     const assignSheet = reportWb.sheets.get('Assignments')!;
 
-    // 3. Stage clean batch, then test MISSING_HMAC_KEY at finalize -> FAILED_STOP before live write
+    // 3. Stage clean batch, then test FULL_PII_WRITE_DISABLED at finalize -> FAILED_STOP before live write
     const sNext = stageLargeDatasetBatchWithPlatform(
       {
         endpoint: 'assignments',
@@ -1238,8 +1211,8 @@ describe('Assignments Person-Level Sync — Batched Preview & F010 Pseudonymizat
     );
     if (!sNext.ok || sNext.data.status !== 'BATCH_STAGED') throw new Error('expected staged');
 
-    hmacKeyValue = 'INVALID_HMAC_KEY';
-    const noHmacFin = finalizeLargeDatasetCommitWithPlatform(
+    fullPiiWriteValue = 'false';
+    const noFullPiiFin = finalizeLargeDatasetCommitWithPlatform(
       {
         endpoint: 'assignments',
         expectedFingerprint: pDiff.fingerprint,
@@ -1247,17 +1220,17 @@ describe('Assignments Person-Level Sync — Batched Preview & F010 Pseudonymizat
       },
       env.platform,
     );
-    expect(noHmacFin.ok && noHmacFin.data.status === 'FAILED_STOP').toBe(true);
-    if (noHmacFin.ok && noHmacFin.data.status === 'FAILED_STOP') {
-      expect(noHmacFin.data.stopCode).toBe('MISSING_HMAC_KEY');
+    expect(noFullPiiFin.ok && noFullPiiFin.data.status === 'FAILED_STOP').toBe(true);
+    if (noFullPiiFin.ok && noFullPiiFin.data.status === 'FAILED_STOP') {
+      expect(noFullPiiFin.data.stopCode).toBe('FULL_PII_WRITE_DISABLED');
     }
     expect(reportWb.sheets.has(sNext.data.stagingTabName)).toBe(true);
-    hmacKeyValue = VALID_HMAC_KEY;
+    fullPiiWriteValue = 'true';
 
     // 4. Tamper a cell in hidden _Stage_* tab -> STAGING_DIGEST_MISMATCH before live mutation, _Stage_* retained
     const stageSheet = reportWb.sheets.get(sNext.data.stagingTabName)!;
-    const originalStagedVal = stageSheet.rows[2][10];
-    stageSheet.rows[2][10] = 'TAMPERED_STATUS';
+    const originalStagedVal = stageSheet.rows[2][18];
+    stageSheet.rows[2][18] = 'TAMPERED_STATUS';
     const tamperedFin = finalizeLargeDatasetCommitWithPlatform(
       {
         endpoint: 'assignments',
@@ -1272,10 +1245,10 @@ describe('Assignments Person-Level Sync — Batched Preview & F010 Pseudonymizat
       expect(tamperedFin.data.stagingTabRetained).toBe(sNext.data.stagingTabName);
     }
     expect(reportWb.sheets.has(sNext.data.stagingTabName)).toBe(true);
-    stageSheet.rows[2][10] = originalStagedVal;
+    stageSheet.rows[2][18] = originalStagedVal;
 
     // 5. External out-of-band edit to live Assignments tab between staging and finalize -> PREVIEW_STALE_RECONFIRM_REQUIRED (DESTINATION_CHANGED)
-    assignSheet.rows[1][9] = 'EDITED_EXTERNALLY';
+    assignSheet.rows[1][17] = 'EDITED_EXTERNALLY';
     const destDriftFin = finalizeLargeDatasetCommitWithPlatform(
       {
         endpoint: 'assignments',
@@ -1291,7 +1264,7 @@ describe('Assignments Person-Level Sync — Batched Preview & F010 Pseudonymizat
       expect(destDriftFin.data.driftReason).toBe('DESTINATION_CHANGED');
     }
     // Live row 55 was NOT mutated
-    expect(assignSheet.rows[55][9]).toBe('ใช้งาน');
+    expect(assignSheet.rows[55][17]).toBe('ใช้งาน');
 
     // 6. DESTINATION_CHANGED detected immediately on stage batch 1 -> stops BEFORE creating any new _Stage_* tab
     const sheetCountBefore = reportWb.sheets.size;

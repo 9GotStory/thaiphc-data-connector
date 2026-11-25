@@ -22,12 +22,11 @@ function isWriteGuardAllowedForDataset(
   if (ds.group === 'reference') {
     return data.guards.writeEnabled;
   }
-  const requiresHmac = DATASET_DISPLAY_META[ds.endpoint].usesHmacPseudonym;
   return (
     data.guards.writeEnabled &&
     data.guards.personDataWriteEnabled &&
-    data.guards.reportWorkbookApproved &&
-    (!requiresHmac || data.guards.hmacKeyConfigured)
+    data.guards.fullPiiWriteEnabled &&
+    data.guards.reportWorkbookApproved
   );
 }
 
@@ -92,7 +91,7 @@ function DatasetRadioCard({
         {isExtended && (
           <Badge variant="neutral">
             <Lock className="size-3 shrink-0" strokeWidth={1.75} aria-hidden="true" />
-            <span>Minimized Projection</span>
+            <span>Full-Field (ADR-0005)</span>
           </Badge>
         )}
         {meta.policyTag && <Badge variant="neutral">{meta.policyTag}</Badge>}

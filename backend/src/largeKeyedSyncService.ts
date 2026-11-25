@@ -1,4 +1,8 @@
-import { computeDatasetDigest } from './cellValidation.ts';
+import {
+  computeDatasetDigest,
+  FORMULA_INJECTION_PATTERN,
+  hasAsciiControlChar,
+} from './cellValidation.ts';
 import {
   finalizeVolunteerFamilyCommitWithPlatform,
   finalizeVolunteerFamilyPreviewWithPlatform,
@@ -16,6 +20,7 @@ import {
 } from './datasetCatalog.ts';
 import {
   formatExtendedScopeLabel,
+  maskCitizenIdForPreview,
   mergeAggregateSummary,
   validateAndProjectLargeKeyedRows,
 } from './extendedReportProjection.ts';
@@ -33,11 +38,7 @@ import {
   withLockedCommitWorkbook,
   type DestinationState,
 } from './keyedSyncCore.ts';
-import {
-  createF010Pseudonymizer,
-  PSEUDONYMOUS_KEY_PATTERN,
-  SHA256_HEX_PATTERN,
-} from './pseudonymizer.ts';
+import { SHA256_HEX_PATTERN } from './pseudonymizer.ts';
 import {
   cellToString,
   detectLegacySnapshot,
@@ -167,6 +168,16 @@ const VALID_INCOMING_REVIEW_REASONS: ReadonlySet<string> = new Set<ReviewReasonC
   'LOCALITY_MISMATCH',
 ]);
 
+function isValidSourceKey(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= 256 &&
+    !hasAsciiControlChar(value) &&
+    !FORMULA_INJECTION_PATTERN.test(value)
+  );
+}
+
 function buildExtendedMissingSampleRow(
   schema: KeyedDatasetSchemaSpec,
   dest: DestinationState,
@@ -183,6 +194,17 @@ function buildExtendedMissingSampleRow(
   const villageNameIdx = schema.fields.findIndex((f) => f.name === 'villageName');
   const rawVillageName = villageNameIdx >= 0 ? cellToString(existing.cells[villageNameIdx]) : '';
   const rawVillageCode = villageCodeIdx >= 0 ? cellToString(existing.cells[villageCodeIdx]) : '';
+  const minimizedAttributes = schema.summaryFieldNames.map((fieldName) => {
+    const idx = schema.fields.findIndex((f) => f.name === fieldName);
+    const rawStr = idx >= 0 ? cellToString(existing.cells[idx]) : '';
+    const value =
+      rawStr.length === 0
+        ? null
+        : fieldName === 'citizenId'
+          ? maskCitizenIdForPreview(rawStr)
+          : rawStr;
+    return { field: fieldName, value };
+  });
   return {
     diffKind: 'REVIEW',
     sourceKey: existing.key,
@@ -193,7 +215,7 @@ function buildExtendedMissingSampleRow(
       villageName: rawVillageName.length > 0 ? rawVillageName : null,
       villageCode: rawVillageCode.length > 0 ? rawVillageCode : undefined,
     }),
-    minimizedAttributes: [],
+    minimizedAttributes,
     reviewReasons: ['MISSING_IN_SOURCE'],
   };
 }
@@ -222,12 +244,7 @@ function selectPrioritizedPreviewSamples(
   }
 
   for (const cand of candidates) {
-    if (
-      !cand ||
-      typeof cand.sourceKey !== 'string' ||
-      !PSEUDONYMOUS_KEY_PATTERN.test(cand.sourceKey) ||
-      seenSampleKeys.has(cand.sourceKey)
-    ) {
+    if (!cand || !isValidSourceKey(cand.sourceKey) || seenSampleKeys.has(cand.sourceKey)) {
       continue;
     }
     const diffKind = incomingDiffKindByKey.get(cand.sourceKey);
@@ -317,24 +334,6 @@ export function previewDatasetBatchWithPlatform(
       );
     }
 
-    // Fail closed BEFORE any outbound ThaiPHC network request if HMAC key is missing/malformed
-    const pseudoInit = createF010Pseudonymizer(
-      platform.getProperty('THAIPHC_HMAC_KEY_B64'),
-      platform,
-    );
-    if (!pseudoInit.ok) {
-      return {
-        ok: true,
-        data: {
-          status: 'STOP_BLOCKED',
-          endpoint: ctx.endpoint,
-          env: ctx.env,
-          pagesFetchedInBatch: 0,
-          diagnostics: [{ code: pseudoInit.code, message: pseudoInit.message }],
-        },
-      };
-    }
-
     const effectivePageSize =
       request.pageSize !== undefined &&
       Number.isSafeInteger(request.pageSize) &&
@@ -380,7 +379,6 @@ export function previewDatasetBatchWithPlatform(
       ctx.endpoint,
       fetchResult.items,
       platform.sha256Hex,
-      (rawId) => pseudoInit.pseudonymizer.deriveKey(ctx.endpoint, rawId),
       rowIndexOffset,
     );
     if (!projected.ok) {
@@ -494,20 +492,6 @@ export function finalizePreviewWithPlatform(
 
     const logSummary = readEndpointSyncLogSummary(spreadsheet, ctx.endpoint);
 
-    const pseudoInit = createF010Pseudonymizer(
-      platform.getProperty('THAIPHC_HMAC_KEY_B64'),
-      platform,
-    );
-    if (!pseudoInit.ok) {
-      return makeBlockedFinalizePreview(
-        ctx,
-        previewedAtUtc,
-        pagesFetched,
-        [{ code: pseudoInit.code, message: pseudoInit.message }],
-        logSummary.unresolvedRun,
-      );
-    }
-
     if (
       !Number.isSafeInteger(request.sourceTotal) ||
       request.sourceTotal < 1 ||
@@ -543,8 +527,7 @@ export function finalizePreviewWithPlatform(
       const entry = request.rowDigests[i];
       if (
         !entry ||
-        typeof entry.key !== 'string' ||
-        !PSEUDONYMOUS_KEY_PATTERN.test(entry.key) ||
+        !isValidSourceKey(entry.key) ||
         typeof entry.rowDigest !== 'string' ||
         !SHA256_HEX_PATTERN.test(entry.rowDigest)
       ) {
@@ -555,7 +538,7 @@ export function finalizePreviewWithPlatform(
           [
             {
               code: 'TYPE_MISMATCH',
-              message: `Malformed pseudonym or row digest entry at row #${i + 1}.`,
+              message: `Malformed source key or row digest entry at row #${i + 1}.`,
               rowIndex: i,
             },
           ],
@@ -755,14 +738,14 @@ export function stageLargeDatasetBatchWithPlatform(
       {
         expectedFingerprint: request.expectedFingerprint,
         confirmationPhrase: request.confirmationPhrase,
-        requireHmacKey: true,
+        requireHmacKey: false,
       },
       platform,
     );
     if (!preLock.ok) {
       return preLock.response;
     }
-    const { expectedFp, pseudonymizer } = preLock;
+    const { expectedFp } = preLock;
 
     if (!Number.isSafeInteger(request.startPage) || request.startPage < 1) {
       return makeCommitStop(
@@ -906,7 +889,6 @@ export function stageLargeDatasetBatchWithPlatform(
           ctx.endpoint,
           fetchResult.items,
           platform.sha256Hex,
-          (rawId) => pseudonymizer!.deriveKey(ctx.endpoint, rawId),
           rowIndexOffset,
         );
         if (!projected.ok) {
@@ -1070,7 +1052,7 @@ export function finalizeLargeDatasetCommitWithPlatform(
         expectedFingerprint: request.expectedFingerprint,
         confirmationPhrase: request.confirmationPhrase,
         runId,
-        requireHmacKey: true,
+        requireHmacKey: false,
       },
       platform,
     );

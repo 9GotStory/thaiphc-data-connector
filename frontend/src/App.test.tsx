@@ -47,11 +47,10 @@ describe('ThaiPHC Data Connector Dashboard Shell (Frontend GasRpcTransport Seam)
     // Read-only Write Guards: never interactive switches or checkboxes
     expect(screen.getByText('THAIPHC_WRITE_ENABLED')).toBeInTheDocument();
     expect(screen.getByText('THAIPHC_PERSON_DATA_WRITE_ENABLED')).toBeInTheDocument();
+    expect(screen.getAllByText('THAIPHC_FULL_PII_WRITE_ENABLED').length).toBeGreaterThanOrEqual(1);
     expect(screen.queryAllByRole('switch')).toHaveLength(0);
     expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
-    expect(screen.getAllByText(/อ่านอย่างเดียว — แก้ไขได้เฉพาะใน Google Apps Script/).length).toBe(2);
-    expect(screen.getByText(/THAIPHC_HMAC_KEY_B64/)).toBeInTheDocument();
-    expect(screen.getByText(/กำหนดค่าแล้ว/)).toBeInTheDocument();
+    expect(screen.getAllByText(/อ่านอย่างเดียว — แก้ไขได้เฉพาะใน Google Apps Script/).length).toBe(3);
 
     // Two distinct dataset groups
     const refSection = screen.getByRole('region', { name: /ชุดข้อมูลอ้างอิงพื้นฐาน/ });
@@ -173,10 +172,10 @@ describe('ThaiPHC Data Connector Dashboard Shell (Frontend GasRpcTransport Seam)
     resolveStatus!(unapprovedData);
 
     expect(await screen.findByText(/ยังไม่อนุมัติการเขียนรายงานลงสมุดงานเดียวกัน/)).toBeInTheDocument();
-    expect(screen.getByText(/ยังไม่กำหนดค่า \(บล็อกรายงานบุคคล\)/)).toBeInTheDocument();
+    expect(screen.getByText(/ปิดอยู่ \(บล็อก Commit รายงานขยาย\)/)).toBeInTheDocument();
   });
 
-  it('reflects independent Write Guard state on Extended Report header, enforces HMAC requirement in Sync Workspace, and falls back to disclosure when Clipboard API is absent', async () => {
+  it('reflects independent Write Guard state on Extended Report header, enforces THAIPHC_FULL_PII_WRITE_ENABLED requirement in Sync Workspace, and falls back to disclosure when Clipboard API is absent', async () => {
     const user = userEvent.setup();
     const baseData = await new MockGasTransport({
       scenario: 'sandbox-default',
@@ -190,6 +189,7 @@ describe('ThaiPHC Data Connector Dashboard Shell (Frontend GasRpcTransport Seam)
           guards: {
             writeEnabled: false,
             personDataWriteEnabled: true,
+            fullPiiWriteEnabled: true,
             hmacKeyConfigured: false,
             reportWorkbookApproved: true,
           },
@@ -212,7 +212,7 @@ describe('ThaiPHC Data Connector Dashboard Shell (Frontend GasRpcTransport Seam)
     try {
       const firstRender = renderApp(customTransport);
 
-      // Extended Report header badge reflects THAIPHC_PERSON_DATA_WRITE_ENABLED (ON) accurately
+      // Extended Report header badge reflects THAIPHC_PERSON_DATA_WRITE_ENABLED + THAIPHC_FULL_PII_WRITE_ENABLED (ON)
       const extSection = await screen.findByRole('region', { name: /ชุดข้อมูลรายงานขยาย/ });
       expect(within(extSection).getByText('ON')).toBeInTheDocument();
 
@@ -226,8 +226,8 @@ describe('ThaiPHC Data Connector Dashboard Shell (Frontend GasRpcTransport Seam)
       ).toBeGreaterThanOrEqual(1);
       firstRender.unmount();
 
-      // Even if writeEnabled & personDataWriteEnabled are ON, missing HMAC key blocks pseudonymized dataset in Sync Workspace
-      const allWritesNoHmacTransport: GasRpcTransport = {
+      // Even if writeEnabled & personDataWriteEnabled are ON, fullPiiWriteEnabled OFF blocks Extended Report writes in Sync Workspace
+      const fullPiiOffTransport: GasRpcTransport = {
         mode: 'mock',
         async getDashboardStatus() {
           return {
@@ -235,6 +235,7 @@ describe('ThaiPHC Data Connector Dashboard Shell (Frontend GasRpcTransport Seam)
             guards: {
               writeEnabled: true,
               personDataWriteEnabled: true,
+              fullPiiWriteEnabled: false,
               hmacKeyConfigured: false,
               reportWorkbookApproved: true,
             },
@@ -247,7 +248,7 @@ describe('ThaiPHC Data Connector Dashboard Shell (Frontend GasRpcTransport Seam)
         stageLargeDatasetBatch: (req) => new MockGasTransport().stageLargeDatasetBatch(req),
         finalizeLargeDatasetCommit: (req) => new MockGasTransport().finalizeLargeDatasetCommit(req),
       };
-      renderApp(allWritesNoHmacTransport);
+      renderApp(fullPiiOffTransport);
       const nav = screen.getByRole('navigation', { name: 'เมนูหลัก' });
       await user.click(within(nav).getByRole('button', { name: 'พื้นที่ซิงก์ข้อมูล' }));
       const extGroup = await screen.findByRole('group', { name: /ชุดข้อมูลรายงานขยาย/ });

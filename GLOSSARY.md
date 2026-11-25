@@ -54,16 +54,24 @@ _Avoid_: Old sheet, obsolete backup
 
 ### Privacy & Identity
 
+**Full-Field Operator Mode**:
+The authorized Web App operating mode (ADR-0005) in which all observed source columns of the five Extended Report Datasets—including direct personal identifiers and unsuppressed `volunteer-gender` counts—are persisted to controlled Google Sheets under explicit server-side guards (`THAIPHC_FULL_PII_WRITE_ENABLED`) so district officers can audit and correct upstream ThaiPHC records.
+_Avoid_: Unprotected dump, raw export
+
+**Masked Preview Identifier**:
+The browser-display representation of a 13-digit `citizenId` masked server-side before returning to the Preview UI (e.g., `1-5406-xxxxx-xx-x`) to reduce on-screen exposure while exact text is persisted to Google Sheets on Commit.
+_Avoid_: Redacted citizen ID, hashed citizen ID
+
 **Minimized Projection**:
-The privacy-reduced representation of an Extended Report Dataset with direct personal identifiers omitted before preview display or storage.
+The legacy F010 privacy-reduced representation of an Extended Report Dataset with direct personal identifiers omitted before preview display or storage (superseded in the Web App by Full-Field Operator Mode per ADR-0005).
 _Avoid_: Redacted dump, anonymized export
 
 **Pseudonymous Key**:
-A deterministic, domain-separated keyed identifier (`h1_...`) derived from a source person record ID so repeatable updates match existing records without storing direct personal identifiers.
+A legacy F010 deterministic, domain-separated keyed identifier (`h1_...`) derived from a source person record ID (superseded in the Web App by raw ThaiPHC `id` per ADR-0005).
 _Avoid_: Citizen hash, person ID, raw key
 
 **Complementary Small-Cell Suppression**:
-The privacy rule for `volunteer-gender` that suppresses both `male` and `female` counts whenever any of `male`, `female`, or `total` falls in `1..4` (and suppresses `total` if below `5`) to prevent disclosure by subtraction.
+The legacy F010 privacy rule for `volunteer-gender` that suppressed counts in `1..4` to prevent disclosure by subtraction (disabled in Web App Full-Field Operator Mode per ADR-0005 so actual village counts are recorded).
 _Avoid_: Low-count hiding, value masking
 
 **Preserve Source Locality**:

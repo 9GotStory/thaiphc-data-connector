@@ -783,22 +783,29 @@ function verifyPersistedFamilySnapshotRows(
         };
       }
       const pState = parsedPresence[field.name];
-      if (pState !== 'ABSENT' && pState !== 'VALUE') {
+      if (pState !== 'ABSENT' && pState !== 'NULL' && pState !== 'VALUE') {
         return {
           ok: false,
           code: 'STAGING_DIGEST_MISMATCH',
           message: `Snapshot row #${i + 1} has invalid presence state for "${field.name}".`,
         };
       }
+      if (pState === 'NULL' && field.kind !== 'string_or_null') {
+        return {
+          ok: false,
+          code: 'STAGING_DIGEST_MISMATCH',
+          message: `Snapshot row #${i + 1} has unexpected NULL presence for non-nullable "${field.name}".`,
+        };
+      }
       presence[field.name] = pState;
       const cell = cells[fieldColIndices[fIdx]];
 
-      if (pState === 'ABSENT') {
+      if (pState === 'ABSENT' || pState === 'NULL') {
         if (cell !== '' && cell !== null && cell !== undefined) {
           return {
             ok: false,
             code: 'STAGING_DIGEST_MISMATCH',
-            message: `Snapshot row #${i + 1} cell "${field.name}" does not match ABSENT presence.`,
+            message: `Snapshot row #${i + 1} cell "${field.name}" does not match ${pState} presence.`,
           };
         }
         values.push(null);

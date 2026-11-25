@@ -29,21 +29,6 @@ const SUBDISTRICTS_5406 = [
   { code: '540608', nameTh: 'เตาปูน', nameEn: 'Tao Pun' },
 ] as const;
 
-function computeIndependentF010Pseudonym(
-  hmacKeyB64: string,
-  endpoint: string,
-  rawId: string,
-): string {
-  const masterKey = Buffer.from(hmacKeyB64, 'base64');
-  const derivedKey = createHmac('sha256', masterKey)
-    .update('THAIPHC_F010_PSEUDONYM_DERIVE_5406', 'utf8')
-    .digest();
-  const hex = createHmac('sha256', derivedKey)
-    .update(`THAIPHC_REDACTED_REPORT_V1\0${endpoint}\0${rawId}`, 'utf8')
-    .digest('hex');
-  return `h1_${hex}`;
-}
-
 function build8Subdistricts(): Array<Record<string, unknown>> {
   return SUBDISTRICTS_5406.map((s) => ({
     code: s.code,
@@ -200,6 +185,7 @@ function createCompiledBundleVmHarness(opts: {
     THAIPHC_SAME_WORKBOOK_APPROVAL: 'OWNER_ONLY_5406_APPROVED',
     THAIPHC_WRITE_ENABLED: 'true',
     THAIPHC_PERSON_DATA_WRITE_ENABLED: 'true',
+    THAIPHC_FULL_PII_WRITE_ENABLED: 'true',
     THAIPHC_HMAC_KEY_B64: VALID_HMAC_KEY,
     ...opts.properties,
   };
@@ -577,6 +563,7 @@ describe('GAS Backend Bundle & Single-File HTML Verification (node:vm)', () => {
       properties: {
         THAIPHC_WRITE_ENABLED: 'true',
         THAIPHC_PERSON_DATA_WRITE_ENABLED: 'false',
+        THAIPHC_FULL_PII_WRITE_ENABLED: 'false',
       },
       initialSheets: [
         { name: 'ชีต1', rows: [['baseline-keep', 'do-not-touch']] },
@@ -734,7 +721,7 @@ describe('GAS Backend Bundle & Single-File HTML Verification (node:vm)', () => {
       expect(refSheet.state.numberFormats.some((fmt) => fmt.endsWith(':@'))).toBe(true);
     }
 
-    // 4. VolunteerGender (fail-closed when THAIPHC_PERSON_DATA_WRITE_ENABLED=false, then READY + LEGACY_F010_SNAPSHOT_PRESENT + Small-Cell Suppression)
+    // 4. VolunteerGender (fail-closed when PERSON_DATA or FULL_PII write guards are false, then READY + LEGACY_F010_SNAPSHOT_PRESENT + unsuppressed counts per ADR-0005)
     const vgPrevBlocked = roundTripJson(
       context.previewDataset({ endpoint: 'volunteer-gender', token: VALID_VM_TOKEN }),
     );
@@ -744,35 +731,38 @@ describe('GAS Backend Bundle & Single-File HTML Verification (node:vm)', () => {
     expect(vgPrevBlocked.data.blockedGuardReason).toBe('THAIPHC_PERSON_DATA_WRITE_ENABLED');
     expect(vgPrevBlocked.data.legacySnapshotPresent).toBe(true);
     expect(vgPrevBlocked.data.legacySnapshotTab).toBe('RGender_f010_20261119');
-    expect(vgPrevBlocked.data.reviewBreakdown).toEqual({ SMALL_CELL_SUPPRESSED: 1 });
+    expect(vgPrevBlocked.data.reviewBreakdown).toEqual({});
 
     properties.THAIPHC_PERSON_DATA_WRITE_ENABLED = 'true';
+    const vgPrevFullPiiBlocked = roundTripJson(
+      context.previewDataset({ endpoint: 'volunteer-gender', token: VALID_VM_TOKEN }),
+    );
+    expect(vgPrevFullPiiBlocked.ok).toBe(true);
+    expect(vgPrevFullPiiBlocked.data.writeAllowed).toBe(false);
+    expect(vgPrevFullPiiBlocked.data.blockedGuardReason).toBe('THAIPHC_FULL_PII_WRITE_ENABLED');
+
+    properties.THAIPHC_FULL_PII_WRITE_ENABLED = 'true';
     const vgCommit = roundTripJson(
       context.commitSmallDataset({
         endpoint: 'volunteer-gender',
         token: VALID_VM_TOKEN,
-        expectedFingerprint: vgPrevBlocked.data.fingerprint,
+        expectedFingerprint: vgPrevFullPiiBlocked.data.fingerprint,
       }),
     );
     expect(vgCommit.ok).toBe(true);
     expect(vgCommit.data.status).toBe('COMMITTED_VERIFIED');
     expect(vgCommit.data.destinationTab).toBe('VolunteerGender');
+    const vgSheet = sheets.find((s) => s.getName() === 'VolunteerGender')!;
+    expect(vgSheet.state.rows[1][10]).toBe(3); // actual unsuppressed male count
 
-    // Helper for the 3 large Keyed Upsert person-level Extended Reports
+    // Helper for the 3 large Keyed Upsert person-level Extended Reports (ADR-0005 Full-Field Operator Mode)
     const runLargeKeyedReport = (
       endpoint: 'assignments' | 'resigned-volunteers' | 'volunteer-tenure',
       expectedTab: string,
       expectedLegacyTab: string,
-      expectedGoldenH1: string,
+      expectedColumnCount: number,
       expectedReviewBreakdown: Record<string, number>,
     ) => {
-      const independentH1 = computeIndependentF010Pseudonym(
-        VALID_HMAC_KEY,
-        endpoint,
-        'SYNTHETIC-UUID-0001',
-      );
-      expect(independentH1).toBe(expectedGoldenH1);
-
       const batch = roundTripJson(
         context.previewDatasetBatch({
           endpoint,
@@ -784,10 +774,10 @@ describe('GAS Backend Bundle & Single-File HTML Verification (node:vm)', () => {
       );
       expect(batch.ok).toBe(true);
       expect(batch.data.status).toBe('BATCH_OK');
-      expect(batch.data.rowDigests[0].key).toBe(independentH1);
-      expect(JSON.stringify(batch)).not.toMatch(
-        /PRIVATE_VM_|1540600000001|99990000000001|SYNTHETIC-UUID-0001/,
-      );
+      expect(batch.data.rowDigests[0].key).toBe('SYNTHETIC-UUID-0001');
+      // Raw 13-digit citizenId must be masked server-side in Preview payloads
+      expect(JSON.stringify(batch)).not.toContain('1540600000001');
+      expect(JSON.stringify(batch)).toContain('1-5406-xxxxx-xx-x');
 
       const preview = roundTripJson(
         context.finalizePreview({
@@ -804,6 +794,7 @@ describe('GAS Backend Bundle & Single-File HTML Verification (node:vm)', () => {
       expect(preview.data.legacySnapshotPresent).toBe(true);
       expect(preview.data.legacySnapshotTab).toBe(expectedLegacyTab);
       expect(preview.data.reviewBreakdown).toEqual(expectedReviewBreakdown);
+      expect(JSON.stringify(preview)).not.toContain('1540600000001');
 
       const staged = roundTripJson(
         context.stageLargeDatasetBatch({
@@ -835,38 +826,26 @@ describe('GAS Backend Bundle & Single-File HTML Verification (node:vm)', () => {
       expect(committed.data.readback.stagingTabCleaned).toBe(true);
       expect(sheets.some((s) => s.getName() === staged.data.stagingTabName)).toBe(false);
       expect(JSON.stringify(committed)).not.toMatch(
-        new RegExp(`PRIVATE_VM_|${VALID_HMAC_KEY}|${VALID_VM_TOKEN}`),
+        new RegExp(`1540600000001|${VALID_HMAC_KEY}|${VALID_VM_TOKEN}`),
       );
+      const destSheet = sheets.find((s) => s.getName() === expectedTab)!;
+      expect(destSheet.state.rows[0]).toHaveLength(expectedColumnCount);
+      expect(JSON.stringify(destSheet.state.rows)).toContain('1540600000001');
+      expect(JSON.stringify(destSheet.state.rows)).toContain('SYNTHETIC-UUID-0001');
     };
 
-    // 5. Assignments (F010 h1_ parity + _Stage_* cleanup + RAssign_* preserved)
-    runLargeKeyedReport(
-      'assignments',
-      'Assignments',
-      'RAssign_f010_20261119',
-      'h1_4f10838fd01347c17a887f30804cd7ec9096af7fca7e3a42e837654f96a31da0',
-      {},
-    );
+    // 5. Assignments (33-col Full-Field + _Stage_* cleanup + RAssign_* preserved)
+    runLargeKeyedReport('assignments', 'Assignments', 'RAssign_f010_20261119', 33, {});
 
-    // 6. ResignedVolunteers (F010 h1_ parity + Preserve Source Locality LOCALITY_MISMATCH + _Stage_* cleanup + RResign_* preserved)
-    runLargeKeyedReport(
-      'resigned-volunteers',
-      'ResignedVolunteers',
-      'RResign_f010_20261119',
-      'h1_94cbfd42e553f1f6601ffb2b901651695dd1ce7f0809229599e0e0ed0002125f',
-      { LOCALITY_MISMATCH: 1 },
-    );
+    // 6. ResignedVolunteers (26-col Full-Field + Preserve Source Locality LOCALITY_MISMATCH + _Stage_* cleanup + RResign_* preserved)
+    runLargeKeyedReport('resigned-volunteers', 'ResignedVolunteers', 'RResign_f010_20261119', 26, {
+      LOCALITY_MISMATCH: 1,
+    });
 
-    // 7. VolunteerTenure (F010 h1_ parity + nullable fields + _Stage_* cleanup + RTenure_* preserved)
-    runLargeKeyedReport(
-      'volunteer-tenure',
-      'VolunteerTenure',
-      'RTenure_f010_20261119',
-      'h1_66126a00e8b2fc885553b574702c7b19f069a6455edaa9d650d62ff9b528b4b0',
-      {},
-    );
+    // 7. VolunteerTenure (29-col Full-Field + nullable fields + _Stage_* cleanup + RTenure_* preserved)
+    runLargeKeyedReport('volunteer-tenure', 'VolunteerTenure', 'RTenure_f010_20261119', 29, {});
 
-    // 8. VolunteerFamily (Complete Snapshot + Preserve Source Locality + _ThaiPHCReportCurrent Publication Pointer)
+    // 8. VolunteerFamily (29-col Full-Field Complete Snapshot + Preserve Source Locality + _ThaiPHCReportCurrent Publication Pointer)
     const famBatch = roundTripJson(
       context.previewDatasetBatch({
         endpoint: 'volunteer-family',
@@ -880,9 +859,10 @@ describe('GAS Backend Bundle & Single-File HTML Verification (node:vm)', () => {
     expect(famBatch.data.status).toBe('BATCH_OK');
     expect(famBatch.data.rowDigests[0].key).toBe('snapshot_preview_00001');
     expect(famBatch.data.rowDigests[0].reviewReasons).toEqual(['LOCALITY_MISMATCH']);
-    expect(JSON.stringify(famBatch)).not.toMatch(
-      /PRIVATE_VM_FAMILY|PRIVATE_VM_ADDR|1540600000099|99990000000099|SYNTHETIC-VM-VOL-UUID|PRIVATE_VM_VOL_NAME/,
-    );
+    // Raw 13-digit citizenId must be masked in Preview, while operator-identifying fullName is surfaced
+    expect(JSON.stringify(famBatch)).not.toContain('1540600000099');
+    expect(JSON.stringify(famBatch)).toContain('1-5406-xxxxx-xx-x');
+    expect(JSON.stringify(famBatch)).toContain('PRIVATE_VM_FAMILY_FIRST');
 
     const famPreview = roundTripJson(
       context.finalizePreview({
@@ -972,13 +952,14 @@ describe('GAS Backend Bundle & Single-File HTML Verification (node:vm)', () => {
       rowCount: 1,
     });
     expect(propertyMutations).toEqual([]);
-    expect(JSON.stringify(dashFinal)).not.toMatch(/PRIVATE_VM_|MDEyMzQ1Njc4OWFiY2Rl/);
-    // E. Zero raw PII written to any sheet in the workbook
-    for (const sheet of sheets) {
-      expect(JSON.stringify(sheet.state.rows)).not.toMatch(
-        /PRIVATE_VM_|1540600000001|1540600000099|99990000000001|99990000000099|SYNTHETIC-UUID-0001|SYNTHETIC-VM-VOL-UUID/,
-      );
-    }
+    expect(JSON.stringify(dashFinal)).not.toMatch(
+      /PRIVATE_VM_|1540600000001|1540600000099|MDEyMzQ1Njc4OWFiY2Rl/,
+    );
+    // E. Full-Field Operator Mode persisted full VolunteerFamily snapshot columns in Sheets (21 source + 5 metadata = 26 cols on row 2)
+    expect(famSheetObj.state.rows[1]).toHaveLength(26);
+    expect(JSON.stringify(famSheetObj.state.rows)).toContain('1540600000099');
+    expect(JSON.stringify(famSheetObj.state.rows)).toContain('PRIVATE_VM_FAMILY_FIRST');
+    expect(JSON.stringify(famSheetObj.state.rows)).toContain('PRIVATE_VM_ADDR_99/1');
   });
 
   it('preserves Missing in Source rows without auto-deletion and retains hidden _Stage_* tabs on failure vs post-readback cleanup in node:vm', () => {

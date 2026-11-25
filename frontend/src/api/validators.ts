@@ -80,6 +80,7 @@ const VALID_DIFF_KINDS: ReadonlySet<string> = new Set<DiffKind>([
 const VALID_BLOCKED_GUARD_REASONS: ReadonlySet<string> = new Set<BlockedGuardReason>([
   'THAIPHC_WRITE_ENABLED',
   'THAIPHC_PERSON_DATA_WRITE_ENABLED',
+  'THAIPHC_FULL_PII_WRITE_ENABLED',
   'THAIPHC_SAME_WORKBOOK_APPROVAL',
   'THAIPHC_REPORT_SPREADSHEET_ID',
 ]);
@@ -123,6 +124,7 @@ const VALID_COMMIT_STOP_CODES: ReadonlySet<string> = new Set<CommitStopCode>([
   ...PREVIEW_STOP_CODE_LIST,
   'WRITE_DISABLED',
   'PERSON_DATA_WRITE_DISABLED',
+  'FULL_PII_WRITE_DISABLED',
   'SAME_WORKBOOK_UNAPPROVED',
   'INVALID_REPORT_WORKBOOK',
   'PRODUCTION_CONFIRMATION_REQUIRED',
@@ -592,6 +594,10 @@ export function parseDashboardStatusResponse(raw: unknown): DashboardStatusData 
     personDataWriteEnabled: assertBoolean(
       data.guards.personDataWriteEnabled,
       'guards.personDataWriteEnabled',
+    ),
+    fullPiiWriteEnabled: assertBoolean(
+      data.guards.fullPiiWriteEnabled,
+      'guards.fullPiiWriteEnabled',
     ),
     hmacKeyConfigured: assertBoolean(data.guards.hmacKeyConfigured, 'guards.hmacKeyConfigured'),
     reportWorkbookApproved: assertBoolean(

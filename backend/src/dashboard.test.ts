@@ -139,6 +139,7 @@ describe('getDashboardStatus (Backend GAS RPC Seam)', () => {
     expect(res.data.guards).toEqual({
       writeEnabled: false,
       personDataWriteEnabled: false,
+      fullPiiWriteEnabled: false,
       hmacKeyConfigured: true,
       reportWorkbookApproved: true,
     });
@@ -202,6 +203,7 @@ describe('getDashboardStatus (Backend GAS RPC Seam)', () => {
         THAIPHC_REPORT_SPREADSHEET_ID: VALID_REPORT_SHEET_ID,
         THAIPHC_WRITE_ENABLED: 'true',
         THAIPHC_PERSON_DATA_WRITE_ENABLED: 'true',
+        THAIPHC_FULL_PII_WRITE_ENABLED: 'true',
         THAIPHC_HMAC_KEY_B64: VALID_HMAC_KEY_B64,
       },
       spreadsheets: {
@@ -393,6 +395,7 @@ describe('getDashboardStatus (Backend GAS RPC Seam)', () => {
     expect(res.data.guards).toEqual({
       writeEnabled: true,
       personDataWriteEnabled: true,
+      fullPiiWriteEnabled: true,
       hmacKeyConfigured: true,
       reportWorkbookApproved: true,
     });

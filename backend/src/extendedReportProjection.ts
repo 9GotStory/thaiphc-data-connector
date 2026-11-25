@@ -10,14 +10,10 @@ import {
   type FieldPresence,
 } from './cellValidation.ts';
 import {
-  ASSIGNMENTS_RESTRICTED_SOURCE_FIELDS,
   ASSIGNMENTS_SCHEMA,
-  RESIGNED_VOLUNTEERS_RESTRICTED_SOURCE_FIELDS,
   RESIGNED_VOLUNTEERS_SCHEMA,
-  VOLUNTEER_FAMILY_RESTRICTED_SOURCE_FIELDS,
   VOLUNTEER_FAMILY_SCHEMA,
   VOLUNTEER_GENDER_SCHEMA,
-  VOLUNTEER_TENURE_RESTRICTED_SOURCE_FIELDS,
   VOLUNTEER_TENURE_SCHEMA,
   type KeyedDatasetSchemaSpec,
 } from './datasetCatalog.ts';
@@ -32,6 +28,34 @@ import type {
 export const SMALL_CELL_THRESHOLD = 5;
 const POSITIVE_VILLAGE_NO_PATTERN = /^0*[1-9]\d{0,2}$/;
 const NON_NEGATIVE_VILLAGE_NO_PATTERN = /^\d{1,3}$/;
+
+/**
+ * Masks a 13-digit Thai citizenId for Preview UI display (ADR-0005), e.g.:
+ * "1540612345678" -> "1-5406-xxxxx-xx-x".
+ * Full unmasked citizenId values are written only to Google Sheets during Commit.
+ */
+export function maskCitizenIdForPreview(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  const digits = trimmed.replace(/-/g, '');
+  if (/^\d{13}$/.test(digits)) {
+    return `${digits[0]}-${digits.slice(1, 5)}-xxxxx-xx-x`;
+  }
+  const prefixLen = Math.min(4, trimmed.length);
+  return `${trimmed.slice(0, prefixLen)}•••••`;
+}
+
+function formatPreviewAttributeValue(
+  fieldName: string,
+  val: string | number | boolean | null | undefined,
+): string | null {
+  if (val === null || val === undefined) return null;
+  if (fieldName === 'citizenId') {
+    return maskCitizenIdForPreview(String(val));
+  }
+  return String(val);
+}
 
 export interface ProjectedVolunteerGenderRow {
   key: string;
@@ -294,13 +318,11 @@ export function validateAndProjectVolunteerGenderRows(
 
     seenKeys.add(key);
 
-    // Apply server-side Complementary Small-Cell Suppression BEFORE constructing stored values or preview rows
-    const suppressed = applyComplementarySmallCellSuppression(rawMale, rawFemale, rawTotal);
-
-    const projectedCountByField: Record<string, number | null> = {
-      total: suppressed.total,
-      male: suppressed.male,
-      female: suppressed.female,
+    // ADR-0005 Full-Field Operator Mode: persist actual non-negative integer counts without 1..4 suppression
+    const projectedCountByField: Record<string, number> = {
+      total: rawTotal,
+      male: rawMale,
+      female: rawFemale,
     };
 
     const values: Array<string | number | null> = [];
@@ -310,7 +332,7 @@ export function validateAndProjectVolunteerGenderRows(
       if (field.kind === 'integer') {
         const countVal = projectedCountByField[field.name];
         values.push(countVal);
-        presence[field.name] = countVal === null ? 'NULL' : 'VALUE';
+        presence[field.name] = 'VALUE';
       } else {
         const strVal = validatedStrings.get(field.name);
         values.push(strVal === undefined ? null : strVal);
@@ -318,11 +340,8 @@ export function validateAndProjectVolunteerGenderRows(
       }
     }
 
-    // Uniform F010 _row_digest over post-suppression minimized values & presence (zero pre-suppression leakage)
     const rowDigest = sha256Hex(JSON.stringify([values, presence]));
-    const reviewReasons: ReviewReasonCode[] = suppressed.suppressed
-      ? ['SMALL_CELL_SUPPRESSED']
-      : [];
+    const reviewReasons: ReviewReasonCode[] = [];
 
     const subdistrictCode = validatedStrings.get('subdistrictCode') ?? '';
     const subdistrictName = validatedStrings.get('subdistrictName') ?? subdistrictCode;
@@ -336,23 +355,20 @@ export function validateAndProjectVolunteerGenderRows(
     });
 
     const minimizedAttributes: ExtendedMinimizedAttribute[] = [
-      { field: 'total', value: suppressed.total === null ? null : String(suppressed.total) },
-      { field: 'male', value: suppressed.male === null ? null : String(suppressed.male) },
-      { field: 'female', value: suppressed.female === null ? null : String(suppressed.female) },
+      { field: 'total', value: String(rawTotal) },
+      { field: 'male', value: String(rawMale) },
+      { field: 'female', value: String(rawFemale) },
     ];
 
     const groupEntry = subdistrictAgg.get(subdistrictCode);
     if (groupEntry) {
       groupEntry.rowCount += 1;
-      if (suppressed.suppressed) {
-        groupEntry.reviewCount += 1;
-      }
     } else {
       subdistrictAgg.set(subdistrictCode, {
         groupCode: subdistrictCode,
         groupLabel: subdistrictName,
         rowCount: 1,
-        reviewCount: suppressed.suppressed ? 1 : 0,
+        reviewCount: 0,
       });
     }
 
@@ -386,7 +402,7 @@ export function validateAndProjectVolunteerGenderRows(
 }
 
 export interface ProjectedPersonKeyedRow {
-  key: string; // F010 h1_<64-hex> Pseudonymous Key
+  key: string; // Raw ThaiPHC source `id` (ADR-0005 Full-Field Operator Mode)
   values: Array<string | number | boolean | null>;
   presence: Record<string, FieldPresence>;
   rowDigest: string;
@@ -411,14 +427,12 @@ export type PersonKeyedValidationResult =
 interface PersonKeyedProjectionConfig {
   readonly schema: KeyedDatasetSchemaSpec<LargeKeyedDatasetEndpoint>;
   readonly allowedSourceFields: ReadonlySet<string>;
-  readonly nonKeyRestrictedFields: readonly string[];
   readonly subdistrictNameField: 'subdistrictNameTh' | 'subdistrictName';
   readonly hasVillageCode: boolean;
 }
 
 function buildPersonKeyedConfig(
   schema: KeyedDatasetSchemaSpec<LargeKeyedDatasetEndpoint>,
-  restrictedFields: readonly string[],
   opts: {
     subdistrictNameField: 'subdistrictNameTh' | 'subdistrictName';
     hasVillageCode: boolean;
@@ -426,11 +440,7 @@ function buildPersonKeyedConfig(
 ): PersonKeyedProjectionConfig {
   return {
     schema,
-    allowedSourceFields: new Set<string>([
-      ...restrictedFields,
-      ...schema.fields.map((f) => f.name),
-    ]),
-    nonKeyRestrictedFields: restrictedFields.filter((name) => name !== schema.keyField),
+    allowedSourceFields: new Set<string>(schema.fields.map((f) => f.name)),
     ...opts,
   };
 }
@@ -438,42 +448,32 @@ function buildPersonKeyedConfig(
 const PERSON_KEYED_CONFIGS: Readonly<
   Record<LargeKeyedDatasetEndpoint, PersonKeyedProjectionConfig>
 > = {
-  assignments: buildPersonKeyedConfig(ASSIGNMENTS_SCHEMA, ASSIGNMENTS_RESTRICTED_SOURCE_FIELDS, {
+  assignments: buildPersonKeyedConfig(ASSIGNMENTS_SCHEMA, {
     subdistrictNameField: 'subdistrictNameTh',
     hasVillageCode: false,
   }),
-  'resigned-volunteers': buildPersonKeyedConfig(
-    RESIGNED_VOLUNTEERS_SCHEMA,
-    RESIGNED_VOLUNTEERS_RESTRICTED_SOURCE_FIELDS,
-    {
-      subdistrictNameField: 'subdistrictName',
-      hasVillageCode: true,
-    },
-  ),
-  'volunteer-tenure': buildPersonKeyedConfig(
-    VOLUNTEER_TENURE_SCHEMA,
-    VOLUNTEER_TENURE_RESTRICTED_SOURCE_FIELDS,
-    {
-      subdistrictNameField: 'subdistrictName',
-      hasVillageCode: true,
-    },
-  ),
+  'resigned-volunteers': buildPersonKeyedConfig(RESIGNED_VOLUNTEERS_SCHEMA, {
+    subdistrictNameField: 'subdistrictName',
+    hasVillageCode: true,
+  }),
+  'volunteer-tenure': buildPersonKeyedConfig(VOLUNTEER_TENURE_SCHEMA, {
+    subdistrictNameField: 'subdistrictName',
+    hasVillageCode: true,
+  }),
 };
 
 /**
- * Server-side Minimized Projection for person-level Keyed Upsert datasets:
- * - Strips all RESTRICTED_DEFAULT_OMIT fields before returning or storing anything.
+ * Server-side Full-Field Operator Mode projection for person-level Keyed Upsert datasets (ADR-0005):
+ * - Validates and retains all observed source columns for authorized Google Sheets storage.
+ * - Masks 13-digit `citizenId` in Preview UI attributes while keeping full values for Commit.
  * - Enforces Geographic Scope (54 / 5406) on provinceCode and districtCode as a hard gate.
- * - Applies dataset-specific Preserve Source Locality strictly where configured
- *   (`resigned-volunteers`: lower-level subdistrict/village mismatches retain original values
- *   unaltered and surface as `REVIEW` [`LOCALITY_MISMATCH`]; other datasets hard-block).
- * - Derives deterministic F010 `h1_<64-hex>` Pseudonymous Keys via `derivePseudonym(rawId)`.
+ * - Applies Preserve Source Locality strictly where configured (`resigned-volunteers`).
+ * - Uses the raw ThaiPHC `id` directly as `_source_key`.
  */
 export function validateAndProjectLargeKeyedRows(
   endpoint: LargeKeyedDatasetEndpoint,
   rawItems: readonly unknown[],
   sha256Hex: (input: string) => string,
-  derivePseudonym: (rawId: string) => string,
   rowIndexOffset = 0,
 ): PersonKeyedValidationResult {
   const config = PERSON_KEYED_CONFIGS[endpoint];
@@ -528,30 +528,7 @@ export function validateAndProjectLargeKeyedRows(
 
     let rowFailed = false;
 
-    // Validate remaining RESTRICTED_DEFAULT_OMIT fields without retaining or echoing values.
-    // Explicit null is permitted on omitted non-key PII fields (never persisted or returned).
-    for (const restrictedName of config.nonKeyRestrictedFields) {
-      if (!hasOwn(raw, restrictedName) || raw[restrictedName] === null) continue;
-      try {
-        assertSafeString(raw[restrictedName], restrictedName);
-      } catch (err) {
-        const code = err instanceof CellValidationError ? err.code : 'TYPE_MISMATCH';
-        diagnostics.push({
-          code,
-          message:
-            err instanceof CellValidationError
-              ? err.message
-              : `Row #${globalRowIndex + 1} restricted field "${restrictedName}" failed validation.`,
-          field: restrictedName,
-          rowIndex: globalRowIndex,
-        });
-        rowFailed = true;
-        break;
-      }
-    }
-    if (rowFailed) continue;
-
-    // Validate and extract strictly ALLOW_ONLY_IF_DATASET_APPROVED columns
+    // Validate and extract all observed source columns (ADR-0005 Full-Field Operator Mode)
     const values: Array<string | number | boolean | null> = [];
     const presence: Record<string, FieldPresence> = {};
     const approvedByName = new Map<string, string | number | boolean | null>();
@@ -674,8 +651,7 @@ export function validateAndProjectLargeKeyedRows(
 
     seenRawIds.add(rawId);
 
-    // Derive deterministic F010 h1_ key and discard rawId immediately
-    const pseudonymousKey = derivePseudonym(rawId);
+    // ADR-0005 Full-Field Operator Mode: use raw source `id` directly as `_source_key`
     const rowDigest = sha256Hex(JSON.stringify([values, presence]));
 
     const subdistrictCode = String(approvedByName.get('subdistrictCode') ?? '');
@@ -698,13 +674,10 @@ export function validateAndProjectLargeKeyedRows(
     });
 
     const minimizedAttributes: ExtendedMinimizedAttribute[] = schema.summaryFieldNames.map(
-      (fieldName) => {
-        const val = approvedByName.get(fieldName);
-        return {
-          field: fieldName,
-          value: val === null || val === undefined ? null : String(val),
-        };
-      },
+      (fieldName) => ({
+        field: fieldName,
+        value: formatPreviewAttributeValue(fieldName, approvedByName.get(fieldName)),
+      }),
     );
 
     const groupCode = subdistrictCode.length > 0 ? subdistrictCode : 'UNSPECIFIED';
@@ -726,7 +699,7 @@ export function validateAndProjectLargeKeyedRows(
     }
 
     projectedRows.push({
-      key: pseudonymousKey,
+      key: rawId,
       values,
       presence,
       rowDigest,
@@ -788,10 +761,9 @@ export function mergeAggregateSummary(
   );
 }
 
-const VOLUNTEER_FAMILY_ALLOWED_SOURCE_FIELDS: ReadonlySet<string> = new Set<string>([
-  ...VOLUNTEER_FAMILY_RESTRICTED_SOURCE_FIELDS,
-  ...VOLUNTEER_FAMILY_SCHEMA.fields.map((f) => f.name),
-]);
+const VOLUNTEER_FAMILY_ALLOWED_SOURCE_FIELDS: ReadonlySet<string> = new Set<string>(
+  VOLUNTEER_FAMILY_SCHEMA.fields.map((f) => f.name),
+);
 
 export interface ProjectedVolunteerFamilyRow {
   ordinal: number; // 1-based global snapshot ordinal
@@ -890,30 +862,7 @@ export function validateAndProjectVolunteerFamilyRows(
 
     let rowFailed = false;
 
-    // Validate all 9 RESTRICTED_DEFAULT_OMIT fields without retaining or echoing values.
-    // Explicit null is permitted on omitted PII fields (e.g., citizenId: null on family rows).
-    for (const restrictedName of VOLUNTEER_FAMILY_RESTRICTED_SOURCE_FIELDS) {
-      if (!hasOwn(raw, restrictedName) || raw[restrictedName] === null) continue;
-      try {
-        assertSafeString(raw[restrictedName], restrictedName);
-      } catch (err) {
-        const code = err instanceof CellValidationError ? err.code : 'TYPE_MISMATCH';
-        diagnostics.push({
-          code,
-          message:
-            err instanceof CellValidationError
-              ? err.message
-              : `Row #${globalRowIndex + 1} restricted field "${restrictedName}" failed validation.`,
-          field: restrictedName,
-          rowIndex: globalRowIndex,
-        });
-        rowFailed = true;
-        break;
-      }
-    }
-    if (rowFailed) continue;
-
-    // Validate and extract strictly the 12 ALLOW_ONLY_IF_DATASET_APPROVED columns
+    // Validate and extract all 21 observed source columns (ADR-0005 Full-Field Operator Mode)
     const values: Array<string | null> = [];
     const presence: Record<string, FieldPresence> = {};
     const approvedByName = new Map<string, string | null>();
@@ -925,8 +874,15 @@ export function validateAndProjectVolunteerFamilyRows(
         approvedByName.set(field.name, null);
         continue;
       }
+      const rawVal = raw[field.name];
+      if (field.kind === 'string_or_null' && rawVal === null) {
+        values.push(null);
+        presence[field.name] = 'NULL';
+        approvedByName.set(field.name, null);
+        continue;
+      }
       try {
-        const safeStr = assertSafeString(raw[field.name], field.name);
+        const safeStr = assertSafeString(rawVal, field.name);
         values.push(safeStr);
         presence[field.name] = 'VALUE';
         approvedByName.set(field.name, safeStr);
@@ -987,7 +943,7 @@ export function validateAndProjectVolunteerFamilyRows(
     const minimizedAttributes: ExtendedMinimizedAttribute[] = schema.summaryFieldNames.map(
       (fieldName) => ({
         field: fieldName,
-        value: approvedByName.get(fieldName) ?? null,
+        value: formatPreviewAttributeValue(fieldName, approvedByName.get(fieldName)),
       }),
     );
 

@@ -349,13 +349,19 @@ export function computePreviewFingerprint(
   counts: DiffCounts,
   sha256Hex: (input: string) => string,
 ): PreviewFingerprint {
+  const canonicalCounts: DiffCounts = {
+    insert: counts.insert,
+    update: counts.update,
+    unchanged: counts.unchanged,
+    review: counts.review,
+  };
   const core = {
     endpoint,
     env,
     sourceTotal,
     datasetDigest,
     sheetRevisionFingerprint,
-    counts,
+    counts: canonicalCounts,
   };
   const fingerprintDigest = sha256Hex(JSON.stringify(core));
   return {
@@ -408,7 +414,7 @@ export function verifyPreviewFingerprintIntegrity(
     };
   }
 
-  return { ok: true, fingerprint: expectedFp };
+  return { ok: true, fingerprint: recomputed };
 }
 
 export function countKeyedDiffByDigest(

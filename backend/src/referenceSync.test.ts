@@ -1093,4 +1093,68 @@ describe('Reference Datasets Repeatable Sync (Backend GAS RPC Seam)', () => {
     expect(corruptLog[1][5]).toBe('FAILED_STOP');
     expect(corruptLog[1][11]).toBe(false);
   });
+
+  it('verifies Preview Fingerprint canonically even when google.script.run reorders nested counts keys on client->server RPC', () => {
+    const rows = [
+      makeSubdistrictRow('540601', 'บ้านหนุน', 'Ban Nun'),
+      makeSubdistrictRow('540602', 'บ้านกลาง', 'Ban Klang'),
+    ];
+    const env = createFakeSyncEnv({
+      fetchHandler: () => jsonResponse({ items: rows }),
+    });
+
+    const preview = previewDatasetWithPlatform(
+      { endpoint: 'subdistricts', token: VALID_BEARER },
+      env.platform,
+    );
+    if (!preview.ok || preview.data.status !== 'READY') {
+      throw new Error(`expected READY preview, got ${JSON.stringify(preview)}`);
+    }
+
+    // Simulate google.script.run deserializing `expectedFingerprint.counts` with reordered keys
+    // (e.g., alphabetical key order from server-side RPC map)
+    const reorderedFingerprint = {
+      ...preview.data.fingerprint,
+      counts: {
+        insert: preview.data.fingerprint.counts.insert,
+        review: preview.data.fingerprint.counts.review,
+        unchanged: preview.data.fingerprint.counts.unchanged,
+        update: preview.data.fingerprint.counts.update,
+      },
+    };
+
+    const committed = commitSmallDatasetWithPlatform(
+      {
+        endpoint: 'subdistricts',
+        token: VALID_BEARER,
+        expectedFingerprint: reorderedFingerprint,
+      },
+      env.platform,
+    );
+    expect(committed.ok).toBe(true);
+    if (!committed.ok) throw new Error('expected ok');
+    expect(committed.data.status).toBe('COMMITTED_VERIFIED');
+
+    // Genuine tampering of a count value must still fail closed with INVALID_FINGERPRINT
+    const tamperedFingerprint = {
+      ...reorderedFingerprint,
+      counts: {
+        ...reorderedFingerprint.counts,
+        insert: reorderedFingerprint.counts.insert + 1,
+      },
+    };
+    const tampered = commitSmallDatasetWithPlatform(
+      {
+        endpoint: 'subdistricts',
+        token: VALID_BEARER,
+        expectedFingerprint: tamperedFingerprint,
+      },
+      env.platform,
+    );
+    expect(
+      tampered.ok &&
+        tampered.data.status === 'FAILED_STOP' &&
+        tampered.data.stopCode === 'INVALID_FINGERPRINT',
+    ).toBe(true);
+  });
 });

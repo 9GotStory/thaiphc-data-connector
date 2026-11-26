@@ -1,5 +1,3 @@
-import { createHmac } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   finalizeLargeDatasetCommitWithPlatform,
@@ -20,16 +18,6 @@ const VALID_REF_SHEET_ID = TEST_REF_SHEET_ID;
 const VALID_REPORT_SHEET_ID = TEST_REPORT_SHEET_ID;
 const VALID_BEARER = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.synthetic_ticket06_token_999';
 const VALID_HMAC_KEY = TEST_HMAC_KEY_B64;
-
-// Independent F010 two-step HMAC-SHA256 test vectors for VALID_HMAC_KEY
-const EXPECTED_RESIGNED_H1_0001 =
-  'h1_94cbfd42e553f1f6601ffb2b901651695dd1ce7f0809229599e0e0ed0002125f';
-const EXPECTED_RESIGNED_H1_0002 =
-  'h1_fcb6128f32000892beab47f11e2a9cbb664302b88ddb1f7188cf595a3b947898';
-const EXPECTED_TENURE_H1_0001 =
-  'h1_66126a00e8b2fc885553b574702c7b19f069a6455edaa9d650d62ff9b528b4b0';
-const EXPECTED_TENURE_H1_0002 =
-  'h1_62124706588b971ec6f8d9c91f9006453c7d72e9d45537113519b5d4fbd36d47';
 
 const createFakeReportEnv = createFakeSyncPlatformEnv;
 const jsonResponse = jsonHttpResponse;
@@ -299,36 +287,10 @@ describe('Resigned Volunteers & Volunteer Tenure Sync (Backend GAS RPC Seam)', (
       expect(call.options.muteHttpExceptions).toBe(true);
     }
 
-    // Verify byte-for-byte F010 h1_ parity against both independent literals AND legacy projection
+    // ADR-0005 Full-Field Operator Mode: raw ThaiPHC id is used directly as _source_key
     const allDigests = [...batch1.data.rowDigests, ...batch2.data.rowDigests];
-    expect(allDigests[0].key).toBe(EXPECTED_RESIGNED_H1_0001);
-    expect(allDigests[1].key).toBe(EXPECTED_RESIGNED_H1_0002);
-
-    const legacyUrl = new URL('../../src/sync/extended-minimized-projection.mjs', import.meta.url)
-      .href;
-    const legacyMod = (await import(legacyUrl)) as {
-      projectMinimizedExtendedSnapshot: (args: {
-        endpoint: string;
-        pages: unknown[];
-        manifest: unknown;
-        privacyKeyB64: string;
-        runId: string;
-      }) => { rows: Array<{ key: string }> };
-    };
-    const manifest = JSON.parse(
-      readFileSync(new URL('../../docs/sheets-schema.json', import.meta.url), 'utf8'),
-    );
-    const derivedKeyB64 = createHmac('sha256', Buffer.from(VALID_HMAC_KEY, 'base64'))
-      .update('THAIPHC_F010_PSEUDONYM_DERIVE_5406', 'utf8')
-      .digest('base64');
-    const legacyOut = legacyMod.projectMinimizedExtendedSnapshot({
-      endpoint: 'resigned-volunteers',
-      manifest,
-      privacyKeyB64: derivedKeyB64,
-      runId: 'f010_resign_parity_1',
-      pages: [makeReportPage(rows, 1, 10)],
-    });
-    expect(allDigests.map((d) => d.key)).toEqual(legacyOut.rows.map((r) => r.key));
+    expect(allDigests[0].key).toBe('SYNTHETIC-UUID-0001');
+    expect(allDigests[1].key).toBe('SYNTHETIC-UUID-0002');
 
     // Finalize read-only preview
     const previewRes = finalizePreviewWithPlatform(
@@ -365,20 +327,26 @@ describe('Resigned Volunteers & Volunteer Tenure Sync (Backend GAS RPC Seam)', (
     expect(localitySamples[0].scopeLabel).toContain('540210');
     expect(localitySamples[0].scopeLabel).toContain('540603006');
     expect(localitySamples[1].scopeLabel).toContain('540303004');
-    // Nullable retirementReason=null is surfaced cleanly as null
+    // Nullable retirementReason=null is surfaced cleanly as null, and citizenId is masked server-side
     const nullReasonSample = previewRes.data.sampleRows.find(
-      (r) => r.sourceKey === EXPECTED_RESIGNED_H1_0001,
+      (r) => r.sourceKey === 'SYNTHETIC-UUID-0001',
     );
     expect(nullReasonSample?.minimizedAttributes).toContainEqual({
       field: 'retirementReason',
       value: null,
     });
+    expect(nullReasonSample?.minimizedAttributes).toContainEqual({
+      field: 'citizenId',
+      value: '1-5406-xxxxx-xx-x',
+    });
+    expect(nullReasonSample?.minimizedAttributes).toContainEqual({
+      field: 'firstName',
+      value: 'PRIVATE_RESIGN_FIRST_0001',
+    });
 
-    // Zero raw PII and zero HMAC secret in any preview response
+    // Raw 13-digit citizenId, HMAC secret, and Bearer Token must NEVER appear in Preview responses
     const serialized = JSON.stringify({ batch1, batch2, previewRes });
-    expect(serialized).not.toMatch(
-      /PRIVATE_RESIGN_FIRST|PRIVATE_RESIGN_LAST|1540600000001|SYNTHETIC-UUID-0001/,
-    );
+    expect(serialized).not.toContain('1540600000001');
     expect(serialized).not.toContain(VALID_HMAC_KEY);
     expect(serialized).not.toContain(VALID_BEARER);
 
@@ -586,9 +554,13 @@ describe('Resigned Volunteers & Volunteer Tenure Sync (Backend GAS RPC Seam)', (
     expect(reportWb.sheets.get('RResign_f010_20261119')?.rows).toEqual([['legacy-keep']]);
     expect(reportWb.sheets.get('ชีต1')?.rows).toEqual([['keep-report']]);
 
-    // Verify ResignedVolunteers schema (14 approved + 8 uniform metadata = 22 columns)
+    // Verify ResignedVolunteers schema (18 full-field source + 8 uniform metadata = 26 columns)
     const destSheet = reportWb.sheets.get('ResignedVolunteers')!;
     expect(destSheet.rows[0]).toEqual([
+      'id',
+      'citizenId',
+      'firstName',
+      'lastName',
       'retirementDate',
       'retirementReason',
       'osmStatus',
@@ -612,21 +584,23 @@ describe('Resigned Volunteers & Volunteer Tenure Sync (Backend GAS RPC Seam)', (
       '_last_seen_run_id',
       '_row_digest',
     ]);
-    // Row 1 (normal, retirementReason=null): _quality_status='VALID', retirementReason='' with presence NULL
-    expect(destSheet.rows[1][1]).toBe('');
-    expect(destSheet.rows[1][16]).toBe(EXPECTED_RESIGNED_H1_0001);
-    expect(destSheet.rows[1][18]).toBe('VALID');
-    expect(JSON.parse(String(destSheet.rows[1][19])).retirementReason).toBe('NULL');
+    // Row 1 (normal, retirementReason=null): full-field identity + _quality_status='VALID', retirementReason='' with presence NULL
+    expect(destSheet.rows[1][0]).toBe('SYNTHETIC-UUID-0001');
+    expect(destSheet.rows[1][1]).toBe('1540600000001');
+    expect(destSheet.rows[1][5]).toBe('');
+    expect(destSheet.rows[1][20]).toBe('SYNTHETIC-UUID-0001');
+    expect(destSheet.rows[1][22]).toBe('VALID');
+    expect(JSON.parse(String(destSheet.rows[1][23])).retirementReason).toBe('NULL');
     // Row 2 (Preserve Source Locality mismatch): subdistrictCode='540210', villageCode='540603006', villageNo='6' UNALTERED + _quality_status='WARNING'
-    expect(destSheet.rows[2][9]).toBe('540210');
-    expect(destSheet.rows[2][11]).toBe('540603006');
-    expect(destSheet.rows[2][12]).toBe('6');
-    expect(destSheet.rows[2][16]).toBe(EXPECTED_RESIGNED_H1_0002);
-    expect(destSheet.rows[2][18]).toBe('WARNING');
+    expect(destSheet.rows[2][13]).toBe('540210');
+    expect(destSheet.rows[2][15]).toBe('540603006');
+    expect(destSheet.rows[2][16]).toBe('6');
+    expect(destSheet.rows[2][20]).toBe('SYNTHETIC-UUID-0002');
+    expect(destSheet.rows[2][22]).toBe('WARNING');
     // Row 3 (Preserve Source Locality mismatch): villageCode='540303004', villageNo='10' UNALTERED + _quality_status='WARNING'
-    expect(destSheet.rows[3][11]).toBe('540303004');
-    expect(destSheet.rows[3][12]).toBe('10');
-    expect(destSheet.rows[3][18]).toBe('WARNING');
+    expect(destSheet.rows[3][15]).toBe('540303004');
+    expect(destSheet.rows[3][16]).toBe('10');
+    expect(destSheet.rows[3][22]).toBe('WARNING');
 
     // Sync log recorded exact counts (including review=2)
     const syncLog = reportWb.sheets.get('_ThaiPHCSyncLog')!;
@@ -700,8 +674,8 @@ describe('Resigned Volunteers & Volunteer Tenure Sync (Backend GAS RPC Seam)', (
     expect(run2Commit.data.readback.expectedRowCount).toBe(4);
     expect(run2Commit.data.readback.actualRowCount).toBe(4);
     expect(destSheet.rows).toHaveLength(5); // header + 4 rows
-    expect(destSheet.rows[1][1]).toBe('resigned'); // updated in place
-    expect(destSheet.rows[3][11]).toBe('540303004'); // row 3 preserved untouched
+    expect(destSheet.rows[1][5]).toBe('resigned'); // updated in place
+    expect(destSheet.rows[3][15]).toBe('540303004'); // row 3 preserved untouched
   });
 
   it('volunteer-tenure: fetches sequentially via report pagination with exact dual locality query params, honors all 7 observed F010 nullable fields (0 vs null, empty string vs null), derives byte-for-byte F010 h1_ pseudonyms, strips all 5 restricted PII fields, and detects RTenure_* legacy snapshot', async () => {
@@ -809,36 +783,8 @@ describe('Resigned Volunteers & Volunteer Tenure Sync (Backend GAS RPC Seam)', (
     );
 
     const allDigests = [...batch1.data.rowDigests, ...batch2.data.rowDigests];
-    expect(allDigests[0].key).toBe(EXPECTED_TENURE_H1_0001);
-    expect(allDigests[1].key).toBe(EXPECTED_TENURE_H1_0002);
-    // Domain separation: identical raw UUID produces distinct h1_ keys across endpoints
-    expect(EXPECTED_TENURE_H1_0001).not.toBe(EXPECTED_RESIGNED_H1_0001);
-
-    const legacyUrl = new URL('../../src/sync/extended-minimized-projection.mjs', import.meta.url)
-      .href;
-    const legacyMod = (await import(legacyUrl)) as {
-      projectMinimizedExtendedSnapshot: (args: {
-        endpoint: string;
-        pages: unknown[];
-        manifest: unknown;
-        privacyKeyB64: string;
-        runId: string;
-      }) => { rows: Array<{ key: string }> };
-    };
-    const manifest = JSON.parse(
-      readFileSync(new URL('../../docs/sheets-schema.json', import.meta.url), 'utf8'),
-    );
-    const derivedKeyB64 = createHmac('sha256', Buffer.from(VALID_HMAC_KEY, 'base64'))
-      .update('THAIPHC_F010_PSEUDONYM_DERIVE_5406', 'utf8')
-      .digest('base64');
-    const legacyOut = legacyMod.projectMinimizedExtendedSnapshot({
-      endpoint: 'volunteer-tenure',
-      manifest,
-      privacyKeyB64: derivedKeyB64,
-      runId: 'f010_tenure_parity_1',
-      pages: [makeReportPage(rows, 1, 10)],
-    });
-    expect(allDigests.map((d) => d.key)).toEqual(legacyOut.rows.map((r) => r.key));
+    expect(allDigests[0].key).toBe('SYNTHETIC-UUID-0001');
+    expect(allDigests[1].key).toBe('SYNTHETIC-UUID-0002');
 
     // Simulate GAS google.script.run stripping `null` object properties on client->server args
     const wireCandidates = [...batch1.data.sampleCandidates, ...batch2.data.sampleCandidates].map(
@@ -879,11 +825,12 @@ describe('Resigned Volunteers & Volunteer Tenure Sync (Backend GAS RPC Seam)', (
     expect(
       previewRes.data.sampleRows[0].minimizedAttributes.find((a) => a.field === 'startYear')?.value,
     ).toBeNull();
+    expect(
+      previewRes.data.sampleRows[0].minimizedAttributes.find((a) => a.field === 'citizenId')?.value,
+    ).toBe('1-5406-xxxxx-xx-x');
 
     const serialized = JSON.stringify({ batch1, batch2, previewRes });
-    expect(serialized).not.toMatch(
-      /PRIVATE_TENURE_FIRST|PRIVATE_TENURE_LAST|1540600000001|99990000000001|SYNTHETIC-UUID-0001/,
-    );
+    expect(serialized).not.toContain('1540600000001');
     expect(serialized).not.toContain(VALID_HMAC_KEY);
     expect(env.getFlushCount()).toBe(0);
   });
@@ -1117,9 +1064,14 @@ describe('Resigned Volunteers & Volunteer Tenure Sync (Backend GAS RPC Seam)', (
     expect(reportWb.sheets.get('RTenure_f010_20261119')?.rows).toEqual([['legacy-tenure-keep']]);
     expect(reportWb.sheets.get('ชีต1')?.rows).toEqual([['keep-report']]);
 
-    // Verify 24 columns (16 approved + 8 metadata) and exact cell/number-format/presence fidelity
+    // Verify 29 columns (21 full-field source + 8 metadata) and exact cell/number-format/presence fidelity
     const destSheet = reportWb.sheets.get('VolunteerTenure')!;
     expect(destSheet.rows[0]).toEqual([
+      'id',
+      'citizenId',
+      'osmCode',
+      'firstName',
+      'lastName',
       'startYear',
       'tenureYears',
       'osmYear',
@@ -1145,28 +1097,31 @@ describe('Resigned Volunteers & Volunteer Tenure Sync (Backend GAS RPC Seam)', (
       '_last_seen_run_id',
       '_row_digest',
     ]);
-    // Integer columns (C1..C3) remain numeric (no '@' text format); code/text columns get '@'
-    expect(destSheet.numberFormats.has('C1')).toBe(false);
-    expect(destSheet.numberFormats.has('C2')).toBe(false);
-    expect(destSheet.numberFormats.has('C3')).toBe(false);
-    expect(destSheet.numberFormats.get('C7')).toBe('@'); // osmStatus
-    expect(destSheet.numberFormats.get('C14')).toBe('@'); // villageCode
+    // Integer columns (C6..C8) remain numeric (no '@' text format); identity/code/text columns get '@'
+    expect(destSheet.numberFormats.get('C2')).toBe('@'); // citizenId
+    expect(destSheet.numberFormats.has('C6')).toBe(false);
+    expect(destSheet.numberFormats.has('C7')).toBe(false);
+    expect(destSheet.numberFormats.has('C8')).toBe(false);
+    expect(destSheet.numberFormats.get('C12')).toBe('@'); // osmStatus
+    expect(destSheet.numberFormats.get('C19')).toBe('@'); // villageCode
 
     // Row 1 (null integers + null osmStatus): cells are '' with presence 'NULL'
-    expect(destSheet.rows[1][0]).toBe('');
-    expect(destSheet.rows[1][1]).toBe('');
+    expect(destSheet.rows[1][0]).toBe('SYNTHETIC-UUID-0001');
+    expect(destSheet.rows[1][1]).toBe('1540600000001');
+    expect(destSheet.rows[1][5]).toBe('');
     expect(destSheet.rows[1][6]).toBe('');
-    expect(destSheet.rows[1][18]).toBe(EXPECTED_TENURE_H1_0001);
-    const row1Presence = JSON.parse(String(destSheet.rows[1][21]));
+    expect(destSheet.rows[1][11]).toBe('');
+    expect(destSheet.rows[1][23]).toBe('SYNTHETIC-UUID-0001');
+    const row1Presence = JSON.parse(String(destSheet.rows[1][26]));
     expect(row1Presence.tenureYears).toBe('NULL');
     expect(row1Presence.osmStatus).toBe('NULL');
 
     // Row 2 (tenureYears=0 numeric, osmStatus='' VALUE): preserves 0 vs null and '' vs null!
-    expect(destSheet.rows[2][0]).toBe(2569);
-    expect(destSheet.rows[2][1]).toBe(0);
-    expect(destSheet.rows[2][6]).toBe('');
-    expect(destSheet.rows[2][18]).toBe(EXPECTED_TENURE_H1_0002);
-    const row2Presence = JSON.parse(String(destSheet.rows[2][21]));
+    expect(destSheet.rows[2][5]).toBe(2569);
+    expect(destSheet.rows[2][6]).toBe(0);
+    expect(destSheet.rows[2][11]).toBe('');
+    expect(destSheet.rows[2][23]).toBe('SYNTHETIC-UUID-0002');
+    const row2Presence = JSON.parse(String(destSheet.rows[2][26]));
     expect(row2Presence.tenureYears).toBe('VALUE');
     expect(row2Presence.osmStatus).toBe('VALUE');
 
@@ -1246,8 +1201,8 @@ describe('Resigned Volunteers & Volunteer Tenure Sync (Backend GAS RPC Seam)', (
       );
     }
     expect(run2Commit.data.readback.expectedRowCount).toBe(4);
-    expect(destSheet.rows[1][1]).toBe(0);
-    expect(JSON.parse(String(destSheet.rows[1][21])).osmStatus).toBe('VALUE');
+    expect(destSheet.rows[1][6]).toBe(0);
+    expect(JSON.parse(String(destSheet.rows[1][26])).osmStatus).toBe('VALUE');
 
     // Failure case: write throws on live tab -> UNKNOWN_OUTCOME_STOP retains hidden _Stage_volunteer-tenure_* and leaves STARTED in _ThaiPHCSyncLog
     const failEnv = createFakeReportEnv({
@@ -1459,6 +1414,10 @@ describe('Resigned Volunteers & Volunteer Tenure Sync (Backend GAS RPC Seam)', (
 
     // 3. LOCALITY_MISMATCH sample rows are NOT starved when >=50 destination rows are MISSING_IN_SOURCE
     const resignedHeaders = [
+      'id',
+      'citizenId',
+      'firstName',
+      'lastName',
       'retirementDate',
       'retirementReason',
       'osmStatus',
@@ -1483,6 +1442,10 @@ describe('Resigned Volunteers & Volunteer Tenure Sync (Backend GAS RPC Seam)', (
       '_row_digest',
     ];
     const existingMissingRows = Array.from({ length: 55 }, (_, i) => [
+      `SYNTHETIC-MISSING-${String(i + 1).padStart(4, '0')}`,
+      `154069999${String(i + 1).padStart(4, '0')}`,
+      `MISSING_FIRST_${i + 1}`,
+      `MISSING_LAST_${i + 1}`,
       '2024-01-01',
       'resigned',
       '0',
@@ -1499,7 +1462,7 @@ describe('Resigned Volunteers & Volunteer Tenure Sync (Backend GAS RPC Seam)', (
       'หนุนเหนือ',
       '0.1.0',
       'run_prev_01',
-      `h1_${String(i + 1).padStart(64, '0')}`,
+      `SYNTHETIC-MISSING-${String(i + 1).padStart(4, '0')}`,
       '2026-11-20T00:00:00.000Z',
       'VALID',
       '{}',

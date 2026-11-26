@@ -240,6 +240,7 @@ function createFakeMultiWorkbookEnv(opts: {
     THAIPHC_REPORT_SPREADSHEET_ID: VALID_REPORT_SHEET_ID,
     THAIPHC_WRITE_ENABLED: 'true',
     THAIPHC_PERSON_DATA_WRITE_ENABLED: 'true',
+    THAIPHC_FULL_PII_WRITE_ENABLED: 'true',
     ...opts.properties,
   };
 
@@ -437,53 +438,53 @@ describe('Volunteer Gender Extended Report Sync (Backend GAS RPC Seam)', () => {
     expect(preview.data.legacySnapshotPresent).toBe(true);
     expect(preview.data.legacySnapshotTab).toBe('RGender_f010_20261119');
 
-    // Mode B Extended Report Preview & SMALL_CELL_SUPPRESSED counts (4 of 7 suppressed)
+    // Mode B Extended Report Preview (ADR-0005 Full-Field Operator Mode: actual counts preserved without 1..4 suppression)
     expect(preview.data.previewMode).toBe('EXTENDED_MINIMIZED');
-    expect(preview.data.counts).toEqual({ insert: 7, update: 0, unchanged: 0, review: 4 });
-    expect(preview.data.reviewBreakdown).toEqual({ SMALL_CELL_SUPPRESSED: 4 });
+    expect(preview.data.counts).toEqual({ insert: 7, update: 0, unchanged: 0, review: 0 });
+    expect(preview.data.reviewBreakdown).toEqual({});
 
     if (preview.data.previewMode !== 'EXTENDED_MINIMIZED') {
       throw new Error('Expected EXTENDED_MINIMIZED previewMode');
     }
 
-    // Subdistrict aggregate summary (disclosure-safe: counts of villages & review rows only)
+    // Subdistrict aggregate summary
     expect(preview.data.aggregateSummary).toEqual([
-      { groupCode: '540601', groupLabel: 'บ้านหนุน', rowCount: 3, reviewCount: 3 },
-      { groupCode: '540602', groupLabel: 'บ้านกลาง', rowCount: 4, reviewCount: 1 },
+      { groupCode: '540601', groupLabel: 'บ้านหนุน', rowCount: 3, reviewCount: 0 },
+      { groupCode: '540602', groupLabel: 'บ้านกลาง', rowCount: 4, reviewCount: 0 },
     ]);
 
     const byKey = new Map(preview.data.sampleRows.map((r) => [r.sourceKey, r]));
 
-    // Case 1: male=3, female=16, total=19 -> total=19, male=null, female=null
-    expect(byKey.get('540601001')?.reviewReasons).toEqual(['SMALL_CELL_SUPPRESSED']);
+    // Case 1: male=3, female=16, total=19 -> actual counts preserved
+    expect(byKey.get('540601001')?.reviewReasons).toEqual([]);
     expect(byKey.get('540601001')?.minimizedAttributes).toEqual([
       { field: 'total', value: '19' },
-      { field: 'male', value: null },
-      { field: 'female', value: null },
+      { field: 'male', value: '3' },
+      { field: 'female', value: '16' },
     ]);
 
-    // Case 2: male=2, female=2, total=4 -> all null
-    expect(byKey.get('540601002')?.reviewReasons).toEqual(['SMALL_CELL_SUPPRESSED']);
+    // Case 2: male=2, female=2, total=4 -> actual counts preserved
+    expect(byKey.get('540601002')?.reviewReasons).toEqual([]);
     expect(byKey.get('540601002')?.minimizedAttributes).toEqual([
-      { field: 'total', value: null },
-      { field: 'male', value: null },
-      { field: 'female', value: null },
+      { field: 'total', value: '4' },
+      { field: 'male', value: '2' },
+      { field: 'female', value: '2' },
     ]);
 
-    // Case 3: male=0, female=3, total=3 -> all null
-    expect(byKey.get('540601003')?.reviewReasons).toEqual(['SMALL_CELL_SUPPRESSED']);
+    // Case 3: male=0, female=3, total=3 -> actual counts preserved
+    expect(byKey.get('540601003')?.reviewReasons).toEqual([]);
     expect(byKey.get('540601003')?.minimizedAttributes).toEqual([
-      { field: 'total', value: null },
-      { field: 'male', value: null },
-      { field: 'female', value: null },
+      { field: 'total', value: '3' },
+      { field: 'male', value: '0' },
+      { field: 'female', value: '3' },
     ]);
 
-    // Case 4: male=4, female=5, total=9 -> total=9, male=null, female=null
-    expect(byKey.get('540602001')?.reviewReasons).toEqual(['SMALL_CELL_SUPPRESSED']);
+    // Case 4: male=4, female=5, total=9 -> actual counts preserved
+    expect(byKey.get('540602001')?.reviewReasons).toEqual([]);
     expect(byKey.get('540602001')?.minimizedAttributes).toEqual([
       { field: 'total', value: '9' },
-      { field: 'male', value: null },
-      { field: 'female', value: null },
+      { field: 'male', value: '4' },
+      { field: 'female', value: '5' },
     ]);
 
     // Case 5: boundary 5/5/10 -> unsuppressed
@@ -509,10 +510,6 @@ describe('Volunteer Gender Extended Report Sync (Backend GAS RPC Seam)', () => {
       { field: 'male', value: '0' },
       { field: 'female', value: '0' },
     ]);
-
-    // Dedicated single-row check: raw small-cell counts (3 and 16, or 2 and 4) never appear in serialized preview row
-    expect(JSON.stringify(byKey.get('540601001'))).not.toMatch(/"3"|"16"/);
-    expect(JSON.stringify(byKey.get('540601002'))).not.toMatch(/"2"|"4"/);
 
     // An unpublished hidden RGender_* staging tab WITHOUT a _ThaiPHCReportCurrent entry must NOT trigger LEGACY_F010_SNAPSHOT_PRESENT in Preview
     const unindexedEnv = createFakeMultiWorkbookEnv({
@@ -866,6 +863,40 @@ describe('Volunteer Gender Extended Report Sync (Backend GAS RPC Seam)', () => {
       personOffEnv.workbookStates.get(VALID_REPORT_SHEET_ID)!.sheets.has('VolunteerGender'),
     ).toBe(false);
 
+    // 2b. THAIPHC_FULL_PII_WRITE_ENABLED = false blocks Commit even when WRITE and PERSON_DATA are true (ADR-0005)
+    const fullPiiOffEnv = createFakeMultiWorkbookEnv({
+      properties: {
+        THAIPHC_WRITE_ENABLED: 'true',
+        THAIPHC_PERSON_DATA_WRITE_ENABLED: 'true',
+        THAIPHC_FULL_PII_WRITE_ENABLED: 'false',
+      },
+      fetchHandler: singlePageFetch,
+    });
+    const pFullPiiOff = previewDatasetWithPlatform(
+      { endpoint: 'volunteer-gender', token: VALID_BEARER },
+      fullPiiOffEnv.platform,
+    );
+    if (!pFullPiiOff.ok || pFullPiiOff.data.status !== 'READY') throw new Error('expected READY');
+    expect(pFullPiiOff.data.writeAllowed).toBe(false);
+    expect(pFullPiiOff.data.blockedGuardReason).toBe('THAIPHC_FULL_PII_WRITE_ENABLED');
+
+    const cFullPiiOff = commitSmallDatasetWithPlatform(
+      {
+        endpoint: 'volunteer-gender',
+        token: VALID_BEARER,
+        expectedFingerprint: pFullPiiOff.data.fingerprint,
+      },
+      fullPiiOffEnv.platform,
+    );
+    expect(
+      cFullPiiOff.ok &&
+        cFullPiiOff.data.status === 'FAILED_STOP' &&
+        cFullPiiOff.data.stopCode === 'FULL_PII_WRITE_DISABLED',
+    ).toBe(true);
+    expect(
+      fullPiiOffEnv.workbookStates.get(VALID_REPORT_SHEET_ID)!.sheets.has('VolunteerGender'),
+    ).toBe(false);
+
     // 3. Same workbook WITHOUT THAIPHC_SAME_WORKBOOK_APPROVAL === "OWNER_ONLY_5406_APPROVED" fails closed
     const sameUnapprovedEnv = createFakeMultiWorkbookEnv({
       properties: {
@@ -873,6 +904,7 @@ describe('Volunteer Gender Extended Report Sync (Backend GAS RPC Seam)', () => {
         THAIPHC_SAME_WORKBOOK_APPROVAL: 'WRONG_TOKEN',
         THAIPHC_WRITE_ENABLED: 'true',
         THAIPHC_PERSON_DATA_WRITE_ENABLED: 'true',
+        THAIPHC_FULL_PII_WRITE_ENABLED: 'true',
       },
       fetchHandler: singlePageFetch,
     });
@@ -1140,26 +1172,26 @@ describe('Volunteer Gender Extended Report Sync (Backend GAS RPC Seam)', () => {
     expect(vgSheet.numberFormats.get('C10')).toBeUndefined(); // total (numeric)
     expect(vgSheet.numberFormats.get('C15')).toBe('@'); // _source_key
 
-    // Row 1 (male=3, female=16, total=19): stored suppressed -> total=19, male='', female='', _quality_status='WARNING'
-    expect(vgSheet.rows[1].slice(6, 12)).toEqual(['540601001', '1', 'หนุนเหนือ', 19, '', '']);
+    // Row 1 (male=3, female=16, total=19): stored unsuppressed (ADR-0005) -> 19, 3, 16, _quality_status='VALID'
+    expect(vgSheet.rows[1].slice(6, 12)).toEqual(['540601001', '1', 'หนุนเหนือ', 19, 3, 16]);
     expect(vgSheet.rows[1][14]).toBe('540601001');
-    expect(vgSheet.rows[1][16]).toBe('WARNING');
+    expect(vgSheet.rows[1][16]).toBe('VALID');
     expect(JSON.parse(String(vgSheet.rows[1][17]))).toMatchObject({
       total: 'VALUE',
-      male: 'NULL',
-      female: 'NULL',
+      male: 'VALUE',
+      female: 'VALUE',
     });
 
-    // Row 2 (male=2, female=2, total=4): stored totally suppressed -> '', '', '', _quality_status='WARNING'
-    expect(vgSheet.rows[2].slice(9, 12)).toEqual(['', '', '']);
-    expect(vgSheet.rows[2][16]).toBe('WARNING');
+    // Row 2 (male=2, female=2, total=4): stored unsuppressed -> 4, 2, 2, _quality_status='VALID'
+    expect(vgSheet.rows[2].slice(9, 12)).toEqual([4, 2, 2]);
+    expect(vgSheet.rows[2][16]).toBe('VALID');
 
     // Row 3 (male=6, female=10, total=16): stored unsuppressed -> 16, 6, 10, _quality_status='VALID'
     expect(vgSheet.rows[3].slice(9, 12)).toEqual([16, 6, 10]);
     expect(vgSheet.rows[3][16]).toBe('VALID');
 
     // 3. Repeatable Sync round 2:
-    // - 540601001: raw male 3->2, female 16->17, total=19 -> STILL suppressed identically -> UNCHANGED (zero disclosure!)
+    // - 540601001: raw male=3, female=16, total=19 -> identical -> UNCHANGED
     // - 540601002: missing in source -> REVIEW (MISSING_IN_SOURCE), preserved untouched in sheet!
     // - 540601003: male 6->7, female 10->11, total=18 -> UPDATE
     // - 540601004: new village -> INSERT
@@ -1168,8 +1200,8 @@ describe('Volunteer Gender Extended Report Sync (Backend GAS RPC Seam)', () => {
         subdistrictCode: '540601',
         villageNo: '1',
         villageName: 'หนุนเหนือ',
-        male: 2,
-        female: 17,
+        male: 3,
+        female: 16,
         total: 19,
       }),
       makeGenderRow({
@@ -1198,9 +1230,8 @@ describe('Volunteer Gender Extended Report Sync (Backend GAS RPC Seam)', () => {
     // VolunteerGender now exists -> legacy transition notice clears
     expect(preview2.data.legacySnapshotPresent).toBe(false);
     expect(preview2.data.legacySnapshotTab).toBeNull();
-    expect(preview2.data.counts).toEqual({ insert: 1, update: 1, unchanged: 1, review: 2 });
+    expect(preview2.data.counts).toEqual({ insert: 1, update: 1, unchanged: 1, review: 1 });
     expect(preview2.data.reviewBreakdown).toEqual({
-      SMALL_CELL_SUPPRESSED: 1,
       MISSING_IN_SOURCE: 1,
     });
 
@@ -1247,6 +1278,6 @@ describe('Volunteer Gender Extended Report Sync (Backend GAS RPC Seam)', () => {
       '540601004',
     ]);
     expect(vgSheet.rows[3].slice(9, 12)).toEqual([18, 7, 11]); // updated
-    expect(vgSheet.rows[2].slice(6, 12)).toEqual(['540601002', '2', 'หนุนใต้', '', '', '']); // preserved untouched
+    expect(vgSheet.rows[2].slice(6, 12)).toEqual(['540601002', '2', 'หนุนใต้', 4, 2, 2]); // preserved untouched
   });
 });

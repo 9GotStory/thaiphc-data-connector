@@ -23,7 +23,6 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DATASET_DISPLAY_META } from '@/lib/datasetMeta';
 
 interface ConfirmationGateProps {
   preview: PreviewDatasetData;
@@ -118,6 +117,16 @@ export function ConfirmationGate({
                     ไม่ถูกต้อง — แก้ไขได้เฉพาะผ่าน Google Apps Script Project Settings &gt; Script
                     Properties
                   </>
+                ) : guardReason === 'THAIPHC_FULL_PII_WRITE_ENABLED' ? (
+                  <>
+                    สวิตช์ฝั่งเซิร์ฟเวอร์{' '}
+                    <code className="font-mono font-semibold text-foreground">
+                      THAIPHC_FULL_PII_WRITE_ENABLED
+                    </code>{' '}
+                    มีค่าเป็น <code className="font-mono">false</code> (OFF) — โหมดเก็บครบทุกฟิลด์
+                    (Full-Field Operator Mode · ADR-0005) ต้องเปิดสวิตช์ยืนยันนี้ใน Google Apps Script
+                    Project Settings &gt; Script Properties ก่อนจึงจะบันทึกข้อมูลได้
+                  </>
                 ) : (
                   <>
                     สวิตช์ฝั่งเซิร์ฟเวอร์{' '}
@@ -146,8 +155,7 @@ export function ConfirmationGate({
 
   const isProd = preview.env === 'PRODUCTION';
   const isCompleteSnapshot = preview.syncMode === 'COMPLETE_SNAPSHOT';
-  const showHmacContinuityReminder =
-    isProd && DATASET_DISPLAY_META[preview.endpoint].usesHmacPseudonym;
+  const showFullPiiGovernanceReminder = preview.previewMode === 'EXTENDED_MINIMIZED';
   const expectedPhrase = `PRODUCTION 5406 ${preview.endpoint}`;
   const needsUnresolvedAck = preview.unresolvedPreviousRun !== null;
   const canOpenConfirm = !isCommitting && (!needsUnresolvedAck || unresolvedAck);
@@ -241,7 +249,7 @@ export function ConfirmationGate({
           </span>
         </p>
 
-        {showHmacContinuityReminder && (
+        {showFullPiiGovernanceReminder && (
           <div
             role="note"
             className="flex items-start gap-2.5 rounded-md border border-status-legacy-border bg-status-legacy-bg p-3 text-xs text-foreground"
@@ -253,13 +261,14 @@ export function ConfirmationGate({
             />
             <div className="space-y-1">
               <div className="font-semibold text-status-legacy-fg">
-                การตรวจสอบความต่อเนื่องของคีย์ F010 (THAIPHC_HMAC_KEY_B64)
+                ข้อควรระวังโหมดเก็บครบทุกฟิลด์ (Full-Field Operator Mode · ADR-0005)
               </div>
               <p>
-                ก่อนยืนยันการเขียนลง PRODUCTION กรุณาตรวจสอบว่าค่า{' '}
-                <code className="font-mono font-semibold">THAIPHC_HMAC_KEY_B64</code> ใน GAS Script
-                Properties ตรงกับคีย์ F010 เดิมทุกตัวอักษร เพื่อให้ Pseudonymous Key (
-                <code className="font-mono">h1_...</code>) ตรงกับข้อมูลเดิมและไม่เกิดแถวบุคคลซ้ำซ้อน
+                การกดยืนยันจะบันทึกข้อมูลครบทุกคอลัมน์จาก ThaiPHC (รวมข้อมูลส่วนบุคคลและเลขบัตร 13 หลักรูปแบบข้อความ{' '}
+                <code className="font-mono">@</code>) ลงสมุดงานปลายทาง — กรุณาตรวจสอบว่าสิทธิ์การแชร์
+                Google Drive จำกัดเฉพาะผู้ได้รับอนุญาตเท่านั้น และปิด{' '}
+                <code className="font-mono font-semibold">THAIPHC_FULL_PII_WRITE_ENABLED</code>{' '}
+                เมื่อไม่ใช้งาน
               </p>
             </div>
           </div>
@@ -346,13 +355,13 @@ export function ConfirmationGate({
 
             {isProd && (
               <div className="space-y-2.5">
-                {showHmacContinuityReminder && (
+                {showFullPiiGovernanceReminder && (
                   <div className="rounded-md border border-status-legacy-border bg-status-legacy-bg p-2.5 text-xs text-foreground">
-                    <span className="font-semibold text-status-legacy-fg">ย้ำความต่อเนื่อง F010: </span>
-                    ยืนยันว่า <code className="font-mono font-semibold">
-                      THAIPHC_HMAC_KEY_B64
-                    </code>{' '}
-                    ตรงกับคีย์เดิมของ F010 เพื่อป้องกันรหัส <code className="font-mono">h1_...</code> ซ้ำซ้อน
+                    <span className="font-semibold text-status-legacy-fg">
+                      ย้ำสิทธิ์ Full-Field PII (ADR-0005):{' '}
+                    </span>
+                    ยืนยันว่าสมุดงาน PRODUCTION จำกัดสิทธิ์ Google Drive
+                    เฉพาะผู้ได้รับอนุญาตก่อนบันทึกข้อมูลครบทุกคอลัมน์
                   </div>
                 )}
                 <div className="rounded-md border border-border bg-muted p-3 font-mono text-sm font-semibold text-foreground">

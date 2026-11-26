@@ -215,6 +215,7 @@ export function createFakeSyncPlatformEnv(opts: {
     THAIPHC_REPORT_SPREADSHEET_ID: TEST_REPORT_SHEET_ID,
     THAIPHC_WRITE_ENABLED: 'true',
     THAIPHC_PERSON_DATA_WRITE_ENABLED: 'true',
+    THAIPHC_FULL_PII_WRITE_ENABLED: 'true',
     THAIPHC_HMAC_KEY_B64: TEST_HMAC_KEY_B64,
     ...opts.properties,
   };

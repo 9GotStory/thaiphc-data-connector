@@ -317,7 +317,7 @@ function ModeBExtendedSampleCard({
 
   const preamble = (
     <>
-      {/* Mandatory Top Privacy Boundary Banner */}
+      {/* Mandatory Top Full-Field Operator Mode Notice Banner (ADR-0005) */}
       <div
         role="status"
         className="flex items-start gap-2.5 rounded-lg border border-border border-l-4 border-l-primary bg-muted p-3.5 text-xs sm:text-sm text-foreground"
@@ -328,9 +328,10 @@ function ModeBExtendedSampleCard({
           aria-hidden="true"
         />
         <span>
-          ขอบเขตคุ้มครองข้อมูลส่วนบุคคล (Minimized Projection):
-          แสดงเฉพาะสรุปผลต่างและตัวอย่างแถวที่ผ่านการตัดข้อมูลระบุตัวตนโดยตรงจากฝั่ง GAS แล้วเท่านั้น —
-          ไม่มีเลขบัตรประชาชน ชื่อ-สกุล ที่อยู่ หรือรหัส อสม.
+          โหมดเก็บครบทุกฟิลด์สำหรับเจ้าหน้าที่ (Full-Field Operator Mode · ADR-0005): หน้า Preview
+          แสดงชื่อ-สกุล/รหัส อสม./ที่อยู่ เพื่อให้ตรวจสอบและตามแก้ไขข้อมูลต้นทางได้ โดยซ่อนเลขบัตร 13 หลักบางส่วนบนหน้าจอ
+          (Masked Preview Identifier เช่น 1-5406-xxxxx-xx-x) และบันทึกค่าเต็มครบทุกคอลัมน์ลง Google Sheets
+          เมื่อกดยืนยัน Commit เท่านั้น
         </span>
       </div>
 
@@ -368,7 +369,7 @@ function ModeBExtendedSampleCard({
 
   return (
     <SamplePreviewShell
-      title="ตัวอย่างรายการที่ผ่านการลดทอนข้อมูล (Mode B · Extended Report · Minimized Projection)"
+      title="ตัวอย่างรายการตรวจสอบสำหรับเจ้าหน้าที่ (Mode B · Extended Report · Full-Field Operator Mode)"
       filteredCount={filteredRows.length}
       activeFilter={activeFilter}
       onClearFilter={onClearFilter}
@@ -380,14 +381,14 @@ function ModeBExtendedSampleCard({
       <div className="hidden md:block">
         <Table>
           <caption className="sr-only">
-            ตารางตัวอย่างแถวที่ผ่านการลดทอนของชุดข้อมูล {preview.endpoint}
+            ตารางตัวอย่างแถวตรวจสอบของชุดข้อมูล {preview.endpoint} (ซ่อนเลขบัตร 13 หลักบนหน้าจอ)
           </caption>
           <TableHeader>
             <TableRow>
               <TableHead scope="col">สถานะ (Diff)</TableHead>
               <TableHead scope="col">คีย์อ้างอิง (_source_key)</TableHead>
               <TableHead scope="col">ขอบเขตพื้นที่ (54 / 5406)</TableHead>
-              <TableHead scope="col">ฟิลด์ที่ลดทอนแล้ว (Minimized Attributes)</TableHead>
+              <TableHead scope="col">รายละเอียดตรวจสอบ (citizenId ซ่อนบางหลัก)</TableHead>
               <TableHead scope="col">หมายเหตุตรวจทาน (REVIEW)</TableHead>
             </TableRow>
           </TableHeader>

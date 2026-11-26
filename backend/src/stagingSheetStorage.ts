@@ -1,5 +1,7 @@
 import {
   computeDatasetDigest,
+  FORMULA_INJECTION_PATTERN,
+  hasAsciiControlChar,
   hasOwn,
   isPlainObject,
   type FieldPresence,
@@ -11,7 +13,7 @@ import {
   type CellScalar,
   type ProjectedKeyedRowBase,
 } from './keyedSyncCore.ts';
-import { PSEUDONYMOUS_KEY_PATTERN, SHA256_HEX_PATTERN } from './pseudonymizer.ts';
+import { SHA256_HEX_PATTERN } from './pseudonymizer.ts';
 import type {
   AppEnvironment,
   LargeKeyedDatasetEndpoint,
@@ -240,18 +242,24 @@ export function reconstructAndVerifyStagedRows(
   for (let i = 0; i < rawRows.length; i++) {
     const cells = rawRows[i];
     const key = cells[0];
-    if (typeof key !== 'string' || !PSEUDONYMOUS_KEY_PATTERN.test(key)) {
+    if (
+      typeof key !== 'string' ||
+      key.length === 0 ||
+      key.length > 256 ||
+      hasAsciiControlChar(key) ||
+      FORMULA_INJECTION_PATTERN.test(key)
+    ) {
       return {
         ok: false,
         code: 'STAGING_DIGEST_MISMATCH',
-        message: `Staged row #${i + 1} has a malformed Pseudonymous Key.`,
+        message: `Staged row #${i + 1} has a malformed _source_key.`,
       };
     }
     if (seenKeys.has(key)) {
       return {
         ok: false,
         code: 'DUPLICATE_SOURCE_KEY',
-        message: `Duplicate Pseudonymous Key detected across staged batches at row #${i + 1}.`,
+        message: `Duplicate _source_key detected across staged batches at row #${i + 1}.`,
       };
     }
     seenKeys.add(key);

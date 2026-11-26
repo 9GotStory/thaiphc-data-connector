@@ -120,6 +120,7 @@ export function getDashboardStatusWithPlatform(
     const writeEnabled = platform.getProperty('THAIPHC_WRITE_ENABLED') === 'true';
     const personDataWriteEnabled =
       platform.getProperty('THAIPHC_PERSON_DATA_WRITE_ENABLED') === 'true';
+    const fullPiiWriteEnabled = platform.getProperty('THAIPHC_FULL_PII_WRITE_ENABLED') === 'true';
     const hmacKeyConfigured = isCanonicalHmacKeySyntax(
       platform.getProperty('THAIPHC_HMAC_KEY_B64'),
     );
@@ -215,6 +216,7 @@ export function getDashboardStatusWithPlatform(
         guards: {
           writeEnabled,
           personDataWriteEnabled,
+          fullPiiWriteEnabled,
           hmacKeyConfigured,
           reportWorkbookApproved,
         },

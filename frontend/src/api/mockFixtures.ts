@@ -89,6 +89,7 @@ export function buildMockDashboardEnvelope(scenario: MockScenario): unknown {
       guards: {
         writeEnabled: true,
         personDataWriteEnabled: true,
+        fullPiiWriteEnabled: true,
         hmacKeyConfigured: true,
         reportWorkbookApproved: true,
       },
@@ -240,6 +241,7 @@ export function buildMockDashboardEnvelope(scenario: MockScenario): unknown {
         guards: {
           writeEnabled: writable,
           personDataWriteEnabled: personWritable,
+          fullPiiWriteEnabled: personWritable,
           hmacKeyConfigured: true,
           reportWorkbookApproved: true,
         },
@@ -289,6 +291,7 @@ export function buildMockDashboardEnvelope(scenario: MockScenario): unknown {
     guards: {
       writeEnabled: writableSandbox,
       personDataWriteEnabled: personWritableSandbox,
+      fullPiiWriteEnabled: personWritableSandbox,
       hmacKeyConfigured: !unapproved,
       reportWorkbookApproved: !unapproved,
     },
@@ -654,6 +657,14 @@ function evaluateMockWriteGuard(
         blockedGuardReason: 'THAIPHC_PERSON_DATA_WRITE_ENABLED',
         stopCode: 'PERSON_DATA_WRITE_DISABLED',
         message: 'THAIPHC_PERSON_DATA_WRITE_ENABLED is OFF in Google Apps Script Properties.',
+      };
+    }
+    if (!dash.guards.fullPiiWriteEnabled) {
+      return {
+        writeAllowed: false,
+        blockedGuardReason: 'THAIPHC_FULL_PII_WRITE_ENABLED',
+        stopCode: 'FULL_PII_WRITE_DISABLED',
+        message: 'THAIPHC_FULL_PII_WRITE_ENABLED is OFF in Google Apps Script Properties.',
       };
     }
     if (!dash.guards.reportWorkbookApproved) {

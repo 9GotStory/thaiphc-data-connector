@@ -1,6 +1,6 @@
 # Retain F010 Two-Step HMAC Pseudonymization Key in GAS Script Properties
 
-Status: accepted
+Status: superseded by ADR-0005 (retained for legacy F010 CLI archive; React + GAS Web App uses Full-Field Operator Mode)
 
 Retiring the Node.js CLI and Windows DPAPI removes the need for HMAC authentication on HTTP requests between Node and GAS, which could tempt a redesign to drop `THAIPHC_HMAC_KEY_B64` or switch to raw source IDs. We decided to keep `THAIPHC_HMAC_KEY_B64` in GAS Script Properties and compute the exact F010 two-step domain-separated pseudonym (`THAIPHC_F010_PSEUDONYM_DERIVE_5406` → `h1_<HMAC-SHA256>`) server-side via `Utilities.computeHmacSha256Signature` for `assignments`, `resigned-volunteers`, and `volunteer-tenure`. This preserves byte-for-byte key compatibility with any prior F010 records, prevents duplicate person rows across repeatable syncs, and ensures direct PII and secret keys never reach Google Sheets or the React client.
 

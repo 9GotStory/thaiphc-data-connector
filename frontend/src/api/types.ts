@@ -83,6 +83,7 @@ export type CommitStopCode =
   | PreviewStopCode
   | 'WRITE_DISABLED'
   | 'PERSON_DATA_WRITE_DISABLED'
+  | 'FULL_PII_WRITE_DISABLED'
   | 'SAME_WORKBOOK_UNAPPROVED'
   | 'INVALID_REPORT_WORKBOOK'
   | 'PRODUCTION_CONFIRMATION_REQUIRED'
@@ -136,6 +137,7 @@ export interface DashboardStatusData {
   guards: {
     writeEnabled: boolean;
     personDataWriteEnabled: boolean;
+    fullPiiWriteEnabled: boolean;
     hmacKeyConfigured: boolean;
     reportWorkbookApproved: boolean;
   };
@@ -187,6 +189,7 @@ export interface ReferencePreviewRow {
 export type BlockedGuardReason =
   | 'THAIPHC_WRITE_ENABLED'
   | 'THAIPHC_PERSON_DATA_WRITE_ENABLED'
+  | 'THAIPHC_FULL_PII_WRITE_ENABLED'
   | 'THAIPHC_SAME_WORKBOOK_APPROVAL'
   | 'THAIPHC_REPORT_SPREADSHEET_ID';
 

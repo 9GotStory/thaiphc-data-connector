@@ -307,8 +307,8 @@ export const SMALL_KEYED_SCHEMAS: Readonly<
 };
 
 /**
- * Exact 8 RESTRICTED_DEFAULT_OMIT direct personal identifier fields on `assignments`
- * (docs/sheets-schema.json). Always stripped server-side before preview or storage.
+ * Exact 8 direct personal identifier fields on `assignments` (docs/sheets-schema.json).
+ * Persisted in Full-Field Operator Mode (ADR-0005); `citizenId` is masked in Preview UI.
  */
 export const ASSIGNMENTS_RESTRICTED_SOURCE_FIELDS = [
   'id',
@@ -322,18 +322,34 @@ export const ASSIGNMENTS_RESTRICTED_SOURCE_FIELDS = [
 ] as const;
 
 /**
- * Exact 17 ALLOW_ONLY_IF_DATASET_APPROVED columns on `Assignments`
- * (docs/sheets-schema.json and apps-script/ReportReceiver.gs), paired with the uniform
- * 8 trailing Keyed Upsert metadata columns (25 columns total).
+ * All 25 observed source columns on `Assignments` (ADR-0005 Full-Field Operator Mode),
+ * paired with the uniform 8 trailing Keyed Upsert metadata columns (33 columns total).
  */
 export const ASSIGNMENTS_SCHEMA: KeyedDatasetSchemaSpec<'assignments'> = {
   endpoint: 'assignments',
   tab: 'Assignments',
   keyField: 'id',
-  displayNameField: 'subdistrictNameTh',
-  summaryFieldNames: ['isActive', 'status', 'approvalStatus', 'volunteerStatus', 'villageName'],
+  displayNameField: 'fullName',
+  summaryFieldNames: [
+    'osmCode',
+    'fullName',
+    'citizenId',
+    'isActive',
+    'status',
+    'approvalStatus',
+    'volunteerStatus',
+    'villageName',
+  ],
   maxRows: 2500,
   fields: [
+    { name: 'id', kind: 'string' },
+    { name: 'osmCode', kind: 'string_or_null' },
+    { name: 'citizenId', kind: 'string_or_null' },
+    { name: 'prefixNameTh', kind: 'string_or_null' },
+    { name: 'prefixNameEn', kind: 'string_or_null' },
+    { name: 'firstName', kind: 'string_or_null' },
+    { name: 'lastName', kind: 'string_or_null' },
+    { name: 'fullName', kind: 'string_or_null' },
     { name: 'provinceCode', kind: 'string' },
     { name: 'provinceNameTh', kind: 'string' },
     { name: 'districtCode', kind: 'string' },
@@ -355,8 +371,8 @@ export const ASSIGNMENTS_SCHEMA: KeyedDatasetSchemaSpec<'assignments'> = {
 };
 
 /**
- * Exact 4 RESTRICTED_DEFAULT_OMIT direct personal identifier fields on `resigned-volunteers`
- * (docs/sheets-schema.json). Always stripped server-side before preview or storage.
+ * Exact 4 direct personal identifier fields on `resigned-volunteers` (docs/sheets-schema.json).
+ * Persisted in Full-Field Operator Mode (ADR-0005); `citizenId` is masked in Preview UI.
  */
 export const RESIGNED_VOLUNTEERS_RESTRICTED_SOURCE_FIELDS = [
   'id',
@@ -366,16 +382,18 @@ export const RESIGNED_VOLUNTEERS_RESTRICTED_SOURCE_FIELDS = [
 ] as const;
 
 /**
- * Exact 14 ALLOW_ONLY_IF_DATASET_APPROVED columns on `ResignedVolunteers`
- * (docs/sheets-schema.json and apps-script/ReportReceiver.gs), paired with the uniform
- * 8 trailing Keyed Upsert metadata columns (22 columns total).
+ * All 18 observed source columns on `ResignedVolunteers` (ADR-0005 Full-Field Operator Mode),
+ * paired with the uniform 8 trailing Keyed Upsert metadata columns (26 columns total).
  */
 export const RESIGNED_VOLUNTEERS_SCHEMA: KeyedDatasetSchemaSpec<'resigned-volunteers'> = {
   endpoint: 'resigned-volunteers',
   tab: 'ResignedVolunteers',
   keyField: 'id',
-  displayNameField: 'subdistrictName',
+  displayNameField: 'firstName',
   summaryFieldNames: [
+    'citizenId',
+    'firstName',
+    'lastName',
     'retirementDate',
     'retirementReason',
     'osmStatus',
@@ -385,6 +403,10 @@ export const RESIGNED_VOLUNTEERS_SCHEMA: KeyedDatasetSchemaSpec<'resigned-volunt
   maxRows: 2500,
   preserveSourceLocality: true,
   fields: [
+    { name: 'id', kind: 'string' },
+    { name: 'citizenId', kind: 'string_or_null' },
+    { name: 'firstName', kind: 'string_or_null' },
+    { name: 'lastName', kind: 'string_or_null' },
     { name: 'retirementDate', kind: 'string' },
     { name: 'retirementReason', kind: 'string_or_null' },
     { name: 'osmStatus', kind: 'string' },
@@ -403,8 +425,8 @@ export const RESIGNED_VOLUNTEERS_SCHEMA: KeyedDatasetSchemaSpec<'resigned-volunt
 };
 
 /**
- * Exact 5 RESTRICTED_DEFAULT_OMIT direct personal identifier fields on `volunteer-tenure`
- * (docs/sheets-schema.json). Always stripped server-side before preview or storage.
+ * Exact 5 direct personal identifier fields on `volunteer-tenure` (docs/sheets-schema.json).
+ * Persisted in Full-Field Operator Mode (ADR-0005); `citizenId` is masked in Preview UI.
  */
 export const VOLUNTEER_TENURE_RESTRICTED_SOURCE_FIELDS = [
   'id',
@@ -415,16 +437,19 @@ export const VOLUNTEER_TENURE_RESTRICTED_SOURCE_FIELDS = [
 ] as const;
 
 /**
- * Exact 16 ALLOW_ONLY_IF_DATASET_APPROVED columns on `VolunteerTenure`
- * (docs/sheets-schema.json and apps-script/ReportReceiver.gs), paired with the uniform
- * 8 trailing Keyed Upsert metadata columns (24 columns total).
+ * All 21 observed source columns on `VolunteerTenure` (ADR-0005 Full-Field Operator Mode),
+ * paired with the uniform 8 trailing Keyed Upsert metadata columns (29 columns total).
  */
 export const VOLUNTEER_TENURE_SCHEMA: KeyedDatasetSchemaSpec<'volunteer-tenure'> = {
   endpoint: 'volunteer-tenure',
   tab: 'VolunteerTenure',
   keyField: 'id',
-  displayNameField: 'subdistrictName',
+  displayNameField: 'firstName',
   summaryFieldNames: [
+    'osmCode',
+    'firstName',
+    'lastName',
+    'citizenId',
     'startYear',
     'tenureYears',
     'osmYear',
@@ -435,6 +460,11 @@ export const VOLUNTEER_TENURE_SCHEMA: KeyedDatasetSchemaSpec<'volunteer-tenure'>
   ],
   maxRows: 2500,
   fields: [
+    { name: 'id', kind: 'string' },
+    { name: 'citizenId', kind: 'string_or_null' },
+    { name: 'osmCode', kind: 'string_or_null' },
+    { name: 'firstName', kind: 'string_or_null' },
+    { name: 'lastName', kind: 'string_or_null' },
     { name: 'startYear', kind: 'integer_or_null' },
     { name: 'tenureYears', kind: 'integer_or_null' },
     { name: 'osmYear', kind: 'integer_or_null' },
@@ -463,8 +493,8 @@ export const LARGE_KEYED_SCHEMAS: Readonly<
 };
 
 /**
- * Exact 9 RESTRICTED_DEFAULT_OMIT direct personal identifier fields on `volunteer-family`
- * (docs/sheets-schema.json). Always stripped server-side before preview or storage.
+ * Exact 9 direct personal identifier fields on `volunteer-family` (docs/sheets-schema.json).
+ * Persisted in Full-Field Operator Mode (ADR-0005); `citizenId` is masked in Preview UI.
  */
 export const VOLUNTEER_FAMILY_RESTRICTED_SOURCE_FIELDS = [
   'osmCode',
@@ -479,15 +509,24 @@ export const VOLUNTEER_FAMILY_RESTRICTED_SOURCE_FIELDS = [
 ] as const;
 
 /**
- * Exact 12 ALLOW_ONLY_IF_DATASET_APPROVED columns on `volunteer-family` Complete Snapshots
- * (`RFamily_<runId>`, matching docs/sheets-schema.json and apps-script/ReportReceiver.gs).
- * Uses run-scoped ordinal keys (`snapshot_<runId>_NNNNN`) — never guessed-key upsert.
+ * All 21 observed source columns on `volunteer-family` Complete Snapshots
+ * (`RFamily_<runId>`, ADR-0005 Full-Field Operator Mode), paired with 8 trailing metadata
+ * columns (29 columns total). Uses run-scoped ordinal keys (`snapshot_<runId>_NNNNN`).
  */
 export const VOLUNTEER_FAMILY_SCHEMA: CompleteSnapshotSchemaSpec<'volunteer-family'> = {
   endpoint: 'volunteer-family',
   tab: 'RFamily_<runId>',
-  displayNameField: 'subdistrictName',
-  summaryFieldNames: ['gender', 'status', 'statusLabel'],
+  displayNameField: 'fullName',
+  summaryFieldNames: [
+    'osmCode',
+    'fullName',
+    'citizenId',
+    'gender',
+    'status',
+    'statusLabel',
+    'address',
+    'volunteerName',
+  ],
   maxRows: 2500,
   preserveSourceLocality: true,
   fields: [
@@ -500,9 +539,18 @@ export const VOLUNTEER_FAMILY_SCHEMA: CompleteSnapshotSchemaSpec<'volunteer-fami
     { name: 'villageCode', kind: 'string' },
     { name: 'villageNo', kind: 'string' },
     { name: 'villageName', kind: 'string' },
+    { name: 'osmCode', kind: 'string_or_null' },
+    { name: 'citizenId', kind: 'string_or_null' },
+    { name: 'prefixName', kind: 'string_or_null' },
+    { name: 'firstName', kind: 'string_or_null' },
+    { name: 'lastName', kind: 'string_or_null' },
+    { name: 'fullName', kind: 'string_or_null' },
     { name: 'gender', kind: 'string' },
+    { name: 'address', kind: 'string_or_null' },
     { name: 'status', kind: 'string' },
     { name: 'statusLabel', kind: 'string' },
+    { name: 'volunteerId', kind: 'string_or_null' },
+    { name: 'volunteerName', kind: 'string_or_null' },
   ],
 };
 

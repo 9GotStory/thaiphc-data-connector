@@ -441,9 +441,11 @@ describe('Reference Datasets Repeatable Sync (Frontend GasRpcTransport Seam)', (
     expect(previewBtn).toBeEnabled();
     await user.click(previewBtn);
 
-    // Mode B privacy boundary banner, LEGACY_F010_SNAPSHOT_PRESENT notice, and SMALL_CELL_SUPPRESSED review explanation
+    // Mode B Full-Field Operator Mode banner, LEGACY_F010_SNAPSHOT_PRESENT notice, and review explanation
     expect(
-      await screen.findByText(/ขอบเขตคุ้มครองข้อมูลส่วนบุคคล \(Minimized Projection\)/),
+      await screen.findByText(
+        /โหมดเก็บครบทุกฟิลด์สำหรับเจ้าหน้าที่ \(Full-Field Operator Mode · ADR-0005\)/,
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText(/LEGACY_F010_SNAPSHOT_PRESENT/)).toBeInTheDocument();
     expect(screen.getByText(/RGender_f010_20261119/)).toBeInTheDocument();
@@ -513,7 +515,7 @@ describe('Reference Datasets Repeatable Sync (Frontend GasRpcTransport Seam)', (
     await user.click(screen.getByRole('radio', { name: /สรุปเพศ อสม\. รายหมู่บ้าน/ }));
     await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
 
-    await screen.findByText(/ขอบเขตคุ้มครองข้อมูลส่วนบุคคล \(Minimized Projection\)/);
+    await screen.findByText(/โหมดเก็บครบทุกฟิลด์สำหรับเจ้าหน้าที่ \(Full-Field Operator Mode · ADR-0005\)/);
     await user.click(screen.getByRole('button', { name: /ดำเนินการยืนยันการบันทึก \(PRODUCTION\)/ }));
 
     const prodDialog = screen.getByRole('alertdialog');
@@ -633,13 +635,13 @@ describe('Reference Datasets Repeatable Sync (Frontend GasRpcTransport Seam)', (
     await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
 
     expect(
-      await screen.findByText(/ขอบเขตคุ้มครองข้อมูลส่วนบุคคล \(Minimized Projection\)/),
+      await screen.findByText(
+        /โหมดเก็บครบทุกฟิลด์สำหรับเจ้าหน้าที่ \(Full-Field Operator Mode · ADR-0005\)/,
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText(/LEGACY_F010_SNAPSHOT_PRESENT/)).toBeInTheDocument();
     expect(screen.getByText(/RAssign_f010_20261119/)).toBeInTheDocument();
-    // Strictly minimized h1_ pseudonym shown, zero raw PII
     expect(screen.getAllByText(/h1_/).length).toBeGreaterThanOrEqual(1);
-    expect(document.body.textContent).not.toMatch(/citizenId|firstName|lastName|fullName|osmCode/);
 
     await user.click(screen.getByRole('button', { name: /ตรวจสอบและยืนยันการบันทึก \(SANDBOX\)/ }));
     await user.click(
@@ -670,7 +672,7 @@ describe('Reference Datasets Repeatable Sync (Frontend GasRpcTransport Seam)', (
     expect(
       await screen.findByText(/พบรอบซิงก์ก่อนหน้าค้างอยู่ \(UNRESOLVED_PREVIOUS_RUN\)/),
     ).toBeInTheDocument();
-    expect(screen.getAllByText(/THAIPHC_HMAC_KEY_B64/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/THAIPHC_FULL_PII_WRITE_ENABLED/).length).toBeGreaterThanOrEqual(1);
 
     const openProdBtn = screen.getByRole('button', {
       name: /ดำเนินการยืนยันการบันทึก \(PRODUCTION\)/,
@@ -681,8 +683,8 @@ describe('Reference Datasets Repeatable Sync (Frontend GasRpcTransport Seam)', (
 
     await user.click(openProdBtn);
     const prodDialog = screen.getByRole('alertdialog');
-    // Continuity reminder visible inside PRODUCTION dialog before typed confirmation
-    expect(within(prodDialog).getByText(/THAIPHC_HMAC_KEY_B64/)).toBeInTheDocument();
+    // Full-Field PII governance reminder visible inside PRODUCTION dialog before typed confirmation
+    expect(within(prodDialog).getByText(/ADR-0005/)).toBeInTheDocument();
     const confirmAction = within(prodDialog).getByRole('button', {
       name: /ยืนยันบันทึกข้อมูลลง PRODUCTION/,
     });
@@ -767,14 +769,15 @@ describe('Reference Datasets Repeatable Sync (Frontend GasRpcTransport Seam)', (
     await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
 
     expect(
-      await screen.findByText(/ขอบเขตคุ้มครองข้อมูลส่วนบุคคล \(Minimized Projection\)/),
+      await screen.findByText(
+        /โหมดเก็บครบทุกฟิลด์สำหรับเจ้าหน้าที่ \(Full-Field Operator Mode · ADR-0005\)/,
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText(/LEGACY_F010_SNAPSHOT_PRESENT/)).toBeInTheDocument();
     expect(screen.getByText(/RResign_f010_20261119/)).toBeInTheDocument();
     expect(screen.getAllByText(/LOCALITY_MISMATCH/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/คงค่าต้นทางตามกฎ Preserve Source Locality/)).toBeInTheDocument();
     expect(screen.getAllByText(/h1_/).length).toBeGreaterThanOrEqual(1);
-    expect(document.body.textContent).not.toMatch(/citizenId|firstName|lastName|osmCode/);
 
     // Filter to REVIEW shows preserved source locality codes (540210 / 540303004)
     const reviewFilter = screen.getByRole('button', { name: /REVIEW/ });
@@ -824,15 +827,16 @@ describe('Reference Datasets Repeatable Sync (Frontend GasRpcTransport Seam)', (
     await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
 
     expect(
-      await screen.findByText(/ขอบเขตคุ้มครองข้อมูลส่วนบุคคล \(Minimized Projection\)/),
+      await screen.findByText(
+        /โหมดเก็บครบทุกฟิลด์สำหรับเจ้าหน้าที่ \(Full-Field Operator Mode · ADR-0005\)/,
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText(/LEGACY_F010_SNAPSHOT_PRESENT/)).toBeInTheDocument();
     expect(screen.getByText(/RTenure_f010_20261119/)).toBeInTheDocument();
     expect(screen.getAllByText('null').length).toBeGreaterThanOrEqual(2);
-    expect(document.body.textContent).not.toMatch(/citizenId|firstName|lastName|osmCode/);
     legacyRender.unmount();
 
-    // 3. PRODUCTION report writable shows THAIPHC_HMAC_KEY_B64 continuity reminder and enforces exact phrase "PRODUCTION 5406 volunteer-tenure"
+    // 3. PRODUCTION report writable shows Full-Field PII governance reminder and enforces exact phrase "PRODUCTION 5406 volunteer-tenure"
     renderApp(new MockGasTransport({ scenario: 'production-report-writable' }));
     await openSyncWorkspace(user);
     await user.click(screen.getByLabelText(/ThaiPHC Bearer Token/));
@@ -840,8 +844,8 @@ describe('Reference Datasets Repeatable Sync (Frontend GasRpcTransport Seam)', (
     await user.click(screen.getByRole('radio', { name: /อายุงาน อสม\./ }));
     await user.click(screen.getByRole('button', { name: /เริ่ม Preview/ }));
 
-    await screen.findByText(/ขอบเขตคุ้มครองข้อมูลส่วนบุคคล \(Minimized Projection\)/);
-    expect(screen.getAllByText(/THAIPHC_HMAC_KEY_B64/).length).toBeGreaterThanOrEqual(1);
+    await screen.findByText(/โหมดเก็บครบทุกฟิลด์สำหรับเจ้าหน้าที่ \(Full-Field Operator Mode · ADR-0005\)/);
+    expect(screen.getAllByText(/THAIPHC_FULL_PII_WRITE_ENABLED/).length).toBeGreaterThanOrEqual(1);
     await user.click(screen.getByRole('button', { name: /ดำเนินการยืนยันการบันทึก \(PRODUCTION\)/ }));
 
     const prodDialog = screen.getByRole('alertdialog');
@@ -880,9 +884,11 @@ describe('Reference Datasets Repeatable Sync (Frontend GasRpcTransport Seam)', (
     expect(previewBtn).toBeEnabled();
     await user.click(previewBtn);
 
-    // Mode B Minimized Projection banner + distinct Complete Snapshot (Layers) messaging + active pointer tab + LOCALITY_MISMATCH
+    // Mode B Full-Field Operator Mode banner + distinct Complete Snapshot (Layers) messaging + active pointer tab + LOCALITY_MISMATCH
     expect(
-      await screen.findByText(/ขอบเขตคุ้มครองข้อมูลส่วนบุคคล \(Minimized Projection\)/),
+      await screen.findByText(
+        /โหมดเก็บครบทุกฟิลด์สำหรับเจ้าหน้าที่ \(Full-Field Operator Mode · ADR-0005\)/,
+      ),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/โหมด Complete Snapshot — สร้างแท็บเวอร์ชันใหม่ \(RFamily_<runId>\)/),
@@ -892,9 +898,6 @@ describe('Reference Datasets Repeatable Sync (Frontend GasRpcTransport Seam)', (
     expect(screen.getAllByText(/LOCALITY_MISMATCH/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/คงค่าต้นทางตามกฎ Preserve Source Locality/)).toBeInTheDocument();
     expect(screen.getAllByText(/snapshot_preview_00001/).length).toBeGreaterThanOrEqual(1);
-    expect(document.body.textContent).not.toMatch(
-      /citizenId|prefixName|firstName|lastName|fullName|address|volunteerId|volunteerName|osmCode/,
-    );
 
     // Filter to REVIEW shows LOCALITY_MISMATCH preserved rows
     const reviewFilter = screen.getByRole('button', { name: /REVIEW/ });

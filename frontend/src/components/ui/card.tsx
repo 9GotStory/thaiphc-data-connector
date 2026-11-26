@@ -1,0 +1,55 @@
+import * as React from 'react';
+import { cn } from '@/lib/utils';
+
+export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn(
+        'rounded-lg border border-border bg-card text-card-foreground shadow-[var(--shadow-xs)]',
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+export function CardHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn('flex flex-col gap-1.5 p-4 sm:p-5', className)} {...props} />;
+}
+
+export function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
+  return (
+    <h3
+      className={cn('text-[0.9375rem] font-semibold leading-[1.45] text-foreground', className)}
+      {...props}
+    />
+  );
+}
+
+export function CardDescription({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLParagraphElement>) {
+  return (
+    <p
+      className={cn('text-[0.78125rem] leading-[1.5] text-muted-foreground', className)}
+      {...props}
+    />
+  );
+}
+
+export function CardContent({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn('px-4 pb-4 sm:px-5 sm:pb-5', className)} {...props} />;
+}
+
+export function CardFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn(
+        'flex items-center border-t border-border/70 px-4 py-3 sm:px-5 text-xs text-muted-foreground',
+        className,
+      )}
+      {...props}
+    />
+  );
+}

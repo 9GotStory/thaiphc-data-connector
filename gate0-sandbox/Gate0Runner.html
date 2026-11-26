@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ThaiPHC Gate 0 — Sandbox Connectivity Probe</title>
+    <style>
+      :root {
+        --bg: #f8fafc;
+        --surface: #ffffff;
+        --border: #cbd5e1;
+        --text: #0f172a;
+        --muted: #475569;
+        --sandbox: #1d4ed8;
+        --sandbox-bg: #dbeafe;
+        --pass: #15803d;
+        --pass-bg: #dcfce7;
+        --fail: #b91c1c;
+        --fail-bg: #fee2e2;
+        --warn: #b45309;
+        --warn-bg: #fef3c7;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+      }
+      .banner {
+        background: var(--sandbox);
+        color: #ffffff;
+        padding: 10px 16px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .container {
+        max-width: 920px;
+        margin: 20px auto;
+        padding: 0 16px 32px;
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      h1 { font-size: 20px; margin: 0 0 6px; }
+      h2 { font-size: 15px; margin: 0 0 10px; }
+      p.note { margin: 0; color: var(--muted); font-size: 13px; }
+      .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      input[type='password'], input[type='text'] {
+        flex: 1 1 320px;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        font-family: ui-monospace, monospace;
+        font-size: 13px;
+      }
+      button {
+        padding: 8px 14px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.primary {
+        background: var(--sandbox);
+        border-color: var(--sandbox);
+        color: #ffffff;
+      }
+      button:disabled { opacity: 0.55; cursor: not-allowed; }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 8px;
+        margin-top: 8px;
+      }
+      label.check {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        font-size: 13px;
+        padding: 6px 8px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+      }
+      .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+        font-family: ui-monospace, monospace;
+      }
+      .badge.pass { background: var(--pass-bg); color: var(--pass); }
+      .badge.fail { background: var(--fail-bg); color: var(--fail); }
+      .badge.warn { background: var(--warn-bg); color: var(--warn); }
+      .badge.info { background: var(--sandbox-bg); color: var(--sandbox); }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+        margin-top: 10px;
+      }
+      th, td {
+        border-bottom: 1px solid var(--border);
+        padding: 8px 6px;
+        text-align: left;
+      }
+      pre {
+        background: #0f172a;
+        color: #e2e8f0;
+        padding: 12px;
+        border-radius: 6px;
+        overflow-x: auto;
+        font-size: 12px;
+      }
+      .error-box {
+        background: var(--fail-bg);
+        color: var(--fail);
+        border: 1px solid #fecaca;
+        border-radius: 6px;
+        padding: 10px 12px;
+        font-size: 13px;
+        margin-top: 10px;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="banner">
+      SANDBOX ONLY — GATE 0 READ-ONLY CONNECTIVITY PROBE (Geographic Scope: 54 / 5406 • Zero Google Sheets Writes)
+    </div>
+    <div class="container">
+      <div class="card">
+        <h1>ThaiPHC Gate 0 — UrlFetchApp Connectivity &amp; Pagination Probe</h1>
+        <p class="note">
+          ทดสอบการเชื่อมต่อจาก Google Apps Script (<code>UrlFetchApp</code>) ไปยัง
+          <code>https://api-thaiphc.hss.moph.go.th</code> แบบอ่านอย่างเดียว (GET,
+          <code>followRedirects: false</code>) ไม่มีสิทธิ์เขียน Google Sheets และไม่เก็บ Token ลง Storage หรือ Log
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>1. Temporary Bearer Token (หน่วยความจำเบราว์เซอร์เท่านั้น)</h2>
+        <div class="row">
+          <input
+            id="tokenInput"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="วางเฉพาะค่า Token (ไม่ต้องใส่คำว่า Bearer)"
+          />
+          <button type="button" id="toggleMaskBtn">แสดง Token</button>
+          <button type="button" id="clearTokenBtn">ล้าง Token</button>
+        </div>
+        <div id="validationError" class="error-box" role="alert"></div>
+      </div>
+
+      <div class="card">
+        <h2>2. เลือกชุด Endpoints และขนาดหน้า (Page Size) ที่ต้องการทดสอบ</h2>
+        <div class="grid" id="endpointList">
+          <label class="check"><input type="checkbox" value="subdistricts" checked /> subdistricts (none)</label>
+          <label class="check"><input type="checkbox" value="health-services" checked /> health-services (offset)</label>
+          <label class="check"><input type="checkbox" value="assignments" checked /> assignments (assignment)</label>
+          <label class="check"><input type="checkbox" value="volunteer-gender" checked /> volunteer-gender (report)</label>
+          <label class="check"><input type="checkbox" value="villages" /> villages (none)</label>
+          <label class="check"><input type="checkbox" value="volunteer-family" /> volunteer-family (report)</label>
+          <label class="check"><input type="checkbox" value="resigned-volunteers" /> resigned-volunteers (report)</label>
+          <label class="check"><input type="checkbox" value="volunteer-tenure" /> volunteer-tenure (report)</label>
+        </div>
+        <div class="row" style="margin-top: 12px">
+          <span class="note">Candidate page sizes (สำหรับ endpoints ที่มี pagination):</span>
+          <label><input type="checkbox" class="size-check" value="10" checked disabled /> 10 (baseline)</label>
+          <label><input type="checkbox" class="size-check" value="50" checked /> 50</label>
+          <label><input type="checkbox" class="size-check" value="100" checked /> 100</label>
+        </div>
+        <div class="row" style="margin-top: 14px">
+          <button type="button" id="runProbeBtn" class="primary">เริ่มทดสอบ Gate 0 (Read-Only)</button>
+          <span id="runStatus" class="note"></span>
+        </div>
+      </div>
+
+      <div class="card" id="resultCard" style="display: none">
+        <div class="row" style="justify-content: space-between">
+          <h2>3. ผลสรุป Gate 0 (Safe Aggregate Diagnostics Only)</h2>
+          <button type="button" id="copyJsonBtn">คัดลอกผล JSON</button>
+        </div>
+        <div id="summaryBadges" class="row" style="margin-top: 6px"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>Endpoint</th>
+              <th>Protocol</th>
+              <th>Status</th>
+              <th>HTTP</th>
+              <th>Latency (ms)</th>
+              <th>Bytes</th>
+              <th>Reported Total</th>
+              <th>Recommended Size</th>
+            </tr>
+          </thead>
+          <tbody id="endpointTableBody"></tbody>
+        </table>
+        <pre id="rawJsonOutput"></pre>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        var TOKEN_RE = /^[A-Za-z0-9._~+/-]+={0,}$/;
+        var tokenInput = document.getElementById('tokenInput');
+        var toggleMaskBtn = document.getElementById('toggleMaskBtn');
+        var clearTokenBtn = document.getElementById('clearTokenBtn');
+        var runProbeBtn = document.getElementById('runProbeBtn');
+        var runStatus = document.getElementById('runStatus');
+        var validationError = document.getElementById('validationError');
+        var resultCard = document.getElementById('resultCard');
+        var summaryBadges = document.getElementById('summaryBadges');
+        var endpointTableBody = document.getElementById('endpointTableBody');
+        var rawJsonOutput = document.getElementById('rawJsonOutput');
+        var copyJsonBtn = document.getElementById('copyJsonBtn');
+        var lastSafeJson = '';
+
+        function showError(message) {
+          validationError.textContent = message;
+          validationError.style.display = 'block';
+        }
+
+        function clearError() {
+          validationError.textContent = '';
+          validationError.style.display = 'none';
+        }
+
+        function wipeToken() {
+          tokenInput.value = '';
+          tokenInput.type = 'password';
+          toggleMaskBtn.textContent = 'แสดง Token';
+        }
+
+        toggleMaskBtn.addEventListener('click', function () {
+          var hidden = tokenInput.type === 'password';
+          tokenInput.type = hidden ? 'text' : 'password';
+          toggleMaskBtn.textContent = hidden ? 'ซ่อน Token' : 'แสดง Token';
+        });
+
+        clearTokenBtn.addEventListener('click', function () {
+          wipeToken();
+          clearError();
+        });
+
+        window.addEventListener('beforeunload', wipeToken);
+
+        copyJsonBtn.addEventListener('click', function () {
+          if (!lastSafeJson || !navigator.clipboard) return;
+          navigator.clipboard.writeText(lastSafeJson);
+        });
+
+        function renderBadge(text, cls) {
+          var span = document.createElement('span');
+          span.className = 'badge ' + cls;
+          span.textContent = text;
+          return span;
+        }
+
+        function renderResult(report) {
+          if (
+            !report ||
+            typeof report !== 'object' ||
+            Array.isArray(report) ||
+            typeof report.overallStatus !== 'string' ||
+            typeof report.goNoGoRecommendation !== 'string' ||
+            !Array.isArray(report.endpoints)
+          ) {
+            showError('ผลลัพธ์จาก GAS RPC ไม่ถูกต้องตามโครงสร้างที่คาดไว้');
+            return;
+          }
+
+          resultCard.style.display = 'block';
+          summaryBadges.innerHTML = '';
+          endpointTableBody.innerHTML = '';
+
+          var statusClass = report.overallStatus === 'PASS' ? 'pass' : 'fail';
+          summaryBadges.appendChild(renderBadge('STATUS: ' + report.overallStatus, statusClass));
+          summaryBadges.appendChild(renderBadge('RECOMMENDATION: ' + report.goNoGoRecommendation, statusClass));
+          summaryBadges.appendChild(renderBadge('REQUESTS: ' + Number(report.totalRequests || 0), 'info'));
+          summaryBadges.appendChild(renderBadge('MAX BYTES: ' + Number(report.maxResponseBytes || 0), 'info'));
+          if (report.quotaSummary && typeof report.quotaSummary === 'object') {
+            summaryBadges.appendChild(
+              renderBadge(
+                'SUGGESTED BATCH PAGES: ' + Number(report.quotaSummary.suggestedSequentialBatchPages || 0),
+                'info',
+              ),
+            );
+          }
+
+          var rows = report.endpoints;
+          for (var i = 0; i < rows.length; i++) {
+            var ep = rows[i] && typeof rows[i] === 'object' ? rows[i] : {};
+            var base = ep.baselineCheck && typeof ep.baselineCheck === 'object' ? ep.baselineCheck : {};
+            var tr = document.createElement('tr');
+            var cells = [
+              String(ep.endpoint || '-'),
+              String(ep.paginationProtocol || '-'),
+              String(ep.status || '-'),
+              base.httpStatus !== null && base.httpStatus !== undefined ? String(base.httpStatus) : '-',
+              base.elapsedMs !== undefined ? String(base.elapsedMs) : '-',
+              base.responseBytes !== undefined ? String(base.responseBytes) : '-',
+              base.reportedTotal !== null && base.reportedTotal !== undefined ? String(base.reportedTotal) : '-',
+              ep.recommendedPageSize !== null && ep.recommendedPageSize !== undefined
+                ? String(ep.recommendedPageSize)
+                : '-',
+            ];
+            for (var j = 0; j < cells.length; j++) {
+              var td = document.createElement('td');
+              td.textContent = cells[j];
+              tr.appendChild(td);
+            }
+            endpointTableBody.appendChild(tr);
+          }
+
+          lastSafeJson = JSON.stringify(report, null, 2);
+          rawJsonOutput.textContent = lastSafeJson;
+
+          if (report.overallStatus === 'AUTH_FAILED' || hasHttp401(rows)) {
+            wipeToken();
+            showError('ตรวจพบ HTTP_401: ระบบได้ล้าง Token ออกจากหน่วยความจำแล้ว กรุณาตรวจสอบ Token ใหม่');
+          }
+        }
+
+        function hasHttp401(rows) {
+          for (var i = 0; i < rows.length; i++) {
+            if (rows[i] && rows[i].status === 'HTTP_401') return true;
+          }
+          return false;
+        }
+
+        runProbeBtn.addEventListener('click', function () {
+          clearError();
+          var token = tokenInput.value;
+          if (
+            !token ||
+            token.length < 16 ||
+            token.length > 8192 ||
+            /^bearer\b/i.test(token) ||
+            token.indexOf('MOCK_ONLY_') === 0 ||
+            !TOKEN_RE.test(token)
+          ) {
+            showError('รูปแบบ Token ไม่ถูกต้อง: กรุณาวางเฉพาะค่า Bearer Token (ห้ามใส่คำว่า Bearer นำหน้าและต้องไม่มีช่องว่าง)');
+            return;
+          }
+
+          var endpointChecks = document.querySelectorAll('#endpointList input[type="checkbox"]:checked');
+          var endpoints = [];
+          for (var i = 0; i < endpointChecks.length; i++) {
+            endpoints.push(endpointChecks[i].value);
+          }
+          if (endpoints.length === 0) {
+            showError('กรุณาเลือกอย่างน้อย 1 endpoint');
+            return;
+          }
+
+          var sizeChecks = document.querySelectorAll('.size-check:checked');
+          var candidatePageSizes = [];
+          for (var s = 0; s < sizeChecks.length; s++) {
+            candidatePageSizes.push(Number(sizeChecks[s].value));
+          }
+
+          runProbeBtn.disabled = true;
+          runStatus.textContent = 'กำลังรัน Gate 0 แบบลำดับทีละคำขอ (ไม่ auto-retry)...';
+
+          google.script.run
+            .withSuccessHandler(function (report) {
+              runProbeBtn.disabled = false;
+              runStatus.textContent = 'เสร็จสิ้น';
+              renderResult(report);
+            })
+            .withFailureHandler(function () {
+              runProbeBtn.disabled = false;
+              runStatus.textContent = 'ล้มเหลว';
+              showError('การเรียก GAS RPC ล้มเหลว (ไม่มีการ retry อัตโนมัติ)');
+            })
+            .runGate0Probe(token, {
+              endpoints: endpoints,
+              candidatePageSizes: candidatePageSizes,
+            });
+        });
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,267 @@
+/* src/index.css — Tailwind CSS v4 CSS-First Design Tokens (MASTER.md) */
+@import 'tailwindcss';
+
+:root {
+  /* Base & Surfaces (Light Mode Primary) */
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+
+  /* Brand Primary — Public Health Clinical Teal */
+  --primary: #0f766e;
+  --primary-hover: #115e59;
+  --primary-foreground: #ffffff;
+  --primary-soft: #f0fdfa;
+  --primary-soft-foreground: #115e59;
+  --primary-soft-border: #99f6e4;
+
+  /* Neutrals & Interactive Borders */
+  --secondary: #f1f5f9;
+  --secondary-foreground: #0f172a;
+  --muted: #f1f5f9;
+  --muted-foreground: #475569;
+  --accent: #f0fdfa;
+  --accent-foreground: #115e59;
+  --border: #e2e8f0;
+  --input: #64748b;
+  --ring: #0f766e;
+
+  /* Destructive */
+  --destructive: #b91c1c;
+  --destructive-hover: #991b1b;
+  --destructive-foreground: #ffffff;
+
+  /* Environment Semantics */
+  --env-sandbox-bg: #eff6ff;
+  --env-sandbox-border: #93c5fd;
+  --env-sandbox-fg: #1e3a8a;
+  --env-sandbox-solid: #1d4ed8;
+  --env-sandbox-solid-fg: #ffffff;
+
+  --env-prod-strip: #dc2626;
+  --env-prod-bg: #fef2f2;
+  --env-prod-border: #fca5a5;
+  --env-prod-fg: #991b1b;
+  --env-prod-solid: #b91c1c;
+  --env-prod-solid-fg: #ffffff;
+
+  /* Write Guard Semantics (Read-Only) */
+  --guard-on-bg: #ecfdf5;
+  --guard-on-border: #6ee7b7;
+  --guard-on-fg: #065f46;
+
+  --guard-off-bg: #f1f5f9;
+  --guard-off-border: #94a3b8;
+  --guard-off-fg: #334155;
+
+  /* Diff Classification Semantics */
+  --diff-insert-bg: #ecfdf5;
+  --diff-insert-border: #a7f3d0;
+  --diff-insert-fg: #065f46;
+
+  --diff-update-bg: #eff6ff;
+  --diff-update-border: #bfdbfe;
+  --diff-update-fg: #1e40af;
+
+  --diff-unchanged-bg: #f1f5f9;
+  --diff-unchanged-border: #cbd5e1;
+  --diff-unchanged-fg: #334155;
+
+  --diff-review-bg: #fffbeb;
+  --diff-review-border: #fcd34d;
+  --diff-review-fg: #92400e;
+
+  /* Safety, Blocker & Lifecycle Semantics */
+  --status-stop-bg: #fef2f2;
+  --status-stop-border: #fca5a5;
+  --status-stop-fg: #991b1b;
+
+  --status-stale-bg: #fff7ed;
+  --status-stale-border: #fdba74;
+  --status-stale-fg: #9a3412;
+
+  --status-legacy-bg: #eef2ff;
+  --status-legacy-border: #c7d2fe;
+  --status-legacy-fg: #3730a3;
+
+  --status-verified-bg: #ecfdf5;
+  --status-verified-border: #6ee7b7;
+  --status-verified-fg: #065f46;
+
+  /* Radius & Dense Operational Spacing */
+  --radius: 0.5rem;
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 0.75rem;
+  --space-lg: 1rem;
+  --space-xl: 1.25rem;
+  --space-2xl: 1.5rem;
+  --space-3xl: 2rem;
+
+  /* Layout & Sticky Offset for WCAG 2.2 Focus Not Obscured */
+  /* Mobile/Tablet (<1024px): stacked AppHeader can reach ~126px */
+  --header-height: 4rem;
+  --sticky-scroll-offset: 9rem;
+
+  /* Subtle Shadows (Minimalism & Swiss Operational) */
+  --shadow-xs: 0 1px 2px 0 rgb(15 23 42 / 0.04);
+  --shadow-sm: 0 1px 3px 0 rgb(15 23 42 / 0.08), 0 1px 2px -1px rgb(15 23 42 / 0.06);
+  --shadow-md: 0 4px 12px -2px rgb(15 23 42 / 0.1), 0 2px 4px -2px rgb(15 23 42 / 0.06);
+
+  /* Motion Tokens (CSS-only, lightweight) */
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@theme inline {
+  /* Typography */
+  --font-sans:
+    'IBM Plex Sans Thai', 'Noto Sans Thai', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+    sans-serif;
+  --font-mono:
+    'IBM Plex Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+
+  /* Core shadcn/ui v4 Color Mappings */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-soft-foreground: var(--primary-soft-foreground);
+  --color-primary-soft-border: var(--primary-soft-border);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-hover: var(--destructive-hover);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Environment Colors */
+  --color-env-sandbox-bg: var(--env-sandbox-bg);
+  --color-env-sandbox-border: var(--env-sandbox-border);
+  --color-env-sandbox-fg: var(--env-sandbox-fg);
+  --color-env-sandbox-solid: var(--env-sandbox-solid);
+  --color-env-sandbox-solid-fg: var(--env-sandbox-solid-fg);
+
+  --color-env-prod-strip: var(--env-prod-strip);
+  --color-env-prod-bg: var(--env-prod-bg);
+  --color-env-prod-border: var(--env-prod-border);
+  --color-env-prod-fg: var(--env-prod-fg);
+  --color-env-prod-solid: var(--env-prod-solid);
+  --color-env-prod-solid-fg: var(--env-prod-solid-fg);
+
+  /* Write Guard Colors */
+  --color-guard-on-bg: var(--guard-on-bg);
+  --color-guard-on-border: var(--guard-on-border);
+  --color-guard-on-fg: var(--guard-on-fg);
+  --color-guard-off-bg: var(--guard-off-bg);
+  --color-guard-off-border: var(--guard-off-border);
+  --color-guard-off-fg: var(--guard-off-fg);
+
+  /* Diff Colors */
+  --color-diff-insert-bg: var(--diff-insert-bg);
+  --color-diff-insert-border: var(--diff-insert-border);
+  --color-diff-insert-fg: var(--diff-insert-fg);
+  --color-diff-update-bg: var(--diff-update-bg);
+  --color-diff-update-border: var(--diff-update-border);
+  --color-diff-update-fg: var(--diff-update-fg);
+  --color-diff-unchanged-bg: var(--diff-unchanged-bg);
+  --color-diff-unchanged-border: var(--diff-unchanged-border);
+  --color-diff-unchanged-fg: var(--diff-unchanged-fg);
+  --color-diff-review-bg: var(--diff-review-bg);
+  --color-diff-review-border: var(--diff-review-border);
+  --color-diff-review-fg: var(--diff-review-fg);
+
+  /* Status & Safety Colors */
+  --color-status-stop-bg: var(--status-stop-bg);
+  --color-status-stop-border: var(--status-stop-border);
+  --color-status-stop-fg: var(--status-stop-fg);
+  --color-status-stale-bg: var(--status-stale-bg);
+  --color-status-stale-border: var(--status-stale-border);
+  --color-status-stale-fg: var(--status-stale-fg);
+  --color-status-legacy-bg: var(--status-legacy-bg);
+  --color-status-legacy-border: var(--status-legacy-border);
+  --color-status-legacy-fg: var(--status-legacy-fg);
+  --color-status-verified-bg: var(--status-verified-bg);
+  --color-status-verified-border: var(--status-verified-border);
+  --color-status-verified-fg: var(--status-verified-fg);
+
+  /* Radius Scale */
+  --radius-sm: calc(var(--radius) - 0.125rem);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 0.25rem);
+  --radius-xl: calc(var(--radius) + 0.5rem);
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    scroll-padding-top: var(--sticky-scroll-offset);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    line-height: 1.6;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  [tabindex] {
+    outline-color: var(--ring);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+/* Laptop/Desktop (>=1024px): single-row Header (64–68px); Sync Workspace adds Sticky Token Bar (~135–155px) */
+@media (min-width: 1024px) {
+  html {
+    --sticky-scroll-offset: 5.5rem;
+    scroll-padding-top: 5.5rem;
+  }
+
+  html:has(.sync-workspace-root),
+  .sync-workspace-root {
+    --sticky-scroll-offset: 15.5rem;
+    scroll-padding-top: 15.5rem;
+  }
+}
+
+/* Reduced Motion Compliance (WCAG 2.1 / 2.2) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

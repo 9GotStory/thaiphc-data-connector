@@ -1,0 +1,29 @@
+{
+  "name": "@thaiphc/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "gas:login": "clasp login",
+    "gas:status": "clasp show-file-status",
+    "gas:push": "npm --prefix .. run build && clasp push",
+    "gas:push:only": "clasp push",
+    "gas:open": "clasp open-script"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@google/clasp": "^3.4.1",
+    "@types/google-apps-script": "^2.0.15",
+    "@types/node": "^26.6.6",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.15.0",
+    "globals": "^17.14.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.73.0",
+    "vitest": "^5.1.1"
+  }
+}
